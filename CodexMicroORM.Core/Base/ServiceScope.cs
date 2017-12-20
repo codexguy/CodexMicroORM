@@ -1,0 +1,923 @@
+﻿/***********************************************************************
+Copyright 2017 CodeX Enterprises LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Major Changes:
+12/2017    0.2     Initial release (Joel Champagne)
+***********************************************************************/
+using System;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Linq;
+using CodexMicroORM.Core.Services;
+using CodexMicroORM.Core.Collections;
+using System.ComponentModel;
+using System.Data;
+using System.Reflection;
+
+namespace CodexMicroORM.Core
+{
+    /// <summary>
+    /// Service scopes are managed collections of objects that are tracked for changes such that saving these changes to a database (among other operations) is possible.
+    /// Mapping of object to relational and relational to object properties is controlled by configuration that's (ideally) established (once) on appdomain startup.
+    /// Managed objects can use services, and the scope is responsible for tracking the use of these services.
+    /// Scopes are typically thread-bound, where inter-thread/process use of scope data would be typically carried out via a presisting service.
+    /// </summary>
+    public sealed class ServiceScope : IDisposable
+    {
+        #region "Tracked Object"
+
+        public class TrackedObject : ICEFIndexedListItem
+        {
+            public string BaseName { get; set; }
+            public Type BaseType { get; set; }
+            public CEFWeakReference<object> Target { get; set; }
+            public CEFWeakReference<ICEFWrapper> Wrapper { get; set; }
+            public ICEFInfraWrapper Infra { get; set; }
+            public List<ICEFService> Services { get; set; }
+            
+            public bool ValidTarget
+            {
+                get
+                {
+                    return (Target?.IsAlive).GetValueOrDefault();
+                }
+            }
+
+            public object GetTarget()
+            {
+                if ((Target?.IsAlive).GetValueOrDefault() && Target.Target != null)
+                    return Target.Target;
+
+                return null;
+            }
+
+            public ICEFInfraWrapper GetInfra()
+            {
+                if ((Target?.IsAlive).GetValueOrDefault())
+                {
+                    return Infra;
+                }
+
+                return null;
+            }
+
+            public INotifyPropertyChanged GetNotifyFriendly()
+            {
+                var test1 = GetTarget() as INotifyPropertyChanged;
+                if (test1 != null)
+                    return test1;
+
+                var test2 = GetWrapper() as INotifyPropertyChanged;
+                if (test2 != null)
+                    return test2;
+
+                return GetInfra() as INotifyPropertyChanged;
+            }
+
+            public ICEFInfraWrapper GetCreateInfra()
+            {
+                var infra = GetInfra();
+
+                if (infra != null)
+                    return infra;
+
+                // Must succeed so create an infra wrapper!
+                var wt = GetWrapperTarget();
+
+                if (wt == null)
+                    throw new CEFInvalidOperationException("Failed to identify target object to create infrastructure wrapper for.");
+
+                Infra = WrappingHelper.CreateInfraWrapper(WrappingSupport.All, WrappingAction.Dynamic, false, wt, null, null);
+                return Infra;
+            }
+
+            public ICEFWrapper GetWrapper()
+            {
+                if ((Wrapper?.IsAlive).GetValueOrDefault() && Wrapper.Target != null)
+                    return Wrapper.Target as ICEFWrapper;
+
+                return null;
+            }
+
+            public object GetInfraWrapperTarget()
+            {
+                return GetInfra() ?? GetWrapper() ?? GetTarget();
+            }
+
+            public object GetWrapperTarget()
+            {
+                return GetWrapper() ?? GetTarget();
+            }
+
+            public object GetValue(string propName, bool unwrap)
+            {
+                switch (propName)
+                {
+                    case nameof(BaseName):
+                        return BaseName;
+
+                    case nameof(BaseType):
+                        return BaseType;
+
+                    case nameof(Target):
+                        if (unwrap)
+                            return Target.IsAlive ? Target.Target : null;
+                        else
+                            return Target;
+
+                    case nameof(Wrapper):
+                        if (unwrap)
+                            return Wrapper.IsAlive ? Wrapper.Target : null;
+                        else
+                            return Wrapper;
+
+                    case nameof(Infra):
+                        return Infra;
+
+                    case nameof(Services):
+                        return Services;
+                }
+                throw new NotSupportedException("Unsupported property name.");
+            }
+
+            public bool IsAlive
+            {
+                get
+                {
+                    return !((!(Target?.IsAlive).GetValueOrDefault() || Target.Target == null)
+                        && (!(Wrapper?.IsAlive).GetValueOrDefault() || Wrapper.Target == null));
+                }
+            }
+        }
+
+        #endregion
+
+        #region "Private state"
+
+        // Tracks all objects in this scope - and their services.
+        private ConcurrentIndexedList<TrackedObject> _scopeObjects = new ConcurrentIndexedList<TrackedObject>(nameof(TrackedObject.Target), nameof(TrackedObject.BaseType), nameof(TrackedObject.BaseName), nameof(TrackedObject.Wrapper), nameof(TrackedObject.Infra));
+
+        // Optional state maintained at scope level, per service type
+        private ConcurrentDictionary<Type, ICEFServiceObjState> _serviceState = new ConcurrentDictionary<Type, ICEFServiceObjState>();
+
+        private ServiceScopeSettings _settings = new ServiceScopeSettings();
+
+        #endregion
+
+        #region "Constructors"
+
+        internal ServiceScope(ServiceScopeSettings settings)
+        {
+            _settings = settings;
+        }
+
+        internal ServiceScope(ServiceScope template)
+        {
+            _scopeObjects = template._scopeObjects;
+            _serviceState = template._serviceState;
+
+            // Settings need to be deep copied
+            _settings = new ServiceScopeSettings() { InitializeNullCollections = template.Settings.InitializeNullCollections };
+
+            // Special case - this as a shallow copy cannot dispose state!
+            _settings.CanDispose = false;
+        }
+
+        #endregion
+
+        #region "Public methods"
+
+        public ICEFWrapper GetWrapperFor(object o)
+        {
+            if (o == null)
+                return null;
+
+            if (o is ICEFWrapper)
+                return (ICEFWrapper)o;
+
+            return _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), o.AsUnwrapped())?.GetWrapper();
+        }
+
+        public T IncludeObject<T>(T toAdd, DataRowState? drs = null, Dictionary<string, object> props = null) where T : class, new()
+        {
+            return InternalCreateAdd(toAdd, drs.GetValueOrDefault(DataRowState.Unchanged) == DataRowState.Added ? true : false, drs, props);
+        }
+
+        public T GetService<T>(object forObject = null) where T : ICEFService
+        {
+            ICEFService service = null;
+
+            if (forObject != null)
+            {
+                forObject = forObject.AsUnwrapped();
+
+                var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), forObject);
+
+                service = (from a in to?.Services where a is T select a).FirstOrDefault();
+            }
+            else
+            {
+                foreach (var to in _scopeObjects)
+                {
+                    service = (from a in to?.Services where a is T select a).FirstOrDefault();
+
+                    if (service != null)
+                        break;
+                }
+            }
+
+            if (service == null)
+            {
+                // As a last resort, check global services
+                service = (from a in CEF.GlobalServices where a.GetType().Equals(typeof(T)) select a).FirstOrDefault();
+            }
+
+            return (T)service;
+        }
+
+        public IList<(object item, string message, int status)> DBSave(DBSaveSettings settings = null)
+        {
+            if (settings == null)
+            {
+                settings = new DBSaveSettings();
+            }
+
+            List<(object item, string message, int status)> retVal = new List<(object item, string message, int status)>();
+
+            // Identify a matching dbservice in scope - that will do the heavy lifting, but we know about the objects in question here in the scope, so DBService expects us to present both a top-down and bottom-up presentation of objects to account for insert/update and deletes
+            // We leverage infra if present (should be!)
+            var db = GetService<DBService>(settings.RootObject) ?? throw new CEFInvalidOperationException("Could not find an available DBService to save with.");
+
+            // Go through scope, looking for tracked obj which do not implement INotifyPropertyChanged but do have an infra wrapper, to the infra wrapper - can change row states due to this, go through and update row states, if needed
+            ReconcileModifiedState();
+
+            var saveList = GetSaveables(settings);
+
+            while (saveList.Any())
+            {
+                retVal.AddRange(db.Save(saveList, settings));
+
+                // There's a chance that updates performed during save (e.g. key assignment) could affect underlying data and require a "second pass"
+                saveList = GetSaveables(settings);
+            }
+
+            return retVal;
+        }
+
+        public DynamicWithBag GetDynamicWrapperFor(object o, bool canCreate = true)
+        {
+            if (o == null)
+            {
+                return null;
+            }
+
+            if (o is DynamicWithBag)
+            {
+                return (DynamicWithBag)o;
+            }
+
+            var uw = o.AsUnwrapped();
+
+            var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), uw);
+
+            DynamicWithBag dwb = null;
+
+            if (to != null)
+            {
+                if (canCreate)
+                {
+                    dwb = to.GetCreateInfra() as DynamicWithBag;
+                }
+                else
+                {
+                    dwb = to.GetInfra() as DynamicWithBag;
+                }
+            }
+
+            if (dwb == null && canCreate)
+            {
+                return WrappingHelper.CreateInfraWrapper(WrappingSupport.All, WrappingAction.Dynamic, false, o, null, null) as DynamicWithBag;
+            }
+
+            return dwb;
+        }
+
+        public void Delete(object root, DeleteCascadeAction action)
+        {
+            Dictionary<object, bool> visits = new Dictionary<object, bool>();
+            InternalDelete(root, visits, action);
+        }
+
+        public T NewObject<T>(T initial = null, Dictionary<string, object> props = null) where T : class, new()
+        {
+            return InternalCreateAdd(initial, true, null, props);
+        }
+
+        #endregion
+
+        #region "Internals"
+
+        internal ConcurrentIndexedList<TrackedObject> Objects => _scopeObjects;
+
+        internal ServiceScopeSettings Settings => _settings;
+
+        internal T GetServiceState<T>() where T : class, ICEFServiceObjState
+        {
+            if (_serviceState.TryGetValue(typeof(T), out ICEFServiceObjState val))
+            {
+                return val as T;
+            }
+
+            return null;
+        }
+
+        internal object GetWrapperOrTarget(object o)
+        {
+            if (o == null)
+                return null;
+
+            var w = GetWrapperFor(o);
+
+            if (w != null)
+            {
+                return w;
+            }
+
+            return _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), o.AsUnwrapped())?.GetTarget();
+        }
+
+        internal ICEFInfraWrapper GetOrCreateInfra(object o, bool canCreate)
+        {
+            if (o == null)
+                return null;
+
+            var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), o.AsUnwrapped());
+
+            if (to == null)
+                return null;
+
+            if (canCreate)
+            {
+                return to.GetCreateInfra();
+            }
+            else
+            {
+                return to.GetInfra();
+            }
+        }
+
+        internal object GetInfraOrWrapperOrTarget(object o)
+        {
+            if (o == null)
+                return null;
+
+            if (o is ICEFInfraWrapper)
+            {
+                return o;
+            }
+
+            var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), o.AsUnwrapped());
+
+            var infra = to?.GetInfra();
+
+            if (infra != null)
+            {
+                return infra;
+            }
+
+            return GetWrapperOrTarget(o);
+        }
+
+        //internal string GetTypeMapKey(object o)
+        //{
+        //    if (o == null)
+        //        return null;
+
+        //    string n = o.GetType().Name;
+
+        //    var w = o as ICEFWrapper;
+
+        //    if (w != null)
+        //    {
+        //        n = (w.GetBaseType() ?? o.GetType()).Name;
+        //    }
+
+        //    return n;
+        //}
+
+        internal (Func<object> getter, Type type) GetGetter(object o, string propName)
+        {
+            if (o == null)
+                throw new ArgumentNullException("o");
+
+            if (o is TrackedObject)
+            {
+                throw new ArgumentException("o cannot be a TrackedObject.");
+            }
+
+            var target = GetInfraOrWrapperOrTarget(o);
+
+            if (target != null)
+            {
+                var dyn = target as DynamicWithBag;
+
+                if (dyn != null)
+                {
+                    return (() =>
+                    {
+                        return dyn.GetValue(propName);
+                    }
+                    , dyn.GetPropertyType(propName));
+                }
+                else
+                {
+                    PropertyInfo pi = target.GetType().GetProperty(propName);
+
+                    if (pi != null)
+                    {
+                        return (() =>
+                        {
+                            return pi.GetValue(target);
+                        }
+                        , pi.PropertyType);
+                    }
+                }
+            }
+
+            return (null, null);
+        }
+
+        internal (Action<object> setter, Type type) GetSetter(object o, string propName)
+        {
+            var target = GetInfraOrWrapperOrTarget(o);
+
+            if (target != null)
+            {
+                var dyn = target as DynamicWithBag;
+
+                if (dyn != null)
+                {
+                    return ((v) =>
+                    {
+                        dyn.SetValue(propName, v);
+                    }
+                    , dyn.GetPropertyType(propName));
+                }
+                else
+                {
+                    PropertyInfo pi = target.GetType().GetProperty(propName);
+
+                    if (pi != null && pi.CanWrite)
+                    {
+                        return ((v) =>
+                        {
+                            pi.SetValue(target, v);
+                        }
+                        , pi.PropertyType);
+                    }
+                }
+            }
+
+            return (null, null);
+        }
+
+        internal TrackedObject GetTrackedByWrapperOrTarget(object wot)
+        {
+            var to = _scopeObjects.GetAllByName(nameof(TrackedObject.Target), wot).FirstOrDefault();
+
+            if (to == null)
+            {
+                to = _scopeObjects.GetAllByName(nameof(TrackedObject.Wrapper), wot).FirstOrDefault();
+            }
+
+            return to;
+        }
+
+        private IList<ICEFService> ResolveTypeServices(object o)
+        {
+            if (o == null)
+                throw new ArgumentNullException("o");
+
+            (bool resolved, IList<ICEFService> list) svcTypes;
+            CEF._defaultServicesByType.TryGetValue(o.GetType(), out svcTypes);
+
+            if (svcTypes.list != null && svcTypes.resolved)
+            {
+                return svcTypes.list;
+            }
+
+            svcTypes.list = new List<ICEFService>();
+
+            // Append any "missing" global services
+            foreach (var gs in CEF.GlobalServices)
+            {
+                if (!(from a in svcTypes.list where a.GetType().Equals(gs.GetType()) select a).Any())
+                {
+                    svcTypes.list.Add(gs);
+                }
+            }
+
+            // Look for dependent services that are not yet included - add them as needed
+            foreach (var s in (from a in svcTypes.list
+                               where a.RequiredServices()?.Count > 0
+                               from b in a.RequiredServices()
+                               select b).Distinct().ToArray())
+            {
+                if (!(from a in svcTypes.list where a.GetType().Equals(s) select a).Any())
+                {
+                    ICEFService sta = null;
+
+                    try
+                    {
+                        // Assumes a parameterless constructor exists - most of these should be internal
+                        sta = Activator.CreateInstance(s) as ICEFService;
+                    }
+                    catch
+                    {
+                    }
+
+                    if (sta == null)
+                    {
+                        throw new CEFInvalidOperationException($"Service {s.Name} should be initialized with details, cannot create it automatically.");
+                    }
+
+                    svcTypes.list.Add(sta);
+                }
+            }
+
+            CEF._defaultServicesByType[o.GetType()] = (true, svcTypes.list);
+
+            return svcTypes.list;
+        }
+
+        private int ReconcileModifiedState()
+        {
+            int count = 0;
+
+            foreach (var to in _scopeObjects)
+            {
+                if (!(to.GetTarget() is INotifyPropertyChanged))
+                {
+                    var dyn = to.GetInfra() as DynamicWithValuesAndBag;
+
+                    if (dyn != null)
+                    {
+                        if (dyn.ReconcileModifiedState((field, oval, nval) =>
+                        {
+                            // If the modification is for a tracked field, potentially change DB values as well
+                            KeyService.UpdateBoundKeys(to, this, field, oval, nval);
+                        }))
+                        {
+                            ++count;
+                        }
+                    }
+                }
+            }
+
+            return count;
+        }
+
+        private IList<ICEFInfraWrapper> GetSaveables(DBSaveSettings settings)
+        {
+            List<ICEFInfraWrapper> tosave = new List<ICEFInfraWrapper>();
+            Dictionary<object, bool> filterRows = new Dictionary<object, bool>();
+
+            if (settings.RootObject != null)
+            {
+                var ruw = settings.RootObject.AsUnwrapped();
+
+                if (ruw != null)
+                {
+                    filterRows[ruw] = true;
+                }
+
+                foreach (var o in KeyService.GetChildObjects(CEF.CurrentServiceScope, settings.RootObject, true))
+                {
+                    var uw = o.AsUnwrapped();
+
+                    if (uw != null)
+                    {
+                        filterRows[uw] = true;
+                    }
+                }
+
+                foreach (var o in KeyService.GetParentObjects(CEF.CurrentServiceScope, settings.RootObject, true))
+                {
+                    var uw = o.AsUnwrapped();
+
+                    if (uw != null)
+                    {
+                        filterRows[uw] = true;
+                    }
+                }
+            }
+
+            if (settings.SourceList != null)
+            {
+                foreach (var r in settings.SourceList)
+                {
+                    var uw = r.AsUnwrapped();
+
+                    if (uw != null)
+                    {
+                        filterRows[uw] = true;
+                    }
+                }
+            }
+
+            foreach (var v in _scopeObjects)
+            {
+                if (v.IsAlive)
+                {
+                    var target = v.GetTarget();
+
+                    if (target != null)
+                    {
+                        if ((settings.IgnoreObjectType == null || target.GetType() != settings.IgnoreObjectType) && (settings.SourceList == null || filterRows.ContainsKey(target)))
+                        {
+                            var db = v.GetCreateInfra() as DynamicWithValuesAndBag;
+
+                            if (db != null)
+                            {
+                                if (db.State != DataRowState.Detached && db.State != DataRowState.Unchanged)
+                                {
+                                    tosave.Add(db);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return tosave;
+        }
+
+        internal object InternalCreateAddBase(object initial, bool isNew, DataRowState? initState, IDictionary<string, object> props, IDictionary<object, object> visits)
+        {
+            if (initial == null)
+                throw new ArgumentNullException("initial");
+
+            if (initial is ICEFInfraWrapper)
+            {
+                throw new CEFInvalidOperationException("You cannot add an existing infrastructure wrapper to the current scope.");
+            }
+
+            if (visits == null)
+            {
+                visits = new Dictionary<object, object>();
+            }
+
+            // See if already tracked - if so, return quickly
+            var wot = GetTrackedByWrapperOrTarget(initial);
+
+            if (wot != null)
+            {
+                return wot.GetWrapperTarget();
+            }
+
+            var initBase = initial.GetBaseType();
+
+            // Also need to see if can identify it based on key values
+            if (props != null)
+            {
+                var kss = GetServiceState<KeyService.KeyServiceState>();
+
+                if (kss != null)
+                {
+                    var pkcol = KeyService.ResolveKeyDefinitionForType(initBase);
+
+                    if (pkcol.Any())
+                    {
+                        var pkval = (from a in pkcol where props.ContainsKey(a) select props[a]);
+
+                        if (pkval.Count() == pkcol.Count)
+                        {
+                            var pkto = kss.GetTrackedByPKValue(this, initBase, pkval);
+
+                            if (pkto != null)
+                            {
+                                if (props != null)
+                                {
+                                    var iw = pkto.GetInfraWrapperTarget();
+
+                                    // Since we have properties in hand, option to update the existing object (default is to do this, other option is to fail if any values differ)
+                                    foreach (var prop in props)
+                                    {
+                                        if (Settings.MergeBehavior == MergeBehavior.SilentMerge)
+                                        {
+                                            var pkset = GetSetter(iw, prop.Key);
+
+                                            if (pkset.setter != null)
+                                            {
+                                                pkset.setter.Invoke(prop.Value);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            var pkget = GetGetter(iw, prop.Key);
+
+                                            if (pkget.getter != null)
+                                            {
+                                                if (!prop.Value.IsSame(pkget.getter.Invoke()))
+                                                {
+                                                    throw new CEFInvalidOperationException($"Based on your merge settings, you're not allowed to load records that are already in scope with different property values. ({pkto.BaseName})");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                return pkto.GetWrapperTarget();
+                            }
+                        }
+                    }
+                }
+            }
+
+            List<ICEFService> objServices = new List<ICEFService>();
+
+            object o = initial;
+            object repl = null;
+
+            foreach (var svc in ResolveTypeServices(o))
+            {
+                var stateType = svc.IdentifyStateType(o, this, isNew);
+
+                if (stateType != null && !_serviceState.ContainsKey(stateType))
+                {
+                    _serviceState[stateType] = Activator.CreateInstance(stateType) as ICEFServiceObjState;
+                }
+
+                objServices.Add(svc);
+            }
+
+            if (!objServices.Any())
+            {
+                // No services, cannot track
+                return null;
+            }
+
+            // Look for wrapping needs across all services
+            WrappingSupport wrapneed = WrappingSupport.None;
+
+            foreach (var svc in objServices)
+            {
+                wrapneed |= svc.IdentifyInfraNeeds(o, null, this, isNew);
+            }
+
+            ICEFInfraWrapper infra = null;
+
+            if (wrapneed != WrappingSupport.None)
+            {
+                // See if we have support from replacement wrappers and they provide at least 1 service we're after
+                if ((Globals.WrapperSupports & wrapneed) != 0)
+                {
+                    repl = WrappingHelper.CreateWrapper(wrapneed, Globals.DefaultWrappingAction, isNew, o, this, props, visits);
+
+                    if (repl != null)
+                    {
+                        // The replacement wrapper may change what's left to acquire for services: run over the replacement object
+                        wrapneed = WrappingSupport.None;
+
+                        foreach (var svc in objServices)
+                        {
+                            var svcCopy = svc;
+                            wrapneed |= svc.IdentifyInfraNeeds(o, repl, this, isNew);
+                        }
+                    }
+                }
+
+                if (wrapneed != WrappingSupport.None)
+                {
+                    infra = WrappingHelper.CreateInfraWrapper(wrapneed, Globals.DefaultWrappingAction, isNew, repl ?? o, initState, props);
+                }
+            }
+
+            if (repl == null)
+            {
+                // With no wraper, we still need to recursively traverse object graph
+                WrappingHelper.CopyParsePropertyValues(null, null, o, isNew, this, visits);
+            }
+
+            // todo - identity service should allow renaming
+            Type basetype = (repl != null) ? ((ICEFWrapper)repl).GetBaseType() : (o is ICEFWrapper) ? ((ICEFWrapper)o).GetBaseType() : o.GetType();
+
+            var to = new TrackedObject()
+            {
+                BaseName = basetype.Name,
+                BaseType = basetype,
+                Target = new CEFWeakReference<object>(o),
+                Wrapper = new CEFWeakReference<ICEFWrapper>(repl as ICEFWrapper),
+                Infra = infra,
+                Services = objServices
+            };
+
+            _scopeObjects.Add(to);
+
+            foreach (var svc in objServices)
+            {
+                ICEFServiceObjState state = null;
+                Type svcStateType = svc.IdentifyStateType(o, this, isNew);
+
+                if (svcStateType != null)
+                {
+                    _serviceState.TryGetValue(svcStateType, out state);
+                }
+
+                svc.FinishSetup(to, this, isNew, props, state);
+            }
+
+            return repl ?? o;
+        }
+
+        private void InternalDelete(object root, Dictionary<object, bool> visits, DeleteCascadeAction action)
+        {
+            if (visits.ContainsKey(root))
+            {
+                return;
+            }
+
+            visits[root] = true;
+
+            var infra = GetOrCreateInfra(root, false);
+
+            if (infra == null)
+            {
+                throw new CEFInvalidOperationException("You require the persistence and change tracking service in order to mark objects for deletion.");
+            }
+
+            infra.SetRowState(DataRowState.Deleted);
+
+            if (action == DeleteCascadeAction.Cascade)
+            {
+                foreach (var co in KeyService.GetChildObjects(this, root))
+                {
+                    InternalDelete(co.AsUnwrapped(), visits, action);
+                }
+            }
+        }
+
+        internal T InternalCreateAdd<T>(T initial, bool isNew, DataRowState? initState, Dictionary<string, object> props) where T : class, new()
+        {
+            return InternalCreateAddBase(initial ?? new T(), isNew, initState, props, new Dictionary<object, object>()) as T;
+        }
+
+        #endregion
+
+        // expect overloads where can control which services want/need per instance
+        #region IDisposable Support
+
+        public bool IsDisposed
+        {
+            get;
+            private set;
+        }
+
+        void Dispose(bool disposing)
+        {
+            if (_settings.CanDispose)
+            {
+                // Dispose any infra wrapper objects held in this scope
+                foreach (var to in _scopeObjects)
+                {
+                    if (to.Infra is IDisposable)
+                    {
+                        ((IDisposable)to.Infra).Dispose();
+                    }
+                }
+
+                _scopeObjects.Clear();
+                _serviceState.Clear();
+            }
+
+            IsDisposed = true;
+
+            // Advertise disposal
+            Disposed?.Invoke();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+        #endregion
+
+        public Action Disposed
+        {
+            get;
+            set;
+        }
+    }
+}

@@ -1,0 +1,212 @@
+﻿/***********************************************************************
+Copyright 2017 CodeX Enterprises LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Major Changes:
+12/2017    0.2     Initial release (Joel Champagne)
+***********************************************************************/
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+
+namespace CodexMicroORM.Core.Services
+{
+    /// <summary>
+    /// An infrastructure wrapper that provides original value and row state tracking.
+    /// </summary>
+    public class DynamicWithValuesAndBag : DynamicWithBag, IDisposable
+    {
+        protected ConcurrentDictionary<string, object> _originalValues = new ConcurrentDictionary<string, object>();
+        protected DataRowState _rowState;
+
+        public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
+
+        internal DynamicWithValuesAndBag(object o, DataRowState irs, IDictionary<string, object> props) : base(o, props)
+        {
+            if (o is INotifyPropertyChanged)
+            {
+                ((INotifyPropertyChanged)o).PropertyChanged += CEFValueTrackingWrapper_PropertyChanged;
+            }
+
+            AcceptChanges();
+            SetRowState(irs);
+        }
+
+        public override DataRowState GetRowState()
+        {
+            return State;
+        }
+
+        public override void SetRowState(DataRowState rs)
+        {
+            if (_rowState != rs)
+            {
+                CEFDebug.WriteInfo($"RowState={rs}, {_source?.GetBaseType().Name}", _source);
+                _rowState = rs;
+            }
+        }
+
+        public DataRowState State
+        {
+            get
+            {
+                if (_isBagChanged && _rowState == DataRowState.Unchanged)
+                {
+                    return DataRowState.Modified;
+                }
+
+                return _rowState;
+            }
+        }
+
+        public bool ReconcileModifiedState(Action<string, object, object> onChanged = null)
+        {
+            // For cases where live binding was not possible, tries to identify possible changes in object state (typically at the time of saving)
+            if (_rowState == DataRowState.Unchanged)
+            {
+                foreach (var oval in _originalValues)
+                {
+                    var nval = GetValue(oval.Key);
+
+                    if (!oval.Value.IsSame(nval))
+                    {
+                        SetRowState(DataRowState.Modified);
+                        onChanged?.Invoke(oval.Key, oval, nval);
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        public override WrappingSupport SupportsWrapping()
+        {
+            return WrappingSupport.OriginalValues | WrappingSupport.PropertyBag;
+        }
+
+        public void Delete()
+        {
+            if (_rowState == DataRowState.Added)
+            {
+                SetRowState(DataRowState.Detached);
+            }
+            else
+            {
+                SetRowState(DataRowState.Deleted);
+            }
+        }
+
+        protected override void OnPropertyChanged(string propName, object oldVal, object newVal, bool isBag)
+        {
+            base.OnPropertyChanged(propName, oldVal, newVal, isBag);
+
+            if (_rowState == DataRowState.Unchanged)
+            {
+                SetRowState(DataRowState.Modified);
+            }
+
+            DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(DataRowState.Modified));
+        }
+
+        private void CEFValueTrackingWrapper_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            var oldval = _originalValues[e.PropertyName];
+            var newval = _source.GetType().GetProperty(e.PropertyName).GetValue(_source);
+
+            if (!oldval.IsSame(newval))
+            {
+                OnPropertyChanged(e.PropertyName, oldval, newval, _valueBag.ContainsKey(e.PropertyName));
+            }
+        }
+
+        public override void AcceptChanges()
+        {
+            if (_rowState == DataRowState.Deleted)
+            {
+                SetRowState(DataRowState.Detached);
+                return;
+            }
+
+            foreach (var pi in _source.GetType().GetProperties())
+            {
+                if (pi.CanWrite)
+                {
+                    _originalValues[pi.Name] = pi.GetValue(_source);
+                }
+            }
+
+            bool changed = (_rowState != DataRowState.Unchanged);
+
+            SetRowState(DataRowState.Unchanged);
+            _isBagChanged = false;
+
+            if (changed)
+            {
+                DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(DataRowState.Unchanged));
+            }
+        }
+
+        public object OriginalValueFor(string propName)
+        {
+            return _originalValues[propName];
+        }
+
+        #region IDisposable Support
+        private bool _disposedValue = false; // To detect redundant calls
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposedValue)
+            {
+                if (disposing)
+                {
+                    if (_source is INotifyPropertyChanged)
+                    {
+                        ((INotifyPropertyChanged)_source).PropertyChanged -= CEFValueTrackingWrapper_PropertyChanged;
+                    }
+                }
+
+                _originalValues = null;
+                _source = null;
+                _disposedValue = true;
+            }
+        }
+
+        // This code added to correctly implement the disposable pattern.
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+        #endregion
+
+    }
+
+    public class DirtyStateChangeEventArgs : EventArgs
+    {
+        public DataRowState NewState
+        {
+            get;
+            private set;
+        }
+
+        public DirtyStateChangeEventArgs(DataRowState newState)
+        {
+            NewState = newState;
+        }
+    }
+
+}

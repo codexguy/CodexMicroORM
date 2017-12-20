@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+	<AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+	<PackageId>CodexMicroORM.Core</PackageId>
+	<Version>0.2.0</Version>
+	<Authors>Joel R. Champagne</Authors>
+	<Company>CodeX Enterprises LLC</Company>
+	<Product>CodexMicroORM.Core</Product>
+	<Copyright>Copyright (c) 2017, All Rights Reserved</Copyright>
+	<PackageTags>ORM microORM entity framework database object mapping</PackageTags>
+	<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+	<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+	<PackageLicenseUrl>http://www.apache.org/licenses/LICENSE-2.0</PackageLicenseUrl>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard2.0|AnyCPU'">
+    <LangVersion>7.1</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.0|AnyCPU'">
+    <LangVersion>7.1</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="ObjectServices\Infrastructure\ValueTrackingWrapper.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="10.0.3" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.4.2" />
+  </ItemGroup>
+
+</Project>

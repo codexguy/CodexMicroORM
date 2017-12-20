@@ -1,0 +1,52 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27130.2010
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CodexMicroORM.Core", "CodexMicroORM.Core\CodexMicroORM.Core.csproj", "{0BE418F4-B416-4945-B664-B052B9BF4947}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMicroORM.WPFDemo", "CodexMicroORM.WPFDemo\CodexMicroORM.WPFDemo.csproj", "{6EA81E6A-D55C-4E74-922C-979D652F3563}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CodexMicroORM.DemoObjects", "CodexMicroORM.DemoObjects\CodexMicroORM.DemoObjects.csproj", "{BE918B1A-A989-4F38-9B68-88C31345BC31}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMicroORM.BindingSupport", "CodexMicroORM.BindingSupport\CodexMicroORM.BindingSupport.csproj", "{9698510F-6393-43A8-9D71-504FAC6A5332}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMicroORM.NFWTests", "CodexMicroORM.NFWTests\CodexMicroORM.NFWTests.csproj", "{34C3C098-A7B4-4167-BEB4-073B9031EFB2}"
+EndProject
+Global
+	GlobalSection(Performance) = preSolution
+		HasPerformanceSessions = true
+	EndGlobalSection
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0BE418F4-B416-4945-B664-B052B9BF4947}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0BE418F4-B416-4945-B664-B052B9BF4947}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0BE418F4-B416-4945-B664-B052B9BF4947}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0BE418F4-B416-4945-B664-B052B9BF4947}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6EA81E6A-D55C-4E74-922C-979D652F3563}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6EA81E6A-D55C-4E74-922C-979D652F3563}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6EA81E6A-D55C-4E74-922C-979D652F3563}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6EA81E6A-D55C-4E74-922C-979D652F3563}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BE918B1A-A989-4F38-9B68-88C31345BC31}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BE918B1A-A989-4F38-9B68-88C31345BC31}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BE918B1A-A989-4F38-9B68-88C31345BC31}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BE918B1A-A989-4F38-9B68-88C31345BC31}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9698510F-6393-43A8-9D71-504FAC6A5332}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9698510F-6393-43A8-9D71-504FAC6A5332}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9698510F-6393-43A8-9D71-504FAC6A5332}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9698510F-6393-43A8-9D71-504FAC6A5332}.Release|Any CPU.Build.0 = Release|Any CPU
+		{34C3C098-A7B4-4167-BEB4-073B9031EFB2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{34C3C098-A7B4-4167-BEB4-073B9031EFB2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{34C3C098-A7B4-4167-BEB4-073B9031EFB2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{34C3C098-A7B4-4167-BEB4-073B9031EFB2}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {66DF0B37-0FCC-4010-9A2C-A3C8E000E91A}
+	EndGlobalSection
+EndGlobal
