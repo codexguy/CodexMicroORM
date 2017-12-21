@@ -6,9 +6,9 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("CodexMicroORM.BindingSupport")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyDescription("Provides data binding services for UI's for CodexMicroORM")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
+[assembly: AssemblyCompany("CodeX Enterprises LLC")]
 [assembly: AssemblyProduct("CodexMicroORM.BindingSupport")]
 [assembly: AssemblyCopyright("Copyright ©  2017")]
 [assembly: AssemblyTrademark("")]

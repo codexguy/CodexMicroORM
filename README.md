@@ -1,5 +1,5 @@
 # CodexMicroORM
-An alternative to ORM's such as Entity Framework, offers light-weight database mapping to your existing CLR objects. Visit "Design Goals" on GitHub to see more rationale and guidance.
+An alternative to ORM's such as Entity Framework, offers light-weight database mapping to your existing CLR objects with minimal effort. Visit "Design Goals" on GitHub to see more rationale and guidance.
 
 ## Background
 Why build a new ORM framework? After all, Entity Framework, nHibernate and plenty of others exist and are mature. Speaking of "mature," I built CodeXFramework V1.0 several years ago and it shares some of the "complaints" I've seen some people make about many mainstream ORM's: they can be "heavy," "bloated" and as much as we'd like them to be "unobtrusive" - sometimes they *are*.
@@ -25,8 +25,8 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 * Use convention-based approaches - but codify these conventions as global settings that describe how you prefer to work (e.g. do you not care about saving a "Last Updated By" field on records? The framework should support it but you should be able to opt out with one line of code at startup).
 * Entities can be code-gened from databases, but is *not required at all*.
 * Code-gen properties by entity / database object should be retrievable from a logical model (e.g. Erwin document), SQL-Hero (repository supports flexible user-defined properties), or some kind of file-based storage.
-* Entities can be used in isolation of "contexts" like you see in EF: they really can be ANY object graph you like! This might seem like a small deal, but it really frees you up to work with objects however you like, with some conventions-based rules.
-* Can be used as a "bridge": you may have POCO objects that don't implement INotifyPropertyChanged for example (and have no desire to change this!), but you might like this feature with minimal effort in some settings - you could with CEF create dynamic objects that deliver value-add and effectively wrap select POCO objects and use them for specific/limited situation (e.g. UI binding).
+* Entities can be used in isolation of "contexts" like you see in EF: they really can be *any* object graph you like! This might seem like a small deal, but it really frees you up to work with objects however you like, with some conventions-based rules.
+* Can be used as a "bridge": you may have POCO objects that don't implement INotifyPropertyChanged for example (and have no desire to change this!), but you might like this feature with minimal effort in some settings - you could with CEF create dynamic objects that deliver value-add and effectively wrap select POCO objects and use them for specific/limited situations (e.g. UI binding).
 * *Anything* beyond simple POCO is considered a *service*.
 * Entities can (and should) have "defaults" for what services they want to have supporting them:
 	* Defaults can be set globally at AppDomain level.
@@ -37,9 +37,9 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 * A "collection container of entities" should exist and provide an observable, concrete common generic framework collection; it's EntitySet&lt;T&gt; and implements IEnumerable&lt;T&gt;, ICollection&lt;T&gt; and IList&lt;T&gt;.
 * Services can include:
 	* UI data-binding support (e.g. implements INotifyPropertyChanged, etc.) for entities and collections of entities.
-	* Caching (ability to plug in to really *any* kind of caching scheme - I like my existing DB-backed in-memory object cache but plenty of others) - again, caching is a *service*, HOW you cache can be based on a *provider* model. Also, caching needs can vary by object (e.g. static tables you might cache for much longer than others).
+	* Caching (ability to plug in to really *any* kind of caching scheme - I like my existing DB-backed in-memory object cache but plenty of others) - again, caching is a *service*, how you cache can be based on a *provider* model. Also, caching needs can vary by object (e.g. static tables you might cache for much longer than others).
 	* Key management (manages concept of identity, uniqueness, key generation (SEQUENCE / IDENTITY / Guids), surrogate keys, cascading operations, etc.).
-	* In-memory indexing, sorting, filtering (LINQ to object is a given, but this is a way to make that more efficient especially when dealing with large objects).
+	* In-memory indexing, sorting, filtering (LINQ to Objects is a given, but this is a way to make that more efficient especially when dealing with large objects).
 	* Validations (rather than decorate the POCO with these, keep them separate - perhaps some validations are UI-centric, others are not; leave it to the framework user to decide how much or little they want).
 	* Extended properties: for example, being able to retrieve from a procedure that returns extra details not strictly part of the object - useful for binding and ultimately may match a saveable object (i.e. not a completely generic bag). Ideally strong-type these additional fields for intellisense, performance, type safety, effective DB contract, etc. These by being kept separate and managed via a service means it's completely opt-in and we don't carry unneeded baggage. This is different from the ability to load sets of existing objects (e.g. Person) from arbitrary procedures as well: if the result set matches the shape of the object, that should just work out of the box with no special effort.
 	* Persistence and change tracking (PCT) - can identify "original values", "row states", and enough detail to serialize "differences" across process boundaries.
@@ -49,8 +49,8 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 		* Supports parameter mapping such that can still read and write from objects that are strictly "proc-based", where needed. (I.e. having tables behind it is not necessary).
 		* Understands connection management / transaction participation, etc. - see below.
 		* The full .Save() type of functionality for single records, isolated collections and complete object graphs.
-		* Support some of the nice features of CodeXFramework V1.0 including option to bulk insert added rows, etc.
-* Should be able to work with "generic data". A fair example is a DataTable - but we can offer lighter options (both in code simplicity and with performance). I'll do some performance head-to-heads later and I'm pretty confident we can blow the pant off of many other frameworks, with some tuning.
+		* Support some of the nice features of CodeXFramework V1.0 including the option to bulk insert added rows, etc.
+* Should be able to work with "generic data". A fair example is a DataTable - but we can offer lighter options (both in code simplicity and with performance).
 * The service architecture should be "pluggable" so others can create services that plug in easily. (Core services vs. non-core.)
 * The life-time of services may not be a simple "using block" - e.g. UI services could last for the life of a form - give control to the developer with options. Plus connection management should be split into a different service since sometimes this needs to be managed independently (i.e. multiple connections in a single service scope, or crossing service scopes).
 * Detection of changes should be easy and allow UI's to be informed about dirty state changes.
@@ -63,6 +63,7 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 	* The layer can support non-tabular entities - e.g. flattened procedures that interact with multiple tables, or cross-db situations, etc.
 	* This is just one flavor of database access - the provider interface means it'd be possible to integrate other ways, perhaps even a LINQ to SQL layer (a roadmap item).
 * Databases - need to support the possibility of different objects being sourced/saved to different databases and/or servers and/or schemas. (Needs control type-by-type in registration process.)
+* Use parallelism where possible.
 * Registration process should support multiple code gens - for example you could generate 3 different registration methods for 3 different databases.
 * All of the setup code we see should be generated from models: be it a database, or even an ERD. The end goal is you identify some logical model you want to work with, map it (visually, ideally), and then plumbing is created for you - start using objects and away you go.
 * Sensitive to your preferences: for example, if your standard is to use integer primary keys versus longs, we should let you do that easily. The same is true with your naming conventions (although name mapping is more of a vnext feature).
@@ -122,7 +123,7 @@ The SQL that's included is a combination of hand-written stored procedures and c
 Of note, the audit history template used here has an advantage over temporal tables found in SQL 2016: you can identify *who* deleted records, which (unfortunately) can be quite useful! CodexMicroORM plays well with the data layer, providing support for LastUpdatedBy, LastUpdatedDate, and IsDeleted (logical delete) fields in the database.
 
 ## Release Notes
-* 0.2 - December 2017 - Initial Release (binaries available on NuGet)
+* 0.2 - December 2017 - Initial Release (binaries available on [NuGet - Core](https://www.nuget.org/packages/CodexMicroORM.Core/), [Nuget - Bindings](https://www.nuget.org/packages/CodexMicroORM.BindingSupport/))
 
 ## Roadmap / Plans
 Release 0.2 covers some basic scenarios. For 0.3 I'd like to add:
@@ -131,7 +132,8 @@ Release 0.2 covers some basic scenarios. For 0.3 I'd like to add:
 * Name translation services
 * Serializing changes / rehydrating objects
 * Support for more types of cardinalities, object mapping
+* Some initial code-gen support
 
-Clearly tool support such as for code generation could prove very useful - watch for that offered as "add-on" products (potentially for a nominal fee).
+Clearly tool support such as for code generation could prove *very* useful - watch for that offered as "add-on" products and likely offered initially through SQL-Hero given that some existing templates can likely be tweaked to get a quick win for CodexMicroORM.
 
 Have opinions about what you'd like to see? Drop me a line @ joelc@codexframework.com.
