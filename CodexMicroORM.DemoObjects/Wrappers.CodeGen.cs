@@ -34,23 +34,6 @@ namespace CodexMicroORM.DemoObjects
 
         private Person _copyTo = null;
 
-        //public override bool Equals(object obj)
-        //{
-        //    var compared = obj as Person;
-
-        //    if (compared != null)
-        //    {
-        //        return compared.PersonID == this.PersonID;
-        //    }
-
-        //    return false;
-        //}
-
-        //public override int GetHashCode()
-        //{
-        //    return PersonID.GetHashCode();
-        //}
-
         Type ICEFWrapper.GetBaseType()
         {
             return typeof(Person);

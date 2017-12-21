@@ -9,10 +9,12 @@
 	<Company>CodeX Enterprises LLC</Company>
 	<Product>CodexMicroORM.Core</Product>
 	<Copyright>Copyright (c) 2017, All Rights Reserved</Copyright>
-	<PackageTags>ORM microORM entity framework database object mapping</PackageTags>
+	<PackageTags>ORM microORM entity-framework database object-mapping micro-ORM</PackageTags>
 	<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 	<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	<PackageLicenseUrl>http://www.apache.org/licenses/LICENSE-2.0</PackageLicenseUrl>
+	<PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
+	<Description>An alternative to ORM's such as Entity Framework, offers light-weight database mapping to your existing CLR objects. Visit "Design Goals" on GitHub to see more rationale and guidance.</Description>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard2.0|AnyCPU'">

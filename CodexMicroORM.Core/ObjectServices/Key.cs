@@ -146,7 +146,7 @@ namespace CodexMicroORM.Core.Services
             if (o != null)
             {
                 // Need prop bag only if does not contain key fields or child role names, plus require notifications to track changes in these values
-                foreach (var field in ResolveKeyDefinitionForType(o.GetType()).Union(ResolveChildRolesForType(o.GetType())))
+                foreach (var field in ResolveKeyDefinitionForType(o.GetBaseType()).Union(ResolveChildRolesForType(o.GetBaseType())))
                 {
                     if (((object)replaced ?? o).GetType().GetProperty(field) == null)
                     {
@@ -290,7 +290,7 @@ namespace CodexMicroORM.Core.Services
 
         public static void UpdateBoundKeys(ServiceScope.TrackedObject to, ServiceScope ss, string fieldName, object oval, object nval)
         {
-            foreach (var rel in _relations.GetAllByName(nameof(TypeChildRelationship.FullChildParentPropertyName), $"{to.GetTarget().GetType().Name}.{fieldName}"))
+            foreach (var rel in _relations.GetAllByName(nameof(TypeChildRelationship.FullChildParentPropertyName), $"{to.GetTarget().GetBaseType().Name}.{fieldName}"))
             {
                 if (nval != null)
                 {
@@ -320,7 +320,7 @@ namespace CodexMicroORM.Core.Services
                 if (uw == null)
                     return;
 
-                var childRels = _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), uw.GetType());
+                var childRels = _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), uw.GetBaseType());
 
                 foreach (var rel in (from a in childRels where !string.IsNullOrEmpty(a.ParentPropertyName) select a))
                 {
@@ -348,7 +348,7 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                var parentRels = _relations.GetAllByName(nameof(TypeChildRelationship.ParentType), uw.GetType());
+                var parentRels = _relations.GetAllByName(nameof(TypeChildRelationship.ParentType), uw.GetBaseType());
 
                 bool handled = false;
 
@@ -406,7 +406,7 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                foreach (var rel in (from a in parentRels where !string.IsNullOrEmpty(a.ChildPropertyName) && a.ChildType.Equals(uw.GetType()) select a))
+                foreach (var rel in (from a in parentRels where !string.IsNullOrEmpty(a.ChildPropertyName) && a.ChildType.Equals(uw.GetBaseType()) select a))
                 {
                     var chRoleVals = GetKeyValues(uw, rel.ChildResolvedKey);
 
@@ -543,7 +543,7 @@ namespace CodexMicroORM.Core.Services
                 return;
             }
 
-            var tcrs = _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), uw.GetType());
+            var tcrs = _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), uw.GetBaseType());
 
             if (tcrs.Any())
             {
@@ -604,14 +604,14 @@ namespace CodexMicroORM.Core.Services
         public static IDictionary<Type, IList<string>> GetChildTypes(object o, bool all = true)
         {
             Dictionary<Type, IList<string>> visits = new Dictionary<Type, IList<string>>();
-            InternalGetChildTypes(o.GetType(), visits, all);
+            InternalGetChildTypes(o.GetBaseType(), visits, all);
             return visits;
         }
 
         public static IDictionary<Type, IList<string>> GetParentTypes(object o, bool all = true)
         {
             Dictionary<Type, IList<string>> visits = new Dictionary<Type, IList<string>>();
-            InternalGetParentTypes(o.GetType(), visits, all);
+            InternalGetParentTypes(o.GetBaseType(), visits, all);
             return visits;
         }
 

@@ -17,6 +17,14 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
 
+/**********************************************************************
+
+ REMEMBER: Much of this SQL script can and should be code generated!!
+ (You would typically expect to write any custom retrieval procs,
+ tailored and tuned as needed.)
+
+**********************************************************************/
+
 USE master
 GO
 
