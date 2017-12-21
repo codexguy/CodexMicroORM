@@ -81,7 +81,7 @@ The key is flexibility: you can mix-and-match approaches even within a single ap
 
 In release 0.2, the main way to interact with the database is using stored procedures. As mentioned in the design goals, this is largely intentional, but it *is* just one way to implement data access, which is done using a provider model.
 
-Use of stored procedures as the "data layer" is by convention: you would typically name your procedures up__[ClassName]__i (for insert), up__[ClassName]__u (for update), up__[ClassName]__d (for delete), up__[ClassName]__ByKey (retrieve by primary key). (The naming structure can be overridden based on your preferences.) Beyond CRUD, you can craft your own retrieval procedures that may map to existing class layouts - or identify completely new formats. The sample app is a good place to start in understanding what's possible!
+Use of stored procedures as the "data layer" is by convention: you would typically name your procedures up\_[ClassName]\_i (for insert), up\_[ClassName]\_u (for update), up\_[ClassName]\_d (for delete), up\_[ClassName]\_ByKey (retrieve by primary key). (The naming structure can be overridden based on your preferences.) Beyond CRUD, you can craft your own retrieval procedures that may map to existing class layouts - or identify completely new formats. The sample app is a good place to start in understanding what's possible!
 
 ## Sample / Testing App
 I've included both a sample app (WPF) and a test project. The sample app illustrates UI data binding with framework support, along with a series of scenarios that both exercise and illustrate. We can see for example with this class:
@@ -118,7 +118,7 @@ KeyService.RegisterRelationship<Person>(TypeChildRelationship.Create<Phone>().Ma
 
 This code is something that we can ideally eventually generate, as opposed to writing it by hand.
 
-In terms of the SQL to support these examples: a .sql script is included in both the test and demo projects. This script will create a new database called CodexMicroORMTest that includes all the necessary schema objects to support the examples. You may need to adjust the DB__SERVER constant to match your own SQL Server instance name.
+In terms of the SQL to support these examples: a .sql script is included in both the test and demo projects. This script will create a new database called CodexMicroORMTest that includes all the necessary schema objects to support the examples. You may need to adjust the DB\_SERVER constant to match your own SQL Server instance name.
 
 The SQL that's included is a combination of hand-written stored procedures and code generated objects, including procedures (CRUD) and triggers. The code generator I've used is SQL-Hero, but you can use whatever tool you like. The generated SQL is based on declarative settings that identify: a) what type of opimistic concurrency you need (if any), b) what kind of audit history you need (if any).
 
