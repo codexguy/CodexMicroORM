@@ -17,7 +17,7 @@ The demo project shows several other non-trivial use cases - and more will follo
 ## Design Goals
 Diving more deeply, what does CodexMicroORM try to do *better* than other frameworks? What are the guiding principles that have influenced it to date?
 
-* Support .NET Standard 2.0 as much as possible. (ICustomTypeProvider as one example isn't there, so for WPF we have the CodexMicroORM.BindingSupport project which is net471.)
+* Support .NET Standard 2.0 as much as possible. (ICustomTypeProvider as one example isn't there, so for WPF we have the CodexMicroORM.BindingSupport project which is net461.)
 * Entities can be *any* POCO object, period.
 * Entities do not need to have any special "database-centric" properties (if they don't want - many will want them).
 * Entities should be able to carry "extra" details that come from the database (aka "extended properties") - but these should be "non-obtrusive" against the bare POCO objects being used.
@@ -80,6 +80,8 @@ There can be two kinds of wrappers: your own custom wrapper class that typically
 The key is flexibility: you can mix-and-match approaches even within a single app! In fact our demo app does this by using a Person POCO, along with a PersonWrapped wrapper (theoretically code generated). The Phone POCO does not have a corresponding PhoneWrapper, but that's okay - we don't need it since the infrastructure wrapper used will be provisioned with more services than it would be if you had a wrapper (or POCO) that say implemented INotifyPropertyChanged.
 
 In release 0.2, the main way to interact with the database is using stored procedures. As mentioned in the design goals, this is largely intentional, but it *is* just one way to implement data access, which is done using a provider model.
+
+Use of stored procedures as the "data layer" is by convention: you would typically name your procedures up_[ClassName]_i (for insert), up_[ClassName]_u (for update), up_[ClassName]_d (for delete), up_[ClassName]_ByKey (retrieve by primary key). (The naming structure can be overridden based on your preferences.) Beyond CRUD, you can craft your own retrieval procedures that may map to existing class layouts - or identify completely new formats. The sample app is a good place to start in understanding what's possible!
 
 ## Sample / Testing App
 I've included both a sample app (WPF) and a test project. The sample app illustrates UI data binding with framework support, along with a series of scenarios that both exercise and illustrate. We can see for example with this class:
