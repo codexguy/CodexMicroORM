@@ -4,7 +4,7 @@ An alternative to ORM's such as Entity Framework, offers light-weight database m
 ## Background
 Why build a new ORM framework? After all, Entity Framework, nHibernate and plenty of others exist and are mature. Speaking of "mature," I built CodeXFramework V1.0 several years ago and it shares some of the "complaints" I've seen some people make about many mainstream ORM's: they can be "heavy," "bloated" and as much as we'd like them to be "unobtrusive" - sometimes they *are*.
 
-Wouldn't it be nice if we could simply use our existing POCO (plain-old C# objects) and have them become *ORM-aware*? That's the ultimate design goal of CodexMicroORM: to give a similar vibe to what we got with "LINQ to Objects" several years ago. (Recall: that turned anything that was IEnumerable<T> into a fully LINQ-enabled list source - which opened up a whole new world of possibility!)
+Wouldn't it be nice if we could simply use our existing POCO (plain-old C# objects) and have them become *ORM-aware*? That's the ultimate design goal of CodexMicroORM: to give a similar vibe to what we got with "LINQ to Objects" several years ago. (Recall: that turned anything that was IEnumerable&lt;T&gt; into a fully LINQ-enabled list source - which opened up a whole new world of possibility!)
 
 CodexMicroORM isn't necessarily going to do everything that other, larger ORM frameworks can do - that's the "micro" aspect. We'll leave some work to the framework user, favoring performance and memory use much of the time. That said, we do aim for *simplicity* as I hope the demo application illustrates. As one example, we can create a sample Person record in *one line of code*:
 
@@ -17,11 +17,11 @@ The demo project shows several other non-trivial use cases - and more will follo
 ## Design Goals
 Diving more deeply, what does CodexMicroORM try to do *better* than other frameworks? What are the guiding principles that have influenced it to date?
 
-* Support .NET Standard 2.0 as much as possible. (ICustomTypeProvider as one example isn't there, so for WPF I expect to have a .NET Framework shim that can *extend* the core framework.)
+* Support .NET Standard 2.0 as much as possible. (ICustomTypeProvider as one example isn't there, so for WPF we have the CodexMicroORM.BindingSupport project which is net471.)
 * Entities can be *any* POCO object, period.
 * Entities do not need to have any special "database-centric" properties (if they don't want - many will want them).
 * Entities should be able to carry "extra" details that come from the database (aka "extended properties") - but these should be "non-obtrusive" against the bare POCO objects being used.
-* Entities can be nested in what would be considered a normal object model (e.g. "IList<Person> Children" as a property on Person vs. a nullable ParentID which is a database/storage concept - but the DB way should be supported too!).
+* Entities can be nested in what would be considered a normal object model (e.g. "IList&lt;Person&gt; Children" as a property on Person vs. a nullable ParentID which is a database/storage concept - but the DB way should be supported too!).
 * Use convention-based approaches - but codify these conventions as global settings that describe how you prefer to work (e.g. do you not care about saving a "Last Updated By" field on records? The framework should support it but you should be able to opt out with one line of code at startup).
 * Entities can be code-gened from databases, but is *not required at all*.
 * Code-gen properties by entity / database object should be retrievable from a logical model (e.g. Erwin document), SQL-Hero (repository supports flexible user-defined properties), or some kind of file-based storage.
@@ -34,7 +34,7 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 	* Defaults can be overridden, per instance, both opting in and out of services.
 * Not every object needs every service, support the minimum overhead solution as much as possible.
 * Some services might need to target .NET Framework, not .NET Standard, where the support does not exist: but this should be "ok" - if you want to use a service that relies on .NET Framework, you simply need to implement your solution there (or in a client-server scenario, you can implement a different set of services in each tier, if you like!)
-* A "collection container of entities" should exist and provide an observable, concrete common generic framework collection; it's EntitySet<T> and implements IEnumerable<T>, ICollection<T> and IList<T>.
+* A "collection container of entities" should exist and provide an observable, concrete common generic framework collection; it's EntitySet&lt;T&gt; and implements IEnumerable&lt;T&gt;, ICollection&lt;T&gt; and IList&lt;T&gt;.
 * Services can include:
 	* UI data-binding support (e.g. implements INotifyPropertyChanged, etc.) for entities and collections of entities.
 	* Caching (ability to plug in to really *any* kind of caching scheme - I like my existing DB-backed in-memory object cache but plenty of others) - again, caching is a *service*, HOW you cache can be based on a *provider* model. Also, caching needs can vary by object (e.g. static tables you might cache for much longer than others).
