@@ -23,6 +23,7 @@ using System.Reflection;
 using System.Data;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -130,10 +131,12 @@ namespace CodexMicroORM.Core.Services
         {
             // Recursively parse property values for an object graph. This not only adjusts collection types to be trackable concrete types, but registers child objects into the current service scope.
 
-            var iter = sourceProps == null ? (from t in target.GetType().GetProperties() where t.CanWrite select new { PropName = t.Name, SourceVal = t.GetValue(target), Target = t, TargPropType = t.PropertyType }) 
+            var iter = sourceProps == null ? (from t in target.GetType().GetProperties() where t.CanWrite select new { PropName = t.Name, SourceVal = target.FastGetValue(t.Name), Target = t, TargPropType = t.PropertyType }) 
                 : (from s in sourceProps from t in target.GetType().GetProperties() where s.Key == t.Name && t.CanWrite select new { PropName = s.Key, SourceVal = s.Value, Target = t, TargPropType = t.PropertyType });
 
-            foreach (var info in iter)
+            var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 2 && iter.Count() > Environment.ProcessorCount >> 1 ? Environment.ProcessorCount >> 1 : 1;
+
+            Parallel.ForEach(iter, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (info) =>
             {
                 object wrapped = null;
 
@@ -145,8 +148,8 @@ namespace CodexMicroORM.Core.Services
                     {
                         // This by definition represents CHILDREN
                         // Use an observable collection we control - namely EntitySet
-                        wrappedCol = CreateWrappingList(ss, info.TargPropType, target, info.Target.Name);
-                        info.Target.SetValue(target, wrappedCol);
+                        wrappedCol = CreateWrappingList(ss, info.TargPropType, target, info.PropName);
+                        target.FastSetValue(info.PropName, wrappedCol);
                     }
                     else
                     {
@@ -167,7 +170,7 @@ namespace CodexMicroORM.Core.Services
                             }
                             else
                             {
-                                wrapped = ss.InternalCreateAddBase(sValEnum.Current, isNew, null, null, visits);
+                                wrapped = ss.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, visits);
                             }
 
                             wrappedCol.AddWrappedItem(wrapped);
@@ -190,20 +193,20 @@ namespace CodexMicroORM.Core.Services
                         }
                         else
                         {
-                            wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, visits);
+                            wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, null, visits);
                         }
 
                         if (wrapped != null)
                         {
-                            info.Target.SetValue(target, wrapped);
+                            target.FastSetValue(info.PropName, wrapped);
                         }
                     }
                     else
                     {
-                        info.Target.SetValue(target, info.SourceVal);
+                        target.FastSetValue(info.PropName, info.SourceVal);
                     }
                 }
-            }
+            });
         }
 
         internal static void CopyPropertyValuesObject(object source, object target, bool isNew, ServiceScope ss, IDictionary<string, object> removeIfSet, IDictionary<object, object> visits)
@@ -215,9 +218,9 @@ namespace CodexMicroORM.Core.Services
             foreach (var pi in source.GetType().GetProperties())
             {
                 // For new rows, ignore the PK since it should be assigned by key service
-                if (!isNew || !pkFields.Contains(pi.Name))
+                if (pi.CanRead && (!isNew || !pkFields.Contains(pi.Name)))
                 {
-                    props[pi.Name] = pi.GetValue(source);
+                    props[pi.Name] = source.FastGetValue(pi.Name);
                 }
             }
 
@@ -232,7 +235,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private static ICEFWrapper InternalCreateWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, bool missingAllowed, ServiceScope ss, IDictionary<object, ICEFWrapper> wrappers, IDictionary<string, object> props, IDictionary<object, object> visits)
+        private static ICEFWrapper InternalCreateWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, bool missingAllowed, ServiceScope ss, IDictionary<object, ICEFWrapper> wrappers, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits)
         {
             // Try to not duplicate wrappers: return one if previously generated in this parsing instance
             if (wrappers.ContainsKey(o))
@@ -297,12 +300,12 @@ namespace CodexMicroORM.Core.Services
             return replwrap;
         }
 
-        public static ICEFWrapper CreateWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ServiceScope ss, IDictionary<string, object> props = null, IDictionary<object, object> visits = null)
+        public static ICEFWrapper CreateWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ServiceScope ss, IDictionary<string, object> props = null, IDictionary<string, Type> types = null, IDictionary<object, object> visits = null)
         {
-            return InternalCreateWrapper(need, action, isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(), props, visits ?? new Dictionary<object, object>());
+            return InternalCreateWrapper(need, action, isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(), props, types, visits ?? new ConcurrentDictionary<object, object>());
         }
 
-        public static ICEFInfraWrapper CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, DataRowState? initState, IDictionary<string, object> props)
+        public static ICEFInfraWrapper CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, DataRowState? initState, IDictionary<string, object> props, IDictionary<string, Type> types)
         {
             // Goal is to provision the lowest overhead object based on need!
             ICEFInfraWrapper infrawrap = null;
@@ -313,16 +316,16 @@ namespace CodexMicroORM.Core.Services
                 {
                     if ((need & WrappingSupport.OriginalValues) != 0)
                     {
-                        infrawrap = new DynamicWithValuesAndBag(o, initState.GetValueOrDefault(isNew ? DataRowState.Added : DataRowState.Unchanged), props);
+                        infrawrap = new DynamicWithValuesAndBag(o, initState.GetValueOrDefault(isNew ? DataRowState.Added : DataRowState.Unchanged), props, types);
                     }
                     else
                     {
-                        infrawrap = new DynamicWithBag(o, props);
+                        infrawrap = new DynamicWithBag(o, props, types);
                     }
                 }
                 else
                 {
-                    infrawrap = new DynamicWithAll(o, initState.GetValueOrDefault(isNew ? DataRowState.Added : DataRowState.Unchanged), props);
+                    infrawrap = new DynamicWithAll(o, initState.GetValueOrDefault(isNew ? DataRowState.Added : DataRowState.Unchanged), props, types);
                 }
             }
 

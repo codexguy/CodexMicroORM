@@ -50,15 +50,16 @@ namespace CodexMicroORM.Core
     {
         IDBProviderConnection CreateOpenConnection(string config, bool transactional, string connStringOverride);
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> DeleteRows(ConnectionScope conn, IEnumerable<(int level, ICEFInfraWrapper row)> rows, DBSaveSettings settings);
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> InsertRows(ConnectionScope conn, IEnumerable<(int level, ICEFInfraWrapper row)> rows, DBSaveSettings settings);
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> UpdateRows(ConnectionScope conn, IEnumerable<(int level, ICEFInfraWrapper row)> rows, DBSaveSettings settings);
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> DeleteRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> InsertRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> UpdateRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
 
         IEnumerable<T> RetrieveAll<T>(ConnectionScope conn, bool doWrap) where T : class, new();
         IEnumerable<T> RetrieveByKey<T>(ConnectionScope conn, bool doWrap, object[] key) where T : class, new();
         IEnumerable<T> RetrieveByQuery<T>(ConnectionScope conn, bool doWrap, CommandType cmdType, string cmdText, object[] parms) where T : class, new();
 
         void ExecuteRaw(ConnectionScope conn, string cmdText, bool doThrow = true, bool stopOnError = true);
+        T ExecuteScalar<T>(ConnectionScope conn, string cmdText);
     }
 
     public interface IDBProviderConnection : IDisposable

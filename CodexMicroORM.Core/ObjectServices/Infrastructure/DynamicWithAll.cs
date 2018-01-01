@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -27,7 +28,7 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithAll : DynamicWithValuesAndBag, INotifyPropertyChanged
     {
-        internal DynamicWithAll(object o, DataRowState irs, IDictionary<string, object> props) : base(o, irs, props)
+        internal DynamicWithAll(object o, DataRowState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, irs, props, types)
         {            
         }
 

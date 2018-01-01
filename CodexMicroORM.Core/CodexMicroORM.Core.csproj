@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
 	<AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
 	<PackageId>CodexMicroORM.Core</PackageId>
-	<Version>0.2.0</Version>
+	<Version>0.2.1</Version>
 	<Authors>Joel Champagne</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Product>CodexMicroORM.Core</Product>
@@ -14,9 +14,10 @@
 	<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
 	<PackageLicenseUrl>http://www.apache.org/licenses/LICENSE-2.0</PackageLicenseUrl>
 	<PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
-	<Description>An alternative to ORM's such as Entity Framework, offers light-weight database mapping to your existing CLR objects with minimal effort. Visit "Design Goals" on GitHub to see more rationale and guidance.</Description>
+	<Description>A high performance, low code alternative to ORM's such as Entity Framework, offers intelligent database mapping to your existing CLR objects with minimal effort. Visit "Design Goals" on GitHub to see more rationale and guidance.</Description>
 	<PackageIconUrl>http://www.xskrape.com/images/cef64.png</PackageIconUrl>
 	<ApplicationIcon>xSkrape.ico</ApplicationIcon>
+	<PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard2.0|AnyCPU'">
@@ -33,6 +34,7 @@
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="10.0.3" />
+    <PackageReference Include="System.Collections.Immutable" Version="1.4.0" />
     <PackageReference Include="System.Data.SqlClient" Version="4.4.2" />
   </ItemGroup>
 

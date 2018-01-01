@@ -161,6 +161,18 @@ namespace CodexMicroORM.Providers
             public int ID;
         }
 
+        public T ExecuteScalar<T>(ConnectionScope cs, string cmdText)
+        {
+            var firstRow = CreateRawCommand((MSSQLConnection)cs.CurrentConnection, System.Data.CommandType.Text, cmdText, null).ExecuteReadRows().FirstOrDefault();
+
+            if (firstRow != null && firstRow.Count > 0)
+            {
+                return (T)Convert.ChangeType(firstRow.First().Value.value, typeof(T));
+            }
+
+            return default(T);
+        }
+
         public void ExecuteRaw(ConnectionScope cs, string cmdText, bool doThrow = true, bool stopOnError = true)
         {
             Exception lastEx = null;
@@ -218,7 +230,7 @@ namespace CodexMicroORM.Providers
 
         private MSSQLCommand CreateProcCommand(MSSQLConnection conn, CommandType cmdType, string schemaName, string objName, ICEFInfraWrapper row, IList<object> parms)
         {
-            StringBuilder proc = new StringBuilder();
+            StringBuilder proc = new StringBuilder(128);
 
             if (!string.IsNullOrEmpty(schemaName))
             {
@@ -266,6 +278,8 @@ namespace CodexMicroORM.Providers
 
         private void InsertRowsWithBulk(ConnectionScope conn, IEnumerable<ICEFInfraWrapper> rows, string schema, string name)
         {
+            schema = schema ?? DefaultSchema ?? DEFAULT_DB_SCHEMA;
+
             using (DataTable dt = new DataTable())
             {
                 // Issue independent SELECT * to get schema from underlying table
@@ -351,21 +365,14 @@ namespace CodexMicroORM.Providers
         /// <param name="cmdType">Nature of the command being issued.</param>
         /// <param name="settings">Database save settings for this request.</param>
         /// <returns>A compatible number of "rows" as input with per row save status.</returns>
-        private IEnumerable<(ICEFInfraWrapper row, string msg, int status)> SaveRows(ServiceScope ss, ConnectionScope conn, IEnumerable<ICEFInfraWrapper> rows, CommandType cmdType, DBSaveSettings settings)
+        private IEnumerable<(ICEFInfraWrapper row, string msg, int status)> SaveRows(ServiceScope ss, ConnectionScope conn, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows, CommandType cmdType, DBSaveSettings settings)
         {
             ConcurrentBag<(ICEFInfraWrapper row, string msg, int status)> rowsOut = new ConcurrentBag<(ICEFInfraWrapper row, string msg, int status)>();
             Exception stopEx = null;
 
-            var materialized = (from a in rows
-                                where a != null
-                                let w = a.GetWrappedObject()
-                                let iw = w as ICEFWrapper
-                                let n = a.GetBaseType()?.Name
-                                let s = iw == null ? DefaultSchema ?? DEFAULT_DB_SCHEMA : iw.GetSchemaName() ?? DEFAULT_DB_SCHEMA
-                                where !string.IsNullOrEmpty(n)
-                                select new { Schema = s, Name = n, Row = a }).ToList();
+            var materialized = (from a in rows select new { Schema = a.schema ?? DefaultSchema ?? DEFAULT_DB_SCHEMA, Name = a.name, Row = a.row }).ToList();
 
-            var res = Parallel.ForEach(materialized, new ParallelOptions() { MaxDegreeOfParallelism = settings.MaxDegreeOfParallelism }, (r, pls) =>
+            Parallel.ForEach(materialized, new ParallelOptions() { MaxDegreeOfParallelism = settings.MaxDegreeOfParallelism }, (r, pls) =>
             {
                 using (CEF.UseServiceScope(ss))
                 {
@@ -415,6 +422,8 @@ namespace CodexMicroORM.Providers
                 }
             });
 
+            materialized = null;
+
             if (stopEx != null)
             {
                 throw stopEx;
@@ -423,58 +432,64 @@ namespace CodexMicroORM.Providers
             return rowsOut;
         }
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.InsertRows(ConnectionScope conn, IEnumerable<(int level, ICEFInfraWrapper row)> rows, DBSaveSettings settings)
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.InsertRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
         {
             List<(ICEFInfraWrapper row, string msg, int status)> retVal = new List<(ICEFInfraWrapper row, string msg, int status)>();
 
             // Apply sequential break by level, inserts are ascending level counts
-            foreach (var level in (from a in rows group a by a.level into g orderby g.Key ascending select new { Rows = g.Select((p) => p.row) }))
+            foreach (var level in (from a in rows orderby a.level select a))
             {
-                if ((settings.BulkInsertRules & DBSaveSettings.BulkRules.Always) != 0 || (rows.Count() >= settings.BulkInsertMinimumRows && (settings.BulkInsertRules & DBSaveSettings.BulkRules.Threshold) != 0))
+                if (settings.BulkInsertRules != BulkRules.Never)
                 {
-                    // Bulk inserts are additionally grouped by table name
-                    foreach (var r in (from a in level.Rows
-                                       let w = a.GetWrappedObject()
-                                       let iw = w as ICEFWrapper
-                                       let n = iw == null ? w.GetType().Name : (iw.GetBaseType() ?? w.GetType()).Name
-                                       let s = iw == null ? DefaultSchema ?? DEFAULT_DB_SCHEMA : iw.GetSchemaName() ?? DEFAULT_DB_SCHEMA
-                                       group a by new { Schema = s, Name = n }
-                                       into g
-                                       select new { Schema = g.Key.Schema, Name = g.Key.Name, Rows = g }))
+                    // Need to further partition by name since we judge thresholds, etc. by name
+                    foreach (var byname in (from a in rows from b in a.rows group b by new { Level = a.level, Name = b.name, Schema = b.schema } into g orderby g.Key.Level select new { g.Key.Level, g.Key.Schema, g.Key.Name, Rows = g, RowsRaw = g.Select((p) => p.row) }))
                     {
-                        InsertRowsWithBulk(conn, r.Rows, r.Schema, r.Name);
+                        if ((settings.BulkInsertRules & BulkRules.Always) != 0 ||
+                            (
+                                ((settings.BulkInsertRules & BulkRules.Threshold) == 0 || (level.rows.Count() >= settings.BulkInsertMinimumRows))
+                                && ((settings.BulkInsertRules & BulkRules.LeafOnly) == 0 || (level.level == (from a in rows select a.level).Max()))
+                                && ((settings.BulkInsertRules & BulkRules.ByType) == 0 || (from a in settings.BulkInsertTypes where string.Compare(byname.Name, a.Name, true) == 0 select a).Any())
+                            ))
+                        {
+                            // Bulk inserts uses table names/schemas
+                            InsertRowsWithBulk(conn, byname.RowsRaw, byname.Schema, byname.Name);
+                        }
+                        else
+                        {
+                            retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, byname.Rows, CommandType.Insert, settings));
+                        }
                     }
                 }
                 else
                 {
-                    retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, level.Rows, CommandType.Insert, settings));
+                    retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, level.rows, CommandType.Insert, settings));
                 }
             }
 
             return retVal;
         }
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.UpdateRows(ConnectionScope conn, IEnumerable<(int level, ICEFInfraWrapper row)> rows, DBSaveSettings settings)
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.UpdateRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
         {
             List<(ICEFInfraWrapper row, string msg, int status)> retVal = new List<(ICEFInfraWrapper row, string msg, int status)>();
 
             // Apply sequential break by level, updates are ascending level counts
-            foreach (var level in (from a in rows group a by a.level into g orderby g.Key ascending select new { Rows = g.Select((p) => p.row) }))
+            foreach (var rowsforlevel in (from a in rows orderby a.level select a.rows))
             {
-                retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, level.Rows, CommandType.Update, settings));
+                retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rowsforlevel, CommandType.Update, settings));
             }
 
             return retVal;
         }
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.DeleteRows(ConnectionScope conn, IEnumerable<(int level, ICEFInfraWrapper row)> rows, DBSaveSettings settings)
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.DeleteRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
         {
             List<(ICEFInfraWrapper row, string msg, int status)> retVal = new List<(ICEFInfraWrapper row, string msg, int status)>();
 
             // Apply sequential break by level, deletes are descending level counts
-            foreach (var level in (from a in rows group a by a.level into g orderby g.Key descending select new { Rows = g.Select((p) => p.row) }))
+            foreach (var rowsforlevel in (from a in rows orderby a.level descending select a.rows))
             {
-                retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, level.Rows, CommandType.Delete, settings));
+                retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rowsforlevel, CommandType.Delete, settings));
             }
 
             return retVal;
@@ -517,12 +532,19 @@ namespace CodexMicroORM.Providers
                 if (doWrap)
                 {
                     // If "the same" object exists in current scope, this will "merge" it with new values, avoids duplicating it in scope
-                    no = CEF.CurrentServiceScope.IncludeObject<T>(new T(), props: row);
+                    no = CEF.CurrentServiceScope.IncludeObjectWithType<T>(new T(), DataRowState.Unchanged, row);
                 }
                 else
                 {
+                    var propVals = new Dictionary<string, object>();
+
+                    foreach (var kvp in row)
+                    {
+                        propVals[kvp.Key] = kvp.Value.value;
+                    }
+
                     no = new T();
-                    WrappingHelper.CopyParsePropertyValues(row, null, no, false, null, new Dictionary<object, object>());
+                    WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new ConcurrentDictionary<object, object>());
                 }
 
                 yield return no;

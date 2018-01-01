@@ -138,6 +138,22 @@ namespace CodexMicroORM.Providers
             }
         }
 
+        private SqlParameter CloneParameterNoValue(SqlParameter source)
+        {
+            return new SqlParameter()
+            {
+                DbType = source.DbType,
+                Direction = source.Direction,
+                LocaleId = source.LocaleId,
+                Offset = source.Offset,
+                ParameterName = source.ParameterName,
+                Precision = source.Precision,
+                Scale = source.Scale,
+                Size = source.Size,
+                SqlDbType = source.SqlDbType
+            };
+        }
+
         private void BuildParameters()
         {
             if (_cmd.CommandType == CommandType.StoredProcedure)
@@ -145,12 +161,12 @@ namespace CodexMicroORM.Providers
                 if (!_paramCache.ContainsKey(_cmd.CommandText))
                 {
                     DiscoverParameters();
-                    _paramCache[_cmd.CommandText] = (from a in _cmd.Parameters.Cast<ICloneable>() select (SqlParameter)a.Clone());
+                    _paramCache[_cmd.CommandText] = _cmd.Parameters.Cast<SqlParameter>();
                 }
                 else
                 {
                     _cmd.Parameters.Clear();
-                    _cmd.Parameters.AddRange(_paramCache[_cmd.CommandText].ToArray());
+                    _cmd.Parameters.AddRange((from a in _paramCache[_cmd.CommandText] select CloneParameterNoValue(a)).ToArray());
                 }
             }
         }
@@ -188,7 +204,7 @@ namespace CodexMicroORM.Providers
             return this;
         }
 
-        public IEnumerable<Dictionary<string, object>> ExecuteReadRows()
+        public IEnumerable<Dictionary<string, (object value, Type type)>> ExecuteReadRows()
         {
             CEFDebug.DumpSQLCall(_cmd.CommandText, _cmd.Parameters);
 
@@ -198,10 +214,11 @@ namespace CodexMicroORM.Providers
 
                 while (r.Read())
                 {
-                    Dictionary<string, object> values = new Dictionary<string, object>();
+                    Dictionary<string, (object, Type)> values = new Dictionary<string, (object, Type)>();
 
                     for (int i = 0; i < r.FieldCount; ++i)
                     {
+                        var prefType = r.GetFieldType(i);
                         var val = r.GetValue(i);
 
                         if (DBNull.Value.Equals(val))
@@ -209,7 +226,7 @@ namespace CodexMicroORM.Providers
                             val = null;
                         }
 
-                        values[r.GetName(i)] = val;
+                        values[r.GetName(i)] = (val, prefType);
                     }
 
                     yield return values;
@@ -221,7 +238,16 @@ namespace CodexMicroORM.Providers
         {
             CEFDebug.DumpSQLCall(_cmd.CommandText, _cmd.Parameters);
 
-            _cmd.ExecuteNonQuery();
+            try
+            {
+                _cmd.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                CEFDebug.WriteInfo($"SQL Call Error: " + ex.Message);
+                throw;
+            }
+
             return this;
         }
 

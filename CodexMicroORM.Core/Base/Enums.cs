@@ -20,6 +20,17 @@ using System;
 
 namespace CodexMicroORM.Core
 {
+    [Flags]
+    public enum BulkRules
+    {
+        Never = 0,
+        Always = 1,
+        Threshold = 2,
+        LeafOnly = 4,
+        ByType = 8,
+        Default = 6
+    }
+
     public enum WrappingAction
     {
         NoneOrProvisionedAlready = 0,

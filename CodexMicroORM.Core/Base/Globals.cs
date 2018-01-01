@@ -45,6 +45,12 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
+        public static BulkRules DefaultBulkInsertRules
+        {
+            get;
+            set;
+        } = BulkRules.Threshold;
+
         public static WrappingAction DefaultWrappingAction
         {
             get
@@ -87,6 +93,15 @@ namespace CodexMicroORM.Core
             get;
             set;
         }
+
+        /// <summary>
+        /// When true (default), object graphs can be traversed using parallel threads.
+        /// </summary>
+        public static bool EnableParallelPropertyParsing
+        {
+            get;
+            set;
+        } = true;
 
         public static string KeyNamingPattern
         {
@@ -136,11 +151,6 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
-        private static Func<string> defaultGetLastUpdatedByFunc = () =>
-        {
-            return Environment.UserName;
-        };
-
         public static MergeBehavior DefaultMergeBehavior
         {
             get;
@@ -158,35 +168,5 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = true;
-
-        public static string DefaultLastUpdatedByField
-        {
-            get;
-            set;
-        } = "LastUpdatedBy";
-
-        public static string DefaultLastUpdatedDateField
-        {
-            get;
-            set;
-        } = "LastUpdatedDate";
-
-        public static string DefaultIsDeletedField
-        {
-            get;
-            set;
-        } = "IsDeleted";
-
-        public static Func<string> DefaultGetLastUpdatedByFunc
-        {
-            get
-            {
-                return defaultGetLastUpdatedByFunc;
-            }
-            set
-            {
-                defaultGetLastUpdatedByFunc = value;
-            }
-        }
     }
 }

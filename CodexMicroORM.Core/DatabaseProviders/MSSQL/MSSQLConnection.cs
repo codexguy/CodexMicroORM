@@ -70,11 +70,11 @@ namespace CodexMicroORM.Providers
         }
 
         #region IDisposable Support
-        private bool disposedValue = false;
+        private bool _disposedValue = false;
 
         protected virtual void Dispose(bool disposing)
         {
-            if (!disposedValue)
+            if (!_disposedValue)
             {
                 if (_tx != null)
                 {
@@ -84,11 +84,14 @@ namespace CodexMicroORM.Providers
 
                 if (_conn != null)
                 {
+                    // todo - review if can avoid this somehow (does appear helpful currently)
+                    SqlConnection.ClearPool(_conn);
+
                     _conn.Dispose();
                     _conn = null;
                 }
 
-                disposedValue = true;
+                _disposedValue = true;
             }
         }
 

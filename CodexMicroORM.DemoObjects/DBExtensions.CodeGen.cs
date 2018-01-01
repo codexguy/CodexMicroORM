@@ -37,6 +37,14 @@ namespace CodexMicroORM.DemoObjects
         {
             return set.DBAppendByQuery<Phone>(CommandType.StoredProcedure, "CEFTest.up_Phone_AllForFamily", ParentPersonID);
         }
+        public static EntitySet<Phone> DBRetrieveByOwner(this EntitySet<Phone> set, int PersonID, PhoneType? PhoneTypeID)
+        {
+            return set.DBRetrieveByQuery<Phone>(CommandType.StoredProcedure, "CEFTest.up_Phone_ByPersonID", PersonID, PhoneTypeID);
+        }
+        public static EntitySet<Phone> DBAppendByOwner(this EntitySet<Phone> set, int PersonID, PhoneType? PhoneTypeID)
+        {
+            return set.DBAppendByQuery<Phone>(CommandType.StoredProcedure, "CEFTest.up_Phone_ByPersonID", PersonID, PhoneTypeID);
+        }
 
         public static EntitySet<Person> DBRetrieveByParentID(this EntitySet<Person> set, int ParentPersonID)
         {

@@ -60,7 +60,7 @@ namespace CodexMicroORM.Core
                 return ((ICEFInfraWrapper)o).HasProperty(propName);
             }
 
-            return o.GetType().GetProperty(propName) != null;
+            return o.FastPropertyReadable(propName);
         }
     }
 
@@ -117,6 +117,22 @@ namespace CodexMicroORM.Core
         public static ICEFInfraWrapper AsInfraWrapped(this object o, bool canCreate = true)
         {
             return CEF.CurrentServiceScope.GetOrCreateInfra(o, canCreate);
+        }
+
+        public static IEnumerable<ICEFInfraWrapper> AllAsInfraWrapped<T>(this IEnumerable<T> items) where T: class, new()
+        {
+            foreach (var i in items)
+            {
+                yield return i.AsInfraWrapped();
+            }
+        }
+
+        public static IEnumerable<dynamic> AllAsDynamic<T>(this IEnumerable<T> items) where T : class, new()
+        {
+            foreach (var i in items)
+            {
+                yield return i.AsDynamic();
+            }
         }
 
         /// <summary>
@@ -220,29 +236,32 @@ namespace CodexMicroORM.Core
 
             foreach (var pi in o.GetType().GetProperties())
             {
-                var val = pi.GetValue(o);
-
-                if (WrappingHelper.IsWrappableListType(pi.PropertyType, val))
+                if (o.FastPropertyReadable(pi.Name))
                 {
-                    if (!(val is ICEFList))
+                    var val = o.FastGetValue(pi.Name);
+
+                    if (WrappingHelper.IsWrappableListType(pi.PropertyType, val))
                     {
-                        var wrappedCol = WrappingHelper.CreateWrappingList(CEF.CurrentServiceScope, pi.PropertyType, o, pi.Name);
-                        pi.SetValue(o, wrappedCol);
-
-                        if (val != null)
+                        if (!(val is ICEFList))
                         {
-                            // Based on the above type checks, we know this thing supports IEnumerable
-                            var sValEnum = ((System.Collections.IEnumerable)val).GetEnumerator();
+                            var wrappedCol = WrappingHelper.CreateWrappingList(CEF.CurrentServiceScope, pi.PropertyType, o, pi.Name);
+                            o.FastSetValue(pi.Name, wrappedCol);
 
-                            while (sValEnum.MoveNext())
+                            if (val != null)
                             {
-                                // Need to use non-generic method for this!
-                                var wi = CEF.CurrentServiceScope.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null);
-                                wrappedCol.AddWrappedItem(wi);
-                            }
-                        }
+                                // Based on the above type checks, we know this thing supports IEnumerable
+                                var sValEnum = ((System.Collections.IEnumerable)val).GetEnumerator();
 
-                        ((ISupportInitializeNotification)wrappedCol).EndInit();
+                                while (sValEnum.MoveNext())
+                                {
+                                    // Need to use non-generic method for this!
+                                    var wi = CEF.CurrentServiceScope.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, null);
+                                    wrappedCol.AddWrappedItem(wi);
+                                }
+                            }
+
+                            ((ISupportInitializeNotification)wrappedCol).EndInit();
+                        }
                     }
                 }
             }

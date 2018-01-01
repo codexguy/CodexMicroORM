@@ -129,6 +129,64 @@ namespace CodexMicroORM.NFWTests
         }
 
         [TestMethod]
+        public void LoadIncrementalByIDs()
+        {
+            int p1ID;
+
+            using (CEF.NewServiceScope())
+            {
+                var p1 = new Person() { Name = "Fred", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile } } };
+                var p2 = new Person() { Name = "Sam", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3334", PhoneTypeID = PhoneType.Mobile } } };
+                var p3 = new Person() { Name = "Carol", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile } } };
+                var p4 = new Person() { Name = "Kylo", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile } } };
+                var p5 = new Person() { Name = "Perry", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile } } };
+                var p6 = new Person() { Name = "William", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile } } };
+                p1.Kids = new Person[] { p2, p3 };
+                p2.Kids = new Person[] { p4 };
+                p3.Kids = new Person[] { p5, p6 };
+                CEF.NewObject(p1);
+                CEF.DBSave();
+                p1ID = p1.PersonID;
+            }
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                var people = new EntitySet<Person>().DBRetrieveByKey(p1ID).DBAppendByParentID(p1ID);
+
+                // Here's where we do *not* offer additional services (yet)
+                foreach (var p in people)
+                {
+                    p.Phones = new EntitySet<Phone>().DBRetrieveByOwner(p.PersonID, null);
+                }
+
+                var parent = (from a in people where a.Kids?.Count > 0 select a).FirstOrDefault();
+                Assert.AreEqual(2, parent.Kids.Count());
+                Assert.AreEqual(2, (from a in parent.Kids select a.Phones.Count()).Sum());
+            }
+        }
+
+        [TestMethod]
+        public void TestLastUpdatedByDateAssignment()
+        {
+            var p1 = new Person() { Name = "Fred", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile } } };
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { GetLastUpdatedBy = () => { return "XYZ"; } }))
+            {
+                CEF.NewObject(p1);
+                Assert.AreEqual(2, CEF.DBSave().Count());
+            }
+
+            using (CEF.NewServiceScope())
+            {
+                var es1 = new EntitySet<Person>().DBRetrieveByKey(p1.PersonID);
+                Assert.AreEqual("XYZ", es1.First().AsDynamic().LastUpdatedBy);
+                var lud = (DateTime)(es1.First().AsDynamic().LastUpdatedDate);
+                var timeDiff = DateTime.UtcNow.Subtract(lud).TotalSeconds;
+                Assert.IsTrue(timeDiff >= 0 && timeDiff < 5);
+            }
+        }
+
+        [TestMethod]
         public void PopulateFromInitialPocoVariousRetrievalsSaves()
         {
             using (CEF.NewServiceScope())
@@ -272,12 +330,12 @@ GO
 
             using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
             {
-                var p1 = CEF.NewObject<PersonWrapped>();
+                var p1 = CEF.NewObject<Person>();
                 p1.Name = "Joe";
                 p1.Age = 22;
                 p1.Gender = "M";
-                p1.Phones.Add(new Phone() { Number = "111-2222", PhoneTypeID = PhoneType.Home, Owner = p1 });
-                p1.Phones.Add(new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile, Owner = p1 });
+                var ph1 = CEF.NewObject(new Phone() { Number = "111-2222", PhoneTypeID = PhoneType.Home, Owner = p1 });
+                p1.Phones.Add(new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile });
                 var p2 = CEF.NewObject<PersonWrapped>();
                 p2.Name = "Mary";
                 p2.Age = 2;

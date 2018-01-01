@@ -22,6 +22,7 @@ using System.Collections.Concurrent;
 using System.Linq;
 using CodexMicroORM.Core.Services;
 using System.Data;
+using System.Collections.Immutable;
 
 namespace CodexMicroORM.Core
 {
@@ -33,7 +34,7 @@ namespace CodexMicroORM.Core
         #region "Private state (global)"
 
         internal static ConcurrentDictionary<Type, (bool resolved, IList<ICEFService> list)> _defaultServicesByType = new ConcurrentDictionary<Type, (bool, IList<ICEFService>)>();
-        internal static ConcurrentBag<ICEFService> _globalServices = new ConcurrentBag<ICEFService>();
+        internal static ImmutableArray<ICEFService> _globalServices = ImmutableArray<ICEFService>.Empty;
 
         [ThreadStatic]
         private static Stack<ServiceScope> _allServiceScopes = new Stack<ServiceScope>();
@@ -53,7 +54,10 @@ namespace CodexMicroORM.Core
 
         public static void AddGlobalService(ICEFService srv)
         {
-            _globalServices.Add(srv);
+            lock (typeof(CEF))
+            {
+                _globalServices = _globalServices.Add(srv);
+            }
         }
 
         #region "Public methods"
@@ -199,7 +203,7 @@ namespace CodexMicroORM.Core
 
         public static T IncludeObject<T>(T toAdd, DataRowState? drs = null) where T : class, new()
         {
-            return CurrentServiceScope.IncludeObject<T>(toAdd, drs);
+            return CurrentServiceScope.IncludeObject<T>(toAdd, drs, null);
         }
 
         public static void DeleteObject(object obj, DeleteCascadeAction action = DeleteCascadeAction.Cascade)
@@ -223,22 +227,21 @@ namespace CodexMicroORM.Core
 
         public static EntitySet<T> CreateList<T>(object parent, string parentFieldName, DataRowState initialState, params T[] items) where T : class, new()
         {
-            var rs = new EntitySet<T>(items);
+            var rs = new EntitySet<T>();
+
             rs.ParentContainer = parent ?? throw new ArgumentNullException("parent");
             rs.ParentTypeName = parent.GetBaseType().Name;
             rs.ParentFieldName = parentFieldName ?? throw new ArgumentNullException("parentFieldName");
 
-            foreach (var i in rs)
+            if (items?.Length > 0)
             {
-                var iw = i.AsInfraWrapped();
-
-                if (iw != null)
+                foreach (var i in items)
                 {
-                    iw.SetRowState(initialState);
-                }
+                    rs.Add(CEF.IncludeObject(i, initialState));
 
-                // Extra work here to wire up relationship since we know it exists
-                KeyService.LinkChildInParentContainer(CEF.CurrentServiceScope, rs.ParentTypeName, parentFieldName, parent, iw.AsUnwrapped());
+                    // Extra work here to wire up relationship since we know it exists
+                    KeyService.LinkChildInParentContainer(CEF.CurrentServiceScope, rs.ParentTypeName, parentFieldName, parent, i);
+                }
             }
 
             return rs;

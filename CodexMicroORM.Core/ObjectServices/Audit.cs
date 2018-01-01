@@ -41,19 +41,19 @@ namespace CodexMicroORM.Core.Services
         {
             get;
             set;
-        } = Globals.DefaultIsDeletedField;
+        } = "IsDeleted";
 
         public static string LastUpdatedByField
         {
             get;
             set;
-        } = Globals.DefaultLastUpdatedByField;
+        } = "LastUpdatedBy";
 
         public static string LastUpdatedDateField
         {
             get;
             set;
-        } = Globals.DefaultLastUpdatedDateField;
+        } = "LastUpdatedDate";
 
         public static bool IsLastUpdatedByDBAssigned
         {
@@ -87,11 +87,11 @@ namespace CodexMicroORM.Core.Services
             GetLastUpdatedDate = getLastUpdatedDate;
         }
 
-        public static ICEFInfraWrapper SavePreview(ICEFInfraWrapper saving, DataRowState state)
+        public static ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, DataRowState state)
         {
             if (!IsLastUpdatedByDBAssigned && !string.IsNullOrEmpty(LastUpdatedByField))
             {
-                saving.SetValue(LastUpdatedByField, GetLastUpdatedBy.Invoke());
+                saving.SetValue(LastUpdatedByField, (ss.Settings.GetLastUpdatedBy ?? GetLastUpdatedBy).Invoke());
             }
 
             if (!IsLastUpdatedDateDBAssigned && !string.IsNullOrEmpty(LastUpdatedDateField))

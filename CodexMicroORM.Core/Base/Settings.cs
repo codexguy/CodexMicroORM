@@ -19,6 +19,7 @@ Major Changes:
 using System;
 using System.Collections.Generic;
 using System.Data;
+using CodexMicroORM.Core.Services;
 
 namespace CodexMicroORM.Core
 {
@@ -38,6 +39,12 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = Globals.DefaultMergeBehavior;
+
+        public Func<string> GetLastUpdatedBy
+        {
+            get;
+            set;
+        } = AuditService.GetLastUpdatedBy;
 
         [ThreadStatic]
         public bool CanDispose = true;
@@ -78,13 +85,6 @@ namespace CodexMicroORM.Core
             set;
         } = Globals.DefaultDBSaveDOP;
 
-        public enum BulkRules
-        {
-            Never = 0,
-            Always = 1,
-            Threshold = 2
-        }
-
         [Flags]
         public enum Operations
         {
@@ -110,13 +110,38 @@ namespace CodexMicroORM.Core
         {
             get;
             set;
-        } = BulkRules.Threshold;
+        } = Globals.DefaultBulkInsertRules;
+
+        private IList<Type> _bulkInsertTypes = new List<Type>();
+
+        public IList<Type> BulkInsertTypes
+        {
+            get
+            {
+                return _bulkInsertTypes;
+            }
+            set
+            {
+                if (value?.Count > 0)
+                {
+                    BulkInsertRules = BulkRules.ByType;
+                }
+
+                _bulkInsertTypes = value;
+            }
+        }
 
         public int BulkInsertMinimumRows
         {
             get;
             set;
         } = 100000;
+
+        public DBSaveSettings UseBulkInsertTypes(params Type[] types)
+        {
+            BulkInsertTypes = types;
+            return this;
+        }
 
         public Type IgnoreObjectType
         {

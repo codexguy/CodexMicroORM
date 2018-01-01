@@ -1,8 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>net471</TargetFramework>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentNHibernate" Version="2.0.3" />
+    <PackageReference Include="NHibernate" Version="5.0.3" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CodexMicroORM.Core\CodexMicroORM.Core.csproj" />

@@ -22,6 +22,7 @@ using System.Collections.Concurrent;
 using System.Collections;
 using System.Threading;
 using System.Linq;
+using System.Collections.Immutable;
 
 namespace CodexMicroORM.Core.Collections
 {
@@ -45,9 +46,9 @@ namespace CodexMicroORM.Core.Collections
         private long _dataID = long.MinValue;
 
         ConcurrentDictionary<long, T> _data = new ConcurrentDictionary<long, T>();
-        ConcurrentDictionary<string, bool> _isUnique = new ConcurrentDictionary<string, bool>();
+        HashSet<string> _isUnique = new HashSet<string>();
         ConcurrentDictionary<T, long> _contains = new ConcurrentDictionary<T, long>();
-        ConcurrentDictionary<string, ConcurrentDictionary<object, ConcurrentBag<long>>> _masterIndex = new ConcurrentDictionary<string, ConcurrentDictionary<object, ConcurrentBag<long>>>();
+        ConcurrentDictionary<string, ConcurrentDictionary<object, ImmutableList<long>>> _masterIndex = new ConcurrentDictionary<string, ConcurrentDictionary<object, ImmutableList<long>>>();
 
         #endregion
 
@@ -55,7 +56,7 @@ namespace CodexMicroORM.Core.Collections
         {
             foreach (var props in propsToIndex)
             {
-                _masterIndex[props] = new ConcurrentDictionary<object, ConcurrentBag<long>>();
+                _masterIndex[props] = new ConcurrentDictionary<object, ImmutableList<long>>();
             }
         }
 
@@ -79,7 +80,7 @@ namespace CodexMicroORM.Core.Collections
 
         public ConcurrentIndexedList<T> AddUniqueConstraint(string propName)
         {
-            _isUnique[propName] = true;
+            _isUnique.Add(propName);
             return this;
         }
 
@@ -92,42 +93,56 @@ namespace CodexMicroORM.Core.Collections
 
             var id = Interlocked.Increment(ref _dataID);
 
-            foreach (var dic in _masterIndex)
+            try
             {
-                var propVal = item.GetValue(dic.Key, false);
-
-                if (dic.Value.TryGetValue(propVal ?? _asNull, out ConcurrentBag<long> bag))
+            }
+            finally
+            {
+                lock (this)
                 {
-                    if (bag.Count > 0 && _isUnique.ContainsKey(dic.Key))
+                    foreach (var dic in _masterIndex)
                     {
-                        throw new CEFInvalidOperationException($"Collection already contains an entry for '{propVal}'.");
+                        var propVal = item.GetValue(dic.Key, false);
+
+                        if (dic.Value.TryGetValue(propVal ?? _asNull, out ImmutableList<long> bag))
+                        {
+                            if (bag.Count > 0 && _isUnique.Contains(dic.Key))
+                            {
+                                throw new CEFInvalidOperationException($"Collection already contains an entry for '{propVal}'.");
+                            }
+
+                            dic.Value[propVal ?? _asNull] = bag.Add(id);
+                        }
+                        else
+                        {
+                            var newBag = ImmutableList.Create(id);
+                            dic.Value[propVal ?? _asNull] = newBag;
+                        }
                     }
 
-                    bag.Add(id);
-                }
-                else
-                {
-                    var newBag = new ConcurrentBag<long>();
-                    newBag.Add(id);
-                    dic.Value[propVal ?? _asNull] = newBag;
+                    _data[id] = item;
+                    _contains[item] = id;
                 }
             }
-
-            _data[id] = item;
-            _contains[item] = id;
         }
 
         public void Clear()
         {
-            lock (this)
+            try
             {
-                foreach (var dic in _masterIndex)
+            }
+            finally
+            {
+                lock (this)
                 {
-                    dic.Value.Clear();
-                }
+                    foreach (var dic in _masterIndex)
+                    {
+                        dic.Value.Clear();
+                    }
 
-                _data.Clear();
-                _contains.Clear();
+                    _data.Clear();
+                    _contains.Clear();
+                }
             }
         }
 
@@ -156,7 +171,7 @@ namespace CodexMicroORM.Core.Collections
                 throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
             }
 
-            if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out ConcurrentBag<long> bag))
+            if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out ImmutableList<long> bag))
             {
                 T val = null;
                 return (from a in bag where _data.TryGetValue(a, out val) where preview == null || preview.Invoke(val) select val);
@@ -182,24 +197,30 @@ namespace CodexMicroORM.Core.Collections
 
             var index = _masterIndex[propName];
 
-            if (index.TryGetValue(oldval ?? _asNull, out ConcurrentBag<long> oldBag))
+            if (index.TryGetValue(oldval ?? _asNull, out ImmutableList<long> oldBag))
             {
-                if (index.TryGetValue(newval ?? _asNull, out ConcurrentBag<long> newBag))
+                if (index.TryGetValue(newval ?? _asNull, out ImmutableList<long> newBag))
                 {
-                    if (_isUnique.ContainsKey(propName) && newBag.Count > 0)
+                    if (_isUnique.Contains(propName) && newBag.Count > 0)
                     {
                         throw new CEFInvalidOperationException($"Collection already contains an entry for '{newval}'.");
                     }
 
-                    foreach (var l in (from a in newBag where !oldBag.Contains(a) select a))
-                    {
-                        oldBag.Add(l);
-                    }
+                    oldBag = oldBag.AddRange(from a in newBag where !oldBag.Contains(a) select a);
                 }
 
-                index[newval ?? _asNull] = oldBag;
+                try
+                {
+                }
+                finally
+                {
+                    lock (this)
+                    {
+                        index[newval ?? _asNull] = oldBag;
 
-                index.TryRemove(oldval ?? _asNull, out ConcurrentBag<long> removed);
+                        index.TryRemove(oldval ?? _asNull, out ImmutableList<long> removed);
+                    }
+                }
             }
         }
 
@@ -232,19 +253,24 @@ namespace CodexMicroORM.Core.Collections
 
             var id = _contains[item];
 
-            lock (this)
+            try
             {
-                foreach (var dic in _masterIndex)
+            }
+            finally
+            {
+                lock (this)
                 {
-                    foreach (var v1 in dic.Value)
+                    foreach (var dic in _masterIndex)
                     {
-                        // There's no "remove" so we need to scan - may consider changing to a dictionary if this proves a drag
-                        dic.Value[v1.Key] = new ConcurrentBag<long>(from a in v1.Value where a != id select a);
+                        foreach (var v1 in dic.Value)
+                        {
+                            dic.Value[v1.Key] = v1.Value.Remove(id);
+                        }
                     }
-                }
 
-                _data.TryRemove(id, out T val);
-                _contains.TryRemove(item, out id);
+                    _data.TryRemove(id, out T val);
+                    _contains.TryRemove(item, out id);
+                }
             }
 
             return true;

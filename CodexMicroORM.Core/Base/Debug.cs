@@ -30,11 +30,27 @@ namespace CodexMicroORM.Core
     /// </summary>
     public static class CEFDebug
     {
+        private static bool _handled = false;
+
         public static bool DebugEnabled
         {
             get;
             set;
         } = false;
+
+        [System.Diagnostics.Conditional("DEBUG")]
+        public static void WaitAttach()
+        {
+            while (!Debugger.IsAttached)
+            {
+                System.Threading.Thread.Sleep(50);
+            }
+            if (!_handled)
+            {
+                _handled = true;
+                Debugger.Break();
+            }
+        }
 
         [System.Diagnostics.Conditional("DEBUG")]
         public static void DebugStop(Func<bool> check)

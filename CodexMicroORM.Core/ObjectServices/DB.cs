@@ -51,7 +51,7 @@ namespace CodexMicroORM.Core.Services
             return new Type[] { typeof(PCTService), typeof(KeyService) };
         }
 
-        public IList<(object item, string message, int status)> Save(IList<ICEFInfraWrapper> rows, DBSaveSettings settings)
+        public IList<(object item, string message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings)
         {
             List<(object item, string message, int status)> results = new List<(object item, string message, int status)>();
 
@@ -62,37 +62,45 @@ namespace CodexMicroORM.Core.Services
             // We also offer a way to "preview" what will be saved and adjust if needed
             var ordRows = (from a in rows
                            let uw = a.AsUnwrapped()
+                           where uw != null
                            let level = KeyService.GetObjectNestLevel(uw)
                            let sp = (settings.RowSavePreview == null ? (true, null) : settings.RowSavePreview.Invoke(a))
-                           where sp.cansave
-                           group a by new { Level = level, Type = uw.GetType(), RowState = sp.treatas.GetValueOrDefault(a.GetRowState()) }
+                           let rs = sp.treatas.GetValueOrDefault(a.GetRowState())
+                           where (rs != DataRowState.Unchanged && rs != DataRowState.Detached) && sp.cansave
+                           let w = a.GetWrappedObject() as ICEFWrapper
+                           let bt = uw.GetBaseType()
+                           let rd = new { Row = a, Schema = w?.GetSchemaName(), Name = (w != null ? w.GetBaseType().Name : bt?.Name) }
+                           group rd by new
+                                {
+                                    Level = level,
+                                    RowState = rs
+                                }
                            into g
-                           select new { Type = g.Key.Type, Level = g.Key.Level, RowState = g.Key.RowState, Rows = g });
+                           select new { g.Key.Level, g.Key.RowState, Rows = (from asp in g select (asp.Schema, asp.Name, AuditService.SavePreview(ss, asp.Row, g.Key.RowState))) });
 
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Delete) != 0)
             {
-                results.AddRange(from a in _defaultProvider.DeleteRows(cs, 
-                    from a in ordRows orderby a.Level descending, a.Type.Name
-                    from b in a.Rows where a.RowState == DataRowState.Deleted
-                    select (a.Level, AuditService.SavePreview(b, DataRowState.Deleted)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
+                results.AddRange(from a in _defaultProvider.DeleteRows(cs, (from a in ordRows where a.RowState == DataRowState.Deleted select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
             }
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Insert) != 0)
             {
-                results.AddRange(from a in _defaultProvider.InsertRows(cs, 
-                    from a in ordRows orderby a.Level, a.Type.Name
-                    from b in a.Rows where a.RowState == DataRowState.Added
-                    select (a.Level, AuditService.SavePreview(b, DataRowState.Added)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
+                results.AddRange(from a in _defaultProvider.InsertRows(cs, (from a in ordRows where a.RowState == DataRowState.Added select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
             }
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Update) != 0)
             {
-                results.AddRange(from a in _defaultProvider.UpdateRows(cs, 
-                    from a in ordRows orderby a.Level, a.Type.Name
-                    from b in a.Rows where a.RowState == DataRowState.Modified
-                    select (a.Level, AuditService.SavePreview(b, DataRowState.Modified)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
+                results.AddRange(from a in _defaultProvider.UpdateRows(cs, (from a in ordRows where a.RowState == DataRowState.Modified select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
             }
 
             cs.DoneWork();
             return results;
+        }
+
+        public T ExecuteScalar<T>(CommandType cmdType, string cmdText)
+        {
+            var cs = CEF.CurrentConnectionScope;
+            var res = _defaultProvider.ExecuteScalar<T>(cs, cmdText);
+            cs.DoneWork();
+            return res;
         }
 
         public void ExecuteRaw(string command, bool doThrow = true, bool stopOnError = true)

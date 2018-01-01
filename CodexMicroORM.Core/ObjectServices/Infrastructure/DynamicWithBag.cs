@@ -41,19 +41,27 @@ namespace CodexMicroORM.Core.Services
         protected object _source;
         protected bool _isBagChanged = false;
 
-        internal DynamicWithBag(object o, IDictionary<string, object> props)
+        internal DynamicWithBag(object o, IDictionary<string, object> props, IDictionary<string, Type> types)
         {
             _source = o;
-            SetInitialProps(props);
+            SetInitialProps(props, types);
         }
 
-        protected virtual void SetInitialProps(IDictionary<string, object> props)
+        protected virtual void SetInitialProps(IDictionary<string, object> props, IDictionary<string, Type> types)
         {
             if (props != null)
             {
                 foreach (var prop in props)
                 {
                     SetValue(prop.Key, prop.Value);
+                }
+            }
+
+            if (types != null)
+            {
+                foreach (var prop in types)
+                {
+                    _preferredType[prop.Key] = prop.Value;
                 }
             }
         }
@@ -78,11 +86,9 @@ namespace CodexMicroORM.Core.Services
 
         public override bool TryGetMember(GetMemberBinder binder, out object result)
         {
-            var pi = _source.GetType().GetProperty(binder.Name);
-
-            if (pi != null)
+            if (_source.FastPropertyReadable(binder.Name))
             {
-                result = pi.GetValue(_source);
+                result = _source.FastGetValue(binder.Name);
                 return true;
             }
 
@@ -134,11 +140,9 @@ namespace CodexMicroORM.Core.Services
                 return _valueBag[propName];
             }
 
-            var pi = _source.GetType().GetProperty(propName);
-
-            if (pi != null && pi.CanRead)
+            if (_source.FastPropertyReadable(propName))
             {
-                return pi.GetValue(_source);
+                return _source.FastGetValue(propName);
             }
 
             return null;
@@ -177,9 +181,9 @@ namespace CodexMicroORM.Core.Services
 
         public void SetPreferredType(string propName, Type preferredType, bool isRequired = false)
         {
-            if (preferredType.IsValueType && !isRequired)
+            if (preferredType.IsValueType && !isRequired && !preferredType.Name.StartsWith("Nullable`"))
             {
-                // todo
+                preferredType = typeof(Nullable<>).MakeGenericType(preferredType);
             }
 
             _preferredType[propName] = preferredType;
@@ -191,21 +195,21 @@ namespace CodexMicroORM.Core.Services
             {
                 if (preferredType.IsValueType && !isRequired)
                 {
-                    // todo
+                    preferredType = typeof(Nullable<>).MakeGenericType(preferredType);
                 }
 
                 _preferredType[propName] = preferredType;
             }
 
-            var pi = _source.GetType().GetProperty(propName);
-
-            if (pi != null && pi.CanWrite)
+            if (_source.FastPropertyWriteable(propName))
             {
-                var oldVal = pi.GetValue(_source);
+                var oldVal = _source.FastGetValue(propName);
 
                 if (!oldVal.IsSame(value))
                 {
-                    pi.SetValue(_source, InternalChangeType(value, pi.PropertyType));
+                    var pi = _source.GetType().GetProperty(propName);
+
+                    _source.FastSetValue(propName, InternalChangeType(value, pi.PropertyType));
                     OnPropertyChanged(propName, oldVal, value, false);
                     return true;
                 }
@@ -244,9 +248,7 @@ namespace CodexMicroORM.Core.Services
 
         public bool HasProperty(string propName)
         {
-            var pi = _source.GetType().GetProperty(propName);
-
-            if (pi != null)
+            if (_source.FastPropertyReadable(propName))
             {
                 return true;
             }
@@ -278,7 +280,7 @@ namespace CodexMicroORM.Core.Services
         {
             Dictionary<string, object> vals = new Dictionary<string, object>();
 
-            foreach (var v in (from a in _valueBag select new { a.Key, a.Value }).Concat(from pi in _source.GetType().GetProperties() select new { Key = pi.Name, Value = pi.GetValue(_source) }))
+            foreach (var v in (from a in _valueBag select new { a.Key, a.Value }).Concat(from pi in _source.GetType().GetProperties() select new { Key = pi.Name, Value = _source.FastGetValue(pi.Name) }))
             {
                 vals[v.Key] = v.Value;
             }

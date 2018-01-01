@@ -34,7 +34,7 @@ namespace CodexMicroORM.Core.Services
 
         public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
 
-        internal DynamicWithValuesAndBag(object o, DataRowState irs, IDictionary<string, object> props) : base(o, props)
+        internal DynamicWithValuesAndBag(object o, DataRowState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, props, types)
         {
             if (o is INotifyPropertyChanged)
             {
@@ -56,6 +56,11 @@ namespace CodexMicroORM.Core.Services
             {
                 CEFDebug.WriteInfo($"RowState={rs}, {_source?.GetBaseType().Name}", _source);
                 _rowState = rs;
+
+                if (rs == DataRowState.Unchanged)
+                {
+                    _isBagChanged = false;
+                }
             }
         }
 
@@ -124,12 +129,15 @@ namespace CodexMicroORM.Core.Services
 
         private void CEFValueTrackingWrapper_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            var oldval = _originalValues[e.PropertyName];
-            var newval = _source.GetType().GetProperty(e.PropertyName).GetValue(_source);
-
-            if (!oldval.IsSame(newval))
+            if (_source.FastPropertyReadable(e.PropertyName))
             {
-                OnPropertyChanged(e.PropertyName, oldval, newval, _valueBag.ContainsKey(e.PropertyName));
+                var oldval = _originalValues[e.PropertyName];
+                var newval = _source.FastGetValue(e.PropertyName);
+
+                if (!oldval.IsSame(newval))
+                {
+                    OnPropertyChanged(e.PropertyName, oldval, newval, _valueBag.ContainsKey(e.PropertyName));
+                }
             }
         }
 
@@ -143,9 +151,9 @@ namespace CodexMicroORM.Core.Services
 
             foreach (var pi in _source.GetType().GetProperties())
             {
-                if (pi.CanWrite)
+                if (_source.FastPropertyReadable(pi.Name) && _source.FastPropertyWriteable(pi.Name))
                 {
-                    _originalValues[pi.Name] = pi.GetValue(_source);
+                    _originalValues[pi.Name] = _source.FastGetValue(pi.Name);
                 }
             }
 
@@ -162,6 +170,11 @@ namespace CodexMicroORM.Core.Services
 
         public object OriginalValueFor(string propName)
         {
+            if (!_originalValues.ContainsKey(propName))
+            {
+                throw new CEFInvalidOperationException($"Property {propName} does not exist on this wrapper.");
+            }
+
             return _originalValues[propName];
         }
 

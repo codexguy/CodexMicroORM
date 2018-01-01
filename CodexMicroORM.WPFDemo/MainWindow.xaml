@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:CodexMicroORM.WPFDemo"
         mc:Ignorable="d"
-        Title="MicroCodexORM WPF Demo" Height="500" Width="600" MinHeight="500" MinWidth="600">
+        Title="MicroCodexORM WPF Demo" Height="500" Width="640" MinHeight="500" MinWidth="640">
     <Window.Resources>
         <SolidColorBrush x:Key="disabled" Color="LightGray" />
     </Window.Resources>
@@ -13,7 +13,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="2*"></RowDefinition>
             <RowDefinition></RowDefinition>
-            <RowDefinition Height="30"></RowDefinition>
+            <RowDefinition Height="56"></RowDefinition>
         </Grid.RowDefinitions>
         <ListBox Grid.Row="0" x:Name="ConsoleList" Margin="4"></ListBox>
         <DataGrid Grid.Row="1" x:Name="Data1" Margin="4" AutoGenerateColumns="false" CanUserAddRows="false" CanUserDeleteRows="false">
@@ -57,9 +57,37 @@
                 </DataGridTextColumn>
             </DataGrid.Columns>
         </DataGrid>
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="4" HorizontalAlignment="Center">
-            <Button MinWidth="60" x:Name="StartTests" Click="StartTests_Click">Start Tests</Button>
-            <Button Margin="40,0,0,0" MinWidth="60" IsEnabled="false" x:Name="Save" Click="Save_Click">Save</Button>
-        </StackPanel>
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition></ColumnDefinition>
+                <ColumnDefinition></ColumnDefinition>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Grid.Column="0" Margin="4">
+                <Button MinWidth="60" x:Name="StartTests" Click="StartTests_Click">Start Tests</Button>
+                <Button Margin="40,0,0,0" MinWidth="60" IsEnabled="false" x:Name="Save" Click="Save_Click">Save</Button>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Margin="4">
+                <StackPanel Orientation="Horizontal">
+                    <ComboBox MinWidth="180" x:Name="Benchmark">
+                        <ComboBoxItem>CodexMicroORM Suite 1</ComboBoxItem>
+                        <ComboBoxItem>CodexMicroORM Suite 1 (with bulk)</ComboBoxItem>
+                        <ComboBoxItem>CodexMicroORM Suite 1 (save per)</ComboBoxItem>
+                        <ComboBoxItem>EF6 Suite 1</ComboBoxItem>
+                        <ComboBoxItem>EF6 Suite 1 (save per)</ComboBoxItem>
+                        <ComboBoxItem>Dapper Suite 1</ComboBoxItem>
+                        <ComboBoxItem>nHibernate Suite 1</ComboBoxItem>
+                        <ComboBoxItem>nHibernate Suite 1 (save per)</ComboBoxItem>
+                    </ComboBox>
+                    <Button MinWidth="60" Margin="20,0,0,0" x:Name="RunBenchmark" Click="RunBenchmark_Click">Run</Button>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <TextBlock Margin="0,0,8,0">Rows:</TextBlock>
+                    <ComboBox Width="80" x:Name="Rows" HorizontalAlignment="Left">
+                        <ComboBoxItem>3000</ComboBoxItem>
+                        <ComboBoxItem>6000</ComboBoxItem>
+                    </ComboBox>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

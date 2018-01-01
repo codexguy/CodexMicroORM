@@ -1,0 +1,701 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="3.0" xmlns:edmx="http://schemas.microsoft.com/ado/2009/11/edmx">
+  <!-- EF Runtime content -->
+  <edmx:Runtime>
+    <!-- SSDL content -->
+    <edmx:StorageModels>
+    <Schema Namespace="EFModel.Store" Provider="System.Data.SqlClient" ProviderManifestToken="2012" Alias="Self" xmlns:store="http://schemas.microsoft.com/ado/2007/12/edm/EntityStoreSchemaGenerator" xmlns:customannotation="http://schemas.microsoft.com/ado/2013/11/edm/customannotation" xmlns="http://schemas.microsoft.com/ado/2009/11/edm/ssdl">
+        <EntityType Name="Person">
+          <Key>
+            <PropertyRef Name="PersonID" />
+          </Key>
+          <Property Name="PersonID" Type="int" StoreGeneratedPattern="Identity" Nullable="false" />
+          <Property Name="Name" Type="varchar" MaxLength="100" Nullable="false" />
+          <Property Name="Age" Type="int" Nullable="false" />
+          <Property Name="ParentPersonID" Type="int" />
+          <Property Name="LastUpdatedBy" Type="varchar" MaxLength="50" Nullable="false" />
+          <Property Name="LastUpdatedDate" Type="datetime2" Precision="7" Nullable="false" />
+          <Property Name="Gender" Type="char" MaxLength="1" />
+          <Property Name="IsDeleted" Type="bit" Nullable="false" />
+        </EntityType>
+        <EntityType Name="Phone">
+          <Key>
+            <PropertyRef Name="PhoneID" />
+          </Key>
+          <Property Name="PhoneID" Type="int" StoreGeneratedPattern="Identity" Nullable="false" />
+          <Property Name="PhoneTypeID" Type="int" Nullable="false" />
+          <Property Name="Number" Type="varchar" MaxLength="20" Nullable="false" />
+          <Property Name="LastUpdatedBy" Type="varchar" MaxLength="50" Nullable="false" />
+          <Property Name="LastUpdatedDate" Type="datetime2" Precision="7" Nullable="false" />
+          <Property Name="PersonID" Type="int" />
+        </EntityType>
+        <EntityType Name="PhoneType">
+          <Key>
+            <PropertyRef Name="PhoneTypeID" />
+          </Key>
+          <Property Name="PhoneTypeID" Type="int" StoreGeneratedPattern="Identity" Nullable="false" />
+          <Property Name="PhoneTypeDesc" Type="varchar" MaxLength="100" Nullable="false" />
+          <Property Name="LastUpdatedBy" Type="varchar" MaxLength="50" Nullable="false" />
+          <Property Name="LastUpdatedDate" Type="datetime2" Precision="7" Nullable="false" />
+        </EntityType>
+        <Association Name="FK__Person__ParentPe__7F4CAA17">
+          <End Role="Person" Type="Self.Person" Multiplicity="0..1" />
+          <End Role="Person1" Type="Self.Person" Multiplicity="*" />
+          <ReferentialConstraint>
+            <Principal Role="Person">
+              <PropertyRef Name="PersonID" />
+            </Principal>
+            <Dependent Role="Person1">
+              <PropertyRef Name="ParentPersonID" />
+            </Dependent>
+          </ReferentialConstraint>
+        </Association>
+        <Association Name="FK__Phone__PersonID__32CC4E1D">
+          <End Role="Person" Type="Self.Person" Multiplicity="0..1" />
+          <End Role="Phone" Type="Self.Phone" Multiplicity="*" />
+          <ReferentialConstraint>
+            <Principal Role="Person">
+              <PropertyRef Name="PersonID" />
+            </Principal>
+            <Dependent Role="Phone">
+              <PropertyRef Name="PersonID" />
+            </Dependent>
+          </ReferentialConstraint>
+        </Association>
+        <Association Name="FK__Phone__PhoneType__04115F34">
+          <End Role="PhoneType" Type="Self.PhoneType" Multiplicity="1" />
+          <End Role="Phone" Type="Self.Phone" Multiplicity="*" />
+          <ReferentialConstraint>
+            <Principal Role="PhoneType">
+              <PropertyRef Name="PhoneTypeID" />
+            </Principal>
+            <Dependent Role="Phone">
+              <PropertyRef Name="PhoneTypeID" />
+            </Dependent>
+          </ReferentialConstraint>
+        </Association>
+        <Function Name="up_Person_ByKey" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="PersonID" Type="int" Mode="In" />
+        </Function>
+        <Function Name="up_Person_ByParentPersonID" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="ParentPersonID" Type="int" Mode="In" />
+        </Function>
+        <Function Name="up_Person_d" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="PersonID" Type="int" Mode="In" />
+          <Parameter Name="LastUpdatedBy" Type="varchar" Mode="In" />
+          <Parameter Name="LastUpdatedDate" Type="datetime2" Mode="In" />
+        </Function>
+        <Function Name="up_Person_ForList" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+        </Function>
+        <Function Name="up_Person_i" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="PersonID" Type="int" Mode="InOut" />
+          <Parameter Name="Name" Type="varchar" Mode="In" />
+          <Parameter Name="Age" Type="int" Mode="In" />
+          <Parameter Name="ParentPersonID" Type="int" Mode="In" />
+          <Parameter Name="Gender" Type="char" Mode="In" />
+          <Parameter Name="LastUpdatedBy" Type="varchar" Mode="In" />
+          <Parameter Name="LastUpdatedDate" Type="datetime2" Mode="InOut" />
+        </Function>
+        <Function Name="up_Person_SummaryForParents" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="MinimumAge" Type="int" Mode="In" />
+        </Function>
+        <Function Name="up_Person_u" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="PersonID" Type="int" Mode="In" />
+          <Parameter Name="Name" Type="varchar" Mode="In" />
+          <Parameter Name="Age" Type="int" Mode="In" />
+          <Parameter Name="ParentPersonID" Type="int" Mode="In" />
+          <Parameter Name="Gender" Type="char" Mode="In" />
+          <Parameter Name="LastUpdatedBy" Type="varchar" Mode="In" />
+          <Parameter Name="LastUpdatedDate" Type="datetime2" Mode="InOut" />
+        </Function>
+        <Function Name="up_Phone_AllForFamily" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="PersonID" Type="int" Mode="In" />
+        </Function>
+        <Function Name="up_Phone_ByKey" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="PhoneID" Type="int" Mode="In" />
+        </Function>
+        <Function Name="up_Phone_ByPersonID" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="PersonID" Type="int" Mode="In" />
+          <Parameter Name="PhoneTypeID" Type="int" Mode="In" />
+        </Function>
+        <Function Name="up_Phone_d" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="PhoneID" Type="int" Mode="In" />
+          <Parameter Name="LastUpdatedBy" Type="varchar" Mode="In" />
+        </Function>
+        <Function Name="up_Phone_ForList" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+        </Function>
+        <Function Name="up_Phone_i" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="PhoneID" Type="int" Mode="InOut" />
+          <Parameter Name="PhoneTypeID" Type="int" Mode="In" />
+          <Parameter Name="Number" Type="varchar" Mode="In" />
+          <Parameter Name="PersonID" Type="int" Mode="In" />
+          <Parameter Name="LastUpdatedBy" Type="varchar" Mode="In" />
+          <Parameter Name="LastUpdatedDate" Type="datetime2" Mode="InOut" />
+        </Function>
+        <Function Name="up_Phone_u" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="PhoneID" Type="int" Mode="In" />
+          <Parameter Name="PhoneTypeID" Type="int" Mode="In" />
+          <Parameter Name="Number" Type="varchar" Mode="In" />
+          <Parameter Name="PersonID" Type="int" Mode="In" />
+          <Parameter Name="LastUpdatedBy" Type="varchar" Mode="In" />
+          <Parameter Name="LastUpdatedDate" Type="datetime2" Mode="InOut" />
+        </Function>
+        <Function Name="up_PhoneType_ByKey" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="PhoneTypeID" Type="int" Mode="In" />
+        </Function>
+        <Function Name="up_PhoneType_d" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="PhoneTypeID" Type="int" Mode="In" />
+          <Parameter Name="LastUpdatedBy" Type="varchar" Mode="In" />
+        </Function>
+        <Function Name="up_PhoneType_ForList" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+        </Function>
+        <Function Name="up_PhoneType_i" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="PhoneTypeID" Type="int" Mode="InOut" />
+          <Parameter Name="PhoneTypeDesc" Type="varchar" Mode="In" />
+          <Parameter Name="LastUpdatedBy" Type="varchar" Mode="In" />
+          <Parameter Name="LastUpdatedDate" Type="datetime2" Mode="InOut" />
+        </Function>
+        <Function Name="up_PhoneType_u" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="CEFTest">
+          <Parameter Name="RetVal" Type="int" Mode="InOut" />
+          <Parameter Name="Msg" Type="varchar" Mode="InOut" />
+          <Parameter Name="PhoneTypeID" Type="int" Mode="In" />
+          <Parameter Name="PhoneTypeDesc" Type="varchar" Mode="In" />
+          <Parameter Name="LastUpdatedBy" Type="varchar" Mode="In" />
+          <Parameter Name="LastUpdatedDate" Type="datetime2" Mode="InOut" />
+        </Function>
+        <EntityContainer Name="EFModelStoreContainer">
+          <EntitySet Name="Person" EntityType="Self.Person" Schema="CEFTest" store:Type="Tables" />
+          <EntitySet Name="Phone" EntityType="Self.Phone" Schema="CEFTest" store:Type="Tables" />
+          <EntitySet Name="PhoneType" EntityType="Self.PhoneType" Schema="CEFTest" store:Type="Tables" />
+          <AssociationSet Name="FK__Person__ParentPe__7F4CAA17" Association="Self.FK__Person__ParentPe__7F4CAA17">
+            <End Role="Person" EntitySet="Person" />
+            <End Role="Person1" EntitySet="Person" />
+          </AssociationSet>
+          <AssociationSet Name="FK__Phone__PersonID__32CC4E1D" Association="Self.FK__Phone__PersonID__32CC4E1D">
+            <End Role="Person" EntitySet="Person" />
+            <End Role="Phone" EntitySet="Phone" />
+          </AssociationSet>
+          <AssociationSet Name="FK__Phone__PhoneType__04115F34" Association="Self.FK__Phone__PhoneType__04115F34">
+            <End Role="PhoneType" EntitySet="PhoneType" />
+            <End Role="Phone" EntitySet="Phone" />
+          </AssociationSet>
+        </EntityContainer>
+      </Schema></edmx:StorageModels>
+    <!-- CSDL content -->
+    <edmx:ConceptualModels>
+      <Schema Namespace="EFObjectModel" Alias="Self" annotation:UseStrongSpatialTypes="false" xmlns:annotation="http://schemas.microsoft.com/ado/2009/02/edm/annotation" xmlns:customannotation="http://schemas.microsoft.com/ado/2013/11/edm/customannotation" xmlns="http://schemas.microsoft.com/ado/2009/11/edm">
+        <EntityType Name="Person">
+          <Key>
+            <PropertyRef Name="PersonID" />
+          </Key>
+          <Property Name="PersonID" Type="Int32" Nullable="false" annotation:StoreGeneratedPattern="Identity" />
+          <Property Name="Name" Type="String" MaxLength="100" FixedLength="false" Unicode="false" Nullable="false" />
+          <Property Name="Age" Type="Int32" Nullable="false" />
+          <Property Name="ParentPersonID" Type="Int32" />
+          <Property Name="LastUpdatedBy" Type="String" MaxLength="50" FixedLength="false" Unicode="false" Nullable="false" />
+          <Property Name="LastUpdatedDate" Type="DateTime" Nullable="false" Precision="7" />
+          <Property Name="Gender" Type="String" MaxLength="1" FixedLength="true" Unicode="false" />
+          <Property Name="IsDeleted" Type="Boolean" Nullable="false" />
+          <NavigationProperty Name="Kids" Relationship="Self.FK__Person__ParentPe__7F4CAA17" FromRole="Person" ToRole="Person1" />
+          <NavigationProperty Name="Parent" Relationship="Self.FK__Person__ParentPe__7F4CAA17" FromRole="Person1" ToRole="Person" />
+          <NavigationProperty Name="Phones" Relationship="Self.FK__Phone__PersonID__32CC4E1D" FromRole="Person" ToRole="Phone" />
+        </EntityType>
+        <EntityType Name="Phone">
+          <Key>
+            <PropertyRef Name="PhoneID" />
+          </Key>
+          <Property Name="PhoneID" Type="Int32" Nullable="false" annotation:StoreGeneratedPattern="Identity" />
+          <Property Name="PhoneTypeID" Type="EFObjectModel.PhoneTypeEnum" Nullable="false" />
+          <Property Name="Number" Type="String" MaxLength="20" FixedLength="false" Unicode="false" Nullable="false" />
+          <Property Name="LastUpdatedBy" Type="String" MaxLength="50" FixedLength="false" Unicode="false" Nullable="false" />
+          <Property Name="LastUpdatedDate" Type="DateTime" Nullable="false" Precision="7" />
+          <Property Name="PersonID" Type="Int32" />
+          <NavigationProperty Name="Person" Relationship="Self.FK__Phone__PersonID__32CC4E1D" FromRole="Phone" ToRole="Person" />
+          <NavigationProperty Name="PhoneType" Relationship="Self.FK__Phone__PhoneType__04115F34" FromRole="Phone" ToRole="PhoneType" />
+        </EntityType>
+        <EntityType Name="PhoneType">
+          <Key>
+            <PropertyRef Name="PhoneTypeID" />
+          </Key>
+          <Property Name="PhoneTypeID" Type="EFObjectModel.PhoneTypeEnum" Nullable="false" annotation:StoreGeneratedPattern="Identity" />
+          <Property Name="PhoneTypeDesc" Type="String" MaxLength="100" FixedLength="false" Unicode="false" Nullable="false" />
+          <Property Name="LastUpdatedBy" Type="String" MaxLength="50" FixedLength="false" Unicode="false" Nullable="false" />
+          <Property Name="LastUpdatedDate" Type="DateTime" Nullable="false" Precision="7" />
+          <NavigationProperty Name="Phones" Relationship="Self.FK__Phone__PhoneType__04115F34" FromRole="PhoneType" ToRole="Phone" />
+        </EntityType>
+        <Association Name="FK__Person__ParentPe__7F4CAA17">
+          <End Role="Person" Type="Self.Person" Multiplicity="0..1" />
+          <End Role="Person1" Type="Self.Person" Multiplicity="*" />
+          <ReferentialConstraint>
+            <Principal Role="Person">
+              <PropertyRef Name="PersonID" />
+            </Principal>
+            <Dependent Role="Person1">
+              <PropertyRef Name="ParentPersonID" />
+            </Dependent>
+          </ReferentialConstraint>
+        </Association>
+        <Association Name="FK__Phone__PersonID__32CC4E1D">
+          <End Role="Person" Type="Self.Person" Multiplicity="0..1" />
+          <End Role="Phone" Type="Self.Phone" Multiplicity="*" />
+          <ReferentialConstraint>
+            <Principal Role="Person">
+              <PropertyRef Name="PersonID" />
+            </Principal>
+            <Dependent Role="Phone">
+              <PropertyRef Name="PersonID" />
+            </Dependent>
+          </ReferentialConstraint>
+        </Association>
+        <Association Name="FK__Phone__PhoneType__04115F34">
+          <End Role="PhoneType" Type="Self.PhoneType" Multiplicity="1" />
+          <End Role="Phone" Type="Self.Phone" Multiplicity="*" />
+          <ReferentialConstraint>
+            <Principal Role="PhoneType">
+              <PropertyRef Name="PhoneTypeID" />
+            </Principal>
+            <Dependent Role="Phone">
+              <PropertyRef Name="PhoneTypeID" />
+            </Dependent>
+          </ReferentialConstraint>
+        </Association>
+        <EntityContainer Name="CodexMicroORMTestEntities" annotation:LazyLoadingEnabled="true">
+          <EntitySet Name="People" EntityType="Self.Person" />
+          <EntitySet Name="Phones" EntityType="Self.Phone" />
+          <EntitySet Name="PhoneTypes" EntityType="Self.PhoneType" />
+          <AssociationSet Name="FK__Person__ParentPe__7F4CAA17" Association="Self.FK__Person__ParentPe__7F4CAA17">
+            <End Role="Person" EntitySet="People" />
+            <End Role="Person1" EntitySet="People" />
+          </AssociationSet>
+          <AssociationSet Name="FK__Phone__PersonID__32CC4E1D" Association="Self.FK__Phone__PersonID__32CC4E1D">
+            <End Role="Person" EntitySet="People" />
+            <End Role="Phone" EntitySet="Phones" />
+          </AssociationSet>
+          <AssociationSet Name="FK__Phone__PhoneType__04115F34" Association="Self.FK__Phone__PhoneType__04115F34">
+            <End Role="PhoneType" EntitySet="PhoneTypes" />
+            <End Role="Phone" EntitySet="Phones" />
+          </AssociationSet>
+          <FunctionImport Name="up_Person_ByKey" ReturnType="Collection(EFObjectModel.up_Person_ByKey_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="PersonID" Mode="In" Type="Int32" />
+          </FunctionImport>
+          <FunctionImport Name="up_Person_ByParentPersonID" ReturnType="Collection(EFObjectModel.up_Person_ByParentPersonID_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="ParentPersonID" Mode="In" Type="Int32" />
+          </FunctionImport>
+          <FunctionImport Name="up_Person_d">
+            <Parameter Name="PersonID" Mode="In" Type="Int32" />
+            <Parameter Name="LastUpdatedBy" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedDate" Mode="In" Type="DateTime" />
+          </FunctionImport>
+          <FunctionImport Name="up_Person_ForList" ReturnType="Collection(EFObjectModel.up_Person_ForList_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+          </FunctionImport>
+          <FunctionImport Name="up_Person_i">
+            <Parameter Name="PersonID" Mode="InOut" Type="Int32" />
+            <Parameter Name="Name" Mode="In" Type="String" />
+            <Parameter Name="Age" Mode="In" Type="Int32" />
+            <Parameter Name="ParentPersonID" Mode="In" Type="Int32" />
+            <Parameter Name="Gender" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedBy" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedDate" Mode="InOut" Type="DateTime" />
+          </FunctionImport>
+          <FunctionImport Name="up_Person_SummaryForParents" ReturnType="Collection(EFObjectModel.up_Person_SummaryForParents_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="MinimumAge" Mode="In" Type="Int32" />
+          </FunctionImport>
+          <FunctionImport Name="up_Person_u">
+            <Parameter Name="PersonID" Mode="In" Type="Int32" />
+            <Parameter Name="Name" Mode="In" Type="String" />
+            <Parameter Name="Age" Mode="In" Type="Int32" />
+            <Parameter Name="ParentPersonID" Mode="In" Type="Int32" />
+            <Parameter Name="Gender" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedBy" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedDate" Mode="InOut" Type="DateTime" />
+          </FunctionImport>
+          <FunctionImport Name="up_Phone_AllForFamily" ReturnType="Collection(EFObjectModel.up_Phone_AllForFamily_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="PersonID" Mode="In" Type="Int32" />
+          </FunctionImport>
+          <FunctionImport Name="up_Phone_ByKey" ReturnType="Collection(EFObjectModel.up_Phone_ByKey_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="PhoneID" Mode="In" Type="Int32" />
+          </FunctionImport>
+          <FunctionImport Name="up_Phone_ByPersonID" ReturnType="Collection(EFObjectModel.up_Phone_ByPersonID_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="PersonID" Mode="In" Type="Int32" />
+            <Parameter Name="PhoneTypeID" Mode="In" Type="Int32" />
+          </FunctionImport>
+          <FunctionImport Name="up_Phone_d">
+            <Parameter Name="PhoneID" Mode="In" Type="Int32" />
+            <Parameter Name="LastUpdatedBy" Mode="In" Type="String" />
+          </FunctionImport>
+          <FunctionImport Name="up_Phone_ForList" ReturnType="Collection(EFObjectModel.up_Phone_ForList_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+          </FunctionImport>
+          <FunctionImport Name="up_Phone_i">
+            <Parameter Name="PhoneID" Mode="InOut" Type="Int32" />
+            <Parameter Name="PhoneTypeID" Mode="In" Type="Int32" />
+            <Parameter Name="Number" Mode="In" Type="String" />
+            <Parameter Name="PersonID" Mode="In" Type="Int32" />
+            <Parameter Name="LastUpdatedBy" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedDate" Mode="InOut" Type="DateTime" />
+          </FunctionImport>
+          <FunctionImport Name="up_Phone_u">
+            <Parameter Name="PhoneID" Mode="In" Type="Int32" />
+            <Parameter Name="PhoneTypeID" Mode="In" Type="Int32" />
+            <Parameter Name="Number" Mode="In" Type="String" />
+            <Parameter Name="PersonID" Mode="In" Type="Int32" />
+            <Parameter Name="LastUpdatedBy" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedDate" Mode="InOut" Type="DateTime" />
+          </FunctionImport>
+          <FunctionImport Name="up_PhoneType_ByKey" ReturnType="Collection(EFObjectModel.up_PhoneType_ByKey_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="PhoneTypeID" Mode="In" Type="Int32" />
+          </FunctionImport>
+          <FunctionImport Name="up_PhoneType_d">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="PhoneTypeID" Mode="In" Type="Int32" />
+            <Parameter Name="LastUpdatedBy" Mode="In" Type="String" />
+          </FunctionImport>
+          <FunctionImport Name="up_PhoneType_ForList" ReturnType="Collection(EFObjectModel.up_PhoneType_ForList_Result)">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+          </FunctionImport>
+          <FunctionImport Name="up_PhoneType_i">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="PhoneTypeID" Mode="InOut" Type="Int32" />
+            <Parameter Name="PhoneTypeDesc" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedBy" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedDate" Mode="InOut" Type="DateTime" />
+          </FunctionImport>
+          <FunctionImport Name="up_PhoneType_u">
+            <Parameter Name="RetVal" Mode="InOut" Type="Int32" />
+            <Parameter Name="Msg" Mode="InOut" Type="String" />
+            <Parameter Name="PhoneTypeID" Mode="In" Type="Int32" />
+            <Parameter Name="PhoneTypeDesc" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedBy" Mode="In" Type="String" />
+            <Parameter Name="LastUpdatedDate" Mode="InOut" Type="DateTime" />
+          </FunctionImport>
+        </EntityContainer>
+        <ComplexType Name="up_Person_ByKey_Result">
+          <Property Type="Int32" Name="PersonID" Nullable="false" />
+          <Property Type="String" Name="Name" Nullable="false" MaxLength="100" />
+          <Property Type="Int32" Name="Age" Nullable="false" />
+          <Property Type="Int32" Name="ParentPersonID" Nullable="true" />
+          <Property Type="String" Name="Gender" Nullable="true" MaxLength="1" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+        </ComplexType>
+        <ComplexType Name="up_Person_ByParentPersonID_Result">
+          <Property Type="Int32" Name="PersonID" Nullable="false" />
+          <Property Type="String" Name="Name" Nullable="false" MaxLength="100" />
+          <Property Type="Int32" Name="Age" Nullable="false" />
+          <Property Type="Int32" Name="ParentPersonID" Nullable="true" />
+          <Property Type="String" Name="Gender" Nullable="true" MaxLength="1" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+        </ComplexType>
+        <ComplexType Name="up_Person_ForList_Result">
+          <Property Type="Int32" Name="PersonID" Nullable="false" />
+          <Property Type="String" Name="Name" Nullable="false" MaxLength="100" />
+          <Property Type="Int32" Name="Age" Nullable="false" />
+          <Property Type="Int32" Name="ParentPersonID" Nullable="true" />
+          <Property Type="String" Name="Gender" Nullable="true" MaxLength="1" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+        </ComplexType>
+        <ComplexType Name="up_Person_SummaryForParents_Result">
+          <Property Type="Int32" Name="PersonID" Nullable="false" />
+          <Property Type="String" Name="Name" Nullable="false" MaxLength="100" />
+          <Property Type="Int32" Name="Age" Nullable="false" />
+          <Property Type="Int32" Name="ParentPersonID" Nullable="true" />
+          <Property Type="String" Name="Gender" Nullable="true" MaxLength="1" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+          <Property Type="Int32" Name="MaleChildren" Nullable="true" />
+          <Property Type="Int32" Name="FemaleChildren" Nullable="true" />
+          <Property Type="Int32" Name="FamilyPhones" Nullable="true" />
+        </ComplexType>
+        <ComplexType Name="up_Phone_AllForFamily_Result">
+          <Property Type="Int32" Name="PhoneID" Nullable="false" />
+          <Property Type="Int32" Name="PhoneTypeID" Nullable="false" />
+          <Property Type="String" Name="Number" Nullable="false" MaxLength="20" />
+          <Property Type="Int32" Name="PersonID" Nullable="true" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+        </ComplexType>
+        <ComplexType Name="up_Phone_ByKey_Result">
+          <Property Type="Int32" Name="PhoneID" Nullable="false" />
+          <Property Type="Int32" Name="PhoneTypeID" Nullable="false" />
+          <Property Type="String" Name="Number" Nullable="false" MaxLength="20" />
+          <Property Type="Int32" Name="PersonID" Nullable="true" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+        </ComplexType>
+        <ComplexType Name="up_Phone_ByPersonID_Result">
+          <Property Type="Int32" Name="PhoneID" Nullable="false" />
+          <Property Type="Int32" Name="PhoneTypeID" Nullable="false" />
+          <Property Type="String" Name="Number" Nullable="false" MaxLength="20" />
+          <Property Type="Int32" Name="PersonID" Nullable="true" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+        </ComplexType>
+        <ComplexType Name="up_Phone_ForList_Result">
+          <Property Type="Int32" Name="PhoneID" Nullable="false" />
+          <Property Type="Int32" Name="PhoneTypeID" Nullable="false" />
+          <Property Type="String" Name="Number" Nullable="false" MaxLength="20" />
+          <Property Type="Int32" Name="PersonID" Nullable="true" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+        </ComplexType>
+        <ComplexType Name="up_PhoneType_ByKey_Result">
+          <Property Type="Int32" Name="PhoneTypeID" Nullable="false" />
+          <Property Type="String" Name="PhoneTypeDesc" Nullable="false" MaxLength="100" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+        </ComplexType>
+        <ComplexType Name="up_PhoneType_ForList_Result">
+          <Property Type="Int32" Name="PhoneTypeID" Nullable="false" />
+          <Property Type="String" Name="PhoneTypeDesc" Nullable="false" MaxLength="100" />
+          <Property Type="String" Name="LastUpdatedBy" Nullable="false" MaxLength="50" />
+          <Property Type="DateTime" Name="LastUpdatedDate" Nullable="false" />
+        </ComplexType>
+        <EnumType Name="PhoneTypeEnum">
+          <Member Name="Home" Value="1" />
+          <Member Name="Work" Value="2" />
+          <Member Name="Mobile" Value="3" />
+        </EnumType>
+      </Schema>
+    </edmx:ConceptualModels>
+    <!-- C-S mapping content -->
+    <edmx:Mappings>
+      <Mapping Space="C-S" xmlns="http://schemas.microsoft.com/ado/2009/11/mapping/cs">
+        <EntityContainerMapping StorageEntityContainer="EFModelStoreContainer" CdmEntityContainer="CodexMicroORMTestEntities">
+          <EntitySetMapping Name="People">
+            <EntityTypeMapping TypeName="EFObjectModel.Person">
+              <MappingFragment StoreEntitySet="Person">
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+                <ScalarProperty Name="Name" ColumnName="Name" />
+                <ScalarProperty Name="Age" ColumnName="Age" />
+                <ScalarProperty Name="ParentPersonID" ColumnName="ParentPersonID" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+                <ScalarProperty Name="Gender" ColumnName="Gender" />
+                <ScalarProperty Name="IsDeleted" ColumnName="IsDeleted" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="Phones">
+            <EntityTypeMapping TypeName="EFObjectModel.Phone">
+              <MappingFragment StoreEntitySet="Phone">
+                <ScalarProperty Name="PhoneID" ColumnName="PhoneID" />
+                <ScalarProperty Name="PhoneTypeID" ColumnName="PhoneTypeID" />
+                <ScalarProperty Name="Number" ColumnName="Number" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="PhoneTypes">
+            <EntityTypeMapping TypeName="EFObjectModel.PhoneType">
+              <MappingFragment StoreEntitySet="PhoneType">
+                <ScalarProperty Name="PhoneTypeID" ColumnName="PhoneTypeID" />
+                <ScalarProperty Name="PhoneTypeDesc" ColumnName="PhoneTypeDesc" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <FunctionImportMapping FunctionImportName="up_Person_ByKey" FunctionName="EFModel.Store.up_Person_ByKey">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_Person_ByKey_Result">
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+                <ScalarProperty Name="Name" ColumnName="Name" />
+                <ScalarProperty Name="Age" ColumnName="Age" />
+                <ScalarProperty Name="ParentPersonID" ColumnName="ParentPersonID" />
+                <ScalarProperty Name="Gender" ColumnName="Gender" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_Person_ByParentPersonID" FunctionName="EFModel.Store.up_Person_ByParentPersonID">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_Person_ByParentPersonID_Result">
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+                <ScalarProperty Name="Name" ColumnName="Name" />
+                <ScalarProperty Name="Age" ColumnName="Age" />
+                <ScalarProperty Name="ParentPersonID" ColumnName="ParentPersonID" />
+                <ScalarProperty Name="Gender" ColumnName="Gender" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_Person_d" FunctionName="EFModel.Store.up_Person_d" />
+          <FunctionImportMapping FunctionImportName="up_Person_ForList" FunctionName="EFModel.Store.up_Person_ForList">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_Person_ForList_Result">
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+                <ScalarProperty Name="Name" ColumnName="Name" />
+                <ScalarProperty Name="Age" ColumnName="Age" />
+                <ScalarProperty Name="ParentPersonID" ColumnName="ParentPersonID" />
+                <ScalarProperty Name="Gender" ColumnName="Gender" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_Person_i" FunctionName="EFModel.Store.up_Person_i" />
+          <FunctionImportMapping FunctionImportName="up_Person_SummaryForParents" FunctionName="EFModel.Store.up_Person_SummaryForParents">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_Person_SummaryForParents_Result">
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+                <ScalarProperty Name="Name" ColumnName="Name" />
+                <ScalarProperty Name="Age" ColumnName="Age" />
+                <ScalarProperty Name="ParentPersonID" ColumnName="ParentPersonID" />
+                <ScalarProperty Name="Gender" ColumnName="Gender" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+                <ScalarProperty Name="MaleChildren" ColumnName="MaleChildren" />
+                <ScalarProperty Name="FemaleChildren" ColumnName="FemaleChildren" />
+                <ScalarProperty Name="FamilyPhones" ColumnName="FamilyPhones" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_Person_u" FunctionName="EFModel.Store.up_Person_u" />
+          <FunctionImportMapping FunctionImportName="up_Phone_AllForFamily" FunctionName="EFModel.Store.up_Phone_AllForFamily">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_Phone_AllForFamily_Result">
+                <ScalarProperty Name="PhoneID" ColumnName="PhoneID" />
+                <ScalarProperty Name="PhoneTypeID" ColumnName="PhoneTypeID" />
+                <ScalarProperty Name="Number" ColumnName="Number" />
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_Phone_ByKey" FunctionName="EFModel.Store.up_Phone_ByKey">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_Phone_ByKey_Result">
+                <ScalarProperty Name="PhoneID" ColumnName="PhoneID" />
+                <ScalarProperty Name="PhoneTypeID" ColumnName="PhoneTypeID" />
+                <ScalarProperty Name="Number" ColumnName="Number" />
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_Phone_ByPersonID" FunctionName="EFModel.Store.up_Phone_ByPersonID">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_Phone_ByPersonID_Result">
+                <ScalarProperty Name="PhoneID" ColumnName="PhoneID" />
+                <ScalarProperty Name="PhoneTypeID" ColumnName="PhoneTypeID" />
+                <ScalarProperty Name="Number" ColumnName="Number" />
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_Phone_d" FunctionName="EFModel.Store.up_Phone_d" />
+          <FunctionImportMapping FunctionImportName="up_Phone_ForList" FunctionName="EFModel.Store.up_Phone_ForList">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_Phone_ForList_Result">
+                <ScalarProperty Name="PhoneID" ColumnName="PhoneID" />
+                <ScalarProperty Name="PhoneTypeID" ColumnName="PhoneTypeID" />
+                <ScalarProperty Name="Number" ColumnName="Number" />
+                <ScalarProperty Name="PersonID" ColumnName="PersonID" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_Phone_i" FunctionName="EFModel.Store.up_Phone_i" />
+          <FunctionImportMapping FunctionImportName="up_Phone_u" FunctionName="EFModel.Store.up_Phone_u" />
+          <FunctionImportMapping FunctionImportName="up_PhoneType_ByKey" FunctionName="EFModel.Store.up_PhoneType_ByKey">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_PhoneType_ByKey_Result">
+                <ScalarProperty Name="PhoneTypeID" ColumnName="PhoneTypeID" />
+                <ScalarProperty Name="PhoneTypeDesc" ColumnName="PhoneTypeDesc" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_PhoneType_d" FunctionName="EFModel.Store.up_PhoneType_d" />
+          <FunctionImportMapping FunctionImportName="up_PhoneType_ForList" FunctionName="EFModel.Store.up_PhoneType_ForList">
+            <ResultMapping>
+              <ComplexTypeMapping TypeName="EFObjectModel.up_PhoneType_ForList_Result">
+                <ScalarProperty Name="PhoneTypeID" ColumnName="PhoneTypeID" />
+                <ScalarProperty Name="PhoneTypeDesc" ColumnName="PhoneTypeDesc" />
+                <ScalarProperty Name="LastUpdatedBy" ColumnName="LastUpdatedBy" />
+                <ScalarProperty Name="LastUpdatedDate" ColumnName="LastUpdatedDate" />
+              </ComplexTypeMapping>
+            </ResultMapping>
+          </FunctionImportMapping>
+          <FunctionImportMapping FunctionImportName="up_PhoneType_i" FunctionName="EFModel.Store.up_PhoneType_i" />
+          <FunctionImportMapping FunctionImportName="up_PhoneType_u" FunctionName="EFModel.Store.up_PhoneType_u" />
+        </EntityContainerMapping>
+      </Mapping>
+    </edmx:Mappings>
+  </edmx:Runtime>
+  <!-- EF Designer content (DO NOT EDIT MANUALLY BELOW HERE) -->
+  <Designer xmlns="http://schemas.microsoft.com/ado/2009/11/edmx">
+    <Connection>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="MetadataArtifactProcessing" Value="EmbedInOutputAssembly" />
+      </DesignerInfoPropertySet>
+    </Connection>
+    <Options>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="ValidateOnBuild" Value="true" />
+        <DesignerProperty Name="EnablePluralization" Value="true" />
+        <DesignerProperty Name="IncludeForeignKeysInModel" Value="true" />
+        <DesignerProperty Name="UseLegacyProvider" Value="false" />
+        <DesignerProperty Name="CodeGenerationStrategy" Value="None" />
+      </DesignerInfoPropertySet>
+    </Options>
+    <!-- Diagram content (shape and connector positions) -->
+    <Diagrams></Diagrams>
+  </Designer>
+</edmx:Edmx>

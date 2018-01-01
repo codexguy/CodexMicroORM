@@ -30,6 +30,7 @@ namespace CodexMicroORM.Core.Services
         private IDBProviderConnection _conn = null;
         private bool _canCommit = false;
         private string _connStringOverride = null;
+        private object _sync = new object();
 
         public ConnectionScope(bool tx = true, string connStringOverride = null)
         {
@@ -64,12 +65,15 @@ namespace CodexMicroORM.Core.Services
         {
             get
             {
-                if (_conn == null)
+                lock (_sync)
                 {
-                    _conn = Provider.CreateOpenConnection("default", IsTransactional, _connStringOverride);
-                }
+                    if (_conn == null)
+                    {
+                        _conn = Provider.CreateOpenConnection("default", IsTransactional, _connStringOverride);
+                    }
 
-                return _conn;
+                    return _conn;
+                }
             }
         }
 
@@ -105,21 +109,28 @@ namespace CodexMicroORM.Core.Services
         {
             if (!IsDisposed)
             {
-                if (IsTransactional)
+                IDBProviderConnection conn = null;
+
+                lock (_sync)
                 {
-                    if (_canCommit)
-                    {
-                        _conn.Commit();
-                    }
-                    else
-                    {
-                        _conn.Rollback();
-                    }
+                    conn = _conn;
                 }
 
-                if (_conn != null)
+                if (conn != null)
                 {
-                    _conn.Dispose();
+                    if (IsTransactional)
+                    {
+                        if (_canCommit)
+                        {
+                            conn.Commit();
+                        }
+                        else
+                        {
+                            conn.Rollback();
+                        }
+                    }
+
+                    conn.Dispose();
                     _conn = null;
                 }
 

@@ -28,6 +28,7 @@ using CodexMicroORM.Core.Services;
 using CodexMicroORM.DemoObjects;
 using CodexMicroORM.Providers;
 using CodexMicroORM.BindingSupport;
+using System.Collections.Generic;
 
 namespace CodexMicroORM.WPFDemo
 {
@@ -45,6 +46,9 @@ namespace CodexMicroORM.WPFDemo
             InitializeComponent();
 
             InitializeFramework();
+
+            Benchmark.SelectedIndex = 0;
+            Rows.SelectedIndex = 0;
         }
 
         /// <summary>
@@ -94,6 +98,7 @@ namespace CodexMicroORM.WPFDemo
             {
                 ConsoleList.Items.Clear();
                 StartTests.IsEnabled = false;
+                RunBenchmark.IsEnabled = false;
 
                 // If did a prior run, clear out ambient scope which is bound to the UI thread
                 CEF.CurrentServiceScope.Dispose();
@@ -116,7 +121,7 @@ namespace CodexMicroORM.WPFDemo
                 var zella = CEF.NewObject(new PersonWrapped() { Name = "Zella", Age = 7, Gender = "F" }).DBSave();
                 ConsoleWriteLine($"Similar to above, but already working with genned wrapper so no need to cast it: {zella.LastUpdatedDate}");
 
-                // We have the option to indicate whether the object should be considered new or not with respect to db, when adding to scope (CreateObject on the other hand is always "new") - in reality we could have used CreateObject here too
+                // We have the option to indicate whether the object should be considered new or not with respect to db, when adding to scope (CreateObject on the other hand is always "new") - in reality we could have used NewObject here too
                 var sally = new Person() { Name = "Sally", Age = 34, Gender = "F" };
                 sally = CEF.IncludeObject(sally, DataRowState.Added);
                 ConsoleWriteLine($"Should be 1: {CEF.DBSave().Count()}");
@@ -155,7 +160,7 @@ namespace CodexMicroORM.WPFDemo
                 CEF.DBSave();
 
                 // Swap ownership of Billy's phone to Zella - saving should reflect Zella's new ownership (and Billy's non-ownership)
-                // Note: our POCO here does not implement INotifyPropertyChanged, so this change in row state is not reflected until we do something meaningful (e.g. save, or ask for row state like being done here)
+                // Note: our POCO here does not implement INotifyPropertyChanged, so this change in row state is not reflected until we do something meaningful (e.g. save)
                 var phone = billy.Phones.First();
                 phone.Owner = zella;
                 ConsoleWriteLine($"Row state for phone in question: {phone.AsInfraWrapped().GetRowState()}");
@@ -166,7 +171,7 @@ namespace CodexMicroORM.WPFDemo
 
                 // One way to repopulate our service scope is to load people with 2 retrievals: start with the parent (by key), then a second call (by parent id) for children - merge into the same set (extension method names help make that clearer)
                 // The "by parent" retrieval is done as an extension method that we propose can and should be code generated based on the db object - forms a stronger contract with the db so if say a parameter changes, we could get a compile-time error to track down and fix
-                // (We could also have created a procedure to "load family" in one call - a union for parent and children. In many cases, reducing DB round-trips helps performance at cost of slightly more complex data layer.)
+                // (We could also have created a procedure to "load family" in one call - a union for parent and children. In many cases, reducing DB round-trips helps performance at cost of a slightly more complex data layer.)
                 // Next, delete parent (with cascade option), save (notice it properly deletes children first, then parent)
                 // Framework has automtically wired up the relationships between parent and child such that marking the parent for deletion has automatically marked children for deletion as well
                 // Note that removal from collection is not considered deletion - there could be other reasons you're removing from a collection, but might offer a way to interpret this as deletion on a one-off basis in future
@@ -325,7 +330,6 @@ namespace CodexMicroORM.WPFDemo
                         }
 
                         // Retrieve a set of all people who have children (excluding those who do not), of an optional minimum age, and counts of both male and female kids
-                        // How does this perform compared to other framework solutions that are based on LINQ? Frameworks that use procedures too? Benchmarks to come.
                         // Let's throw in an extra twist: make an update to all parents and save, where the "extra info" of child counts is ignored for updates but useful for example for data binding.
 
                         var families = new EntitySet<Person>().DBRetrieveSummaryForParents(20);
@@ -339,6 +343,7 @@ namespace CodexMicroORM.WPFDemo
                         // This is handy for binding to our WPF data grid: we not only get simple live two-way binding but can detect dirty state changes as well from this collection type (GenericBindableSet)
                         // The dirty state change event is useful to enable/disable the save button (only enabled when there is something pending to save)
                         _bindableFamilies = families.AsDynamicBindable();
+                        _bindableFamilies.DirtyStateChange -= BindableFamilies_DirtyStateChange;
                         _bindableFamilies.DirtyStateChange += BindableFamilies_DirtyStateChange;
                         Data1.ItemsSource = _bindableFamilies;
 
@@ -346,11 +351,13 @@ namespace CodexMicroORM.WPFDemo
                         ConsoleWriteLine($"Complex query, updates, binding, time: {watch.ElapsedMilliseconds} ms");
                         ConsoleWriteLine("Finished!");
                         StartTests.IsEnabled = true;
+                        RunBenchmark.IsEnabled = true;
                     }
                     catch (Exception ex)
                     {
                         MessageBox.Show(ex.Message, "Exception.", MessageBoxButton.OK, MessageBoxImage.Error);
                         StartTests.IsEnabled = true;
+                        RunBenchmark.IsEnabled = true;
                     }
                 }, Task.Factory.CancellationToken, TaskContinuationOptions.None, TaskScheduler.FromCurrentSynchronizationContext());
 
@@ -360,6 +367,7 @@ namespace CodexMicroORM.WPFDemo
             {
                 MessageBox.Show(ex.Message, "Exception.", MessageBoxButton.OK, MessageBoxImage.Error);
                 StartTests.IsEnabled = true;
+                RunBenchmark.IsEnabled = true;
             }
         }
 
@@ -376,6 +384,126 @@ namespace CodexMicroORM.WPFDemo
                 // The ambient service scope is on the UI thread. A better pattern might be a scope instance per form since multiple open forms would be sharing scope in this approach.
                 CEF.DBSave();
                 _bindableFamilies.ResetClean();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Exception.", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void RunBenchmark_Click(object sender, RoutedEventArgs e)
+        {
+            const int TESTS_TO_RUN = 3;
+
+            try
+            {
+                var totalParents = (Rows.SelectedIndex == 0 ? 3000 : 6000);
+
+                ConsoleList.Items.Clear();
+                StartTests.IsEnabled = false;
+                RunBenchmark.IsEnabled = false;
+
+                ConsoleWriteLine("Please wait, starting background process.");
+                Exception toReport = null;
+                List<long> testTimes = new List<long>();
+                List<long> testTimes2 = new List<long>();
+                var testType = Benchmark.SelectedIndex;
+                int rowcount = 0;
+                int rowcount2 = 0;
+
+                var backgroundTask = new Task(() =>
+                {
+                    try
+                    {
+                        for (int testcnt = 1; testcnt <= TESTS_TO_RUN; ++testcnt)
+                        {
+                            // Execute tear-down/set-up of test SQL objects from script
+                            ConsoleWriteLine("Clearing database....");
+                            CEF.CurrentDBService().ExecuteRaw("DELETE CEFTest.Phone; UPDATE CEFTest.Person SET IsDeleted=1, LastUpdatedDate=GETUTCDATE(), LastUpdatedBy='Test';");
+
+                            switch (testType)
+                            {
+                                case 0:
+                                    CEFBenchmarks.Benchmark1(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 1:
+                                    CEFBenchmarks.Benchmark1WithBulk(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 2:
+                                    CEFBenchmarks.Benchmark1SavePer(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 3:
+                                    EFBenchmarks.Benchmark1(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 4:
+                                    EFBenchmarks.Benchmark1SavePer(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 5:
+                                    DapperBenchmarks.Benchmark1(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 6:
+                                    NHBenchmarks.Benchmark1(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 7:
+                                    NHBenchmarks.Benchmark1SavePer(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ConsoleWriteLine(ex.Message);
+                        ConsoleWriteLine(ex.InnerException?.Message);
+                        ConsoleWriteLine(ex.InnerException?.StackTrace);
+                        ConsoleWriteLine("Error, waiting...");
+                        CEFDebug.WaitAttach();
+                        toReport = ex;
+                    }
+                });
+
+                backgroundTask.ContinueWith((t) =>
+                {
+                    try
+                    {
+                        if (toReport != null)
+                        {
+                            throw toReport;
+                        }
+
+                        testTimes.Sort();
+                        testTimes2.Sort();
+
+                        ConsoleWriteLine($"Benchmark complete.");
+                        ConsoleWriteLine($"Part 1.");
+                        ConsoleWriteLine($"Median duration: {testTimes[TESTS_TO_RUN >> 1]} ms");
+                        ConsoleWriteLine($"Rows: {rowcount / TESTS_TO_RUN}");
+                        ConsoleWriteLine($"Duration per row: {testTimes[TESTS_TO_RUN >> 1] * 1.0 * TESTS_TO_RUN / rowcount:0.00} ms");
+                        ConsoleWriteLine($"Part 2.");
+                        ConsoleWriteLine($"Median duration: {testTimes2[TESTS_TO_RUN >> 1]} ms");
+                        ConsoleWriteLine($"Rows: {rowcount2 / TESTS_TO_RUN}");
+                        ConsoleWriteLine($"Duration per row: {testTimes2[TESTS_TO_RUN >> 1] * 1.0 * TESTS_TO_RUN / rowcount2:0.00} ms");
+                        ConsoleWriteLine($"Final Phone row count: {CEF.CurrentDBService().ExecuteScalar<int>(CommandType.Text, "SELECT COUNT(*) as Rows FROM CEFTest.Phone")} (should be 12200/24400)");
+
+                        StartTests.IsEnabled = true;
+                        RunBenchmark.IsEnabled = true;
+                        GC.Collect();
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(ex.Message, "Exception.", MessageBoxButton.OK, MessageBoxImage.Error);
+                        StartTests.IsEnabled = true;
+                        RunBenchmark.IsEnabled = true;
+                    }
+                }, Task.Factory.CancellationToken, TaskContinuationOptions.None, TaskScheduler.FromCurrentSynchronizationContext());
+
+                backgroundTask.Start();
             }
             catch (Exception ex)
             {

@@ -417,6 +417,7 @@ BEGIN
 /*
 <UDP><Name>SystemGenerated</Name><Value>True</Value></UDP>
 */
+SET NOCOUNT ON;
 
 INSERT [History].[Person]
 	(PersonID
@@ -473,6 +474,7 @@ BEGIN
 /*
 <UDP><Name>SystemGenerated</Name><Value>True</Value></UDP>
 */
+SET NOCOUNT ON;
 
 INSERT [History].[Person]
 	(PersonID
@@ -997,7 +999,8 @@ GO
 CREATE PROCEDURE CEFTest.[up_Phone_ByPersonID]
 	@RetVal int = NULL OUTPUT,
 	@Msg varchar(200) = NULL OUTPUT,
-	@PersonID int 
+	@PersonID int,
+	@PhoneTypeID int = NULL
 AS
 /***********************************************************
 Name:  CEFTest.up_Phone_ByKey
@@ -1028,6 +1031,7 @@ FROM
 	[CEFTest].[Phone]
 WHERE
 	PersonID = @PersonID
+AND	(@PhoneTypeID IS NULL OR PhoneTypeID = @PhoneTypeID);
 
 SELECT @__e = @@ERROR
 
@@ -1042,7 +1046,6 @@ END
 
 END
 GO
-
 
 -- This is how it looks in source and would be executed in target
 /*    ==Scripting Parameters==
@@ -1947,3 +1950,62 @@ GO
 SET IDENTITY_INSERT CEFTest.PhoneType OFF
 GO
 
+/****** Object:  Index [NDX_Phone_Owner]    Script Date: 12/31/2017 1:01:05 PM ******/
+IF (SELECT COUNT(*) FROM sys.objects o JOIN sys.columns c ON o.[object_id]=c.[object_id] WHERE o.[object_id]=OBJECT_ID(N'[CEFTest].[Phone]') AND c.[name] IN ('PersonID','PhoneTypeID'))>=2 AND NOT EXISTS (SELECT 0 FROM sys.indexes i WHERE i.name='NDX_Phone_Owner' AND i.[object_id]=OBJECT_ID(N'[CEFTest].[Phone]'))
+CREATE NONCLUSTERED INDEX [NDX_Phone_Owner] ON [CEFTest].[Phone]
+(
+	[PersonID] ASC,
+	[PhoneTypeID] ASC
+)
+INCLUDE ( 	[Number]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+GO
+
+-- This is how it looks in source and would be executed in target
+
+/*    ==Scripting Parameters==
+
+    Source Server Version : SQL Server 2016 (13.0.1742)
+    Source Database Engine Edition : Microsoft SQL Server Enterprise Edition
+    Source Database Engine Type : Standalone SQL Server
+
+    Target Server Version : SQL Server 2016
+    Target Database Engine Edition : Microsoft SQL Server Enterprise Edition
+    Target Database Engine Type : Standalone SQL Server
+*/
+
+SET ANSI_PADDING ON
+
+GO
+
+/****** Object:  Index [NDX_Person_Name]    Script Date: 12/31/2017 1:01:06 PM ******/
+IF (SELECT COUNT(*) FROM sys.objects o JOIN sys.columns c ON o.[object_id]=c.[object_id] WHERE o.[object_id]=OBJECT_ID(N'[CEFTest].[Person]') AND c.[name] IN ('Name'))>=1 AND NOT EXISTS (SELECT 0 FROM sys.indexes i WHERE i.name='NDX_Person_Name' AND i.[object_id]=OBJECT_ID(N'[CEFTest].[Person]'))
+CREATE NONCLUSTERED INDEX [NDX_Person_Name] ON [CEFTest].[Person]
+(
+	[Name] ASC
+)
+INCLUDE ( 	[Gender],
+	[Age]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+GO
+
+-- This is how it looks in source and would be executed in target
+
+/*    ==Scripting Parameters==
+
+    Source Server Version : SQL Server 2016 (13.0.1742)
+    Source Database Engine Edition : Microsoft SQL Server Enterprise Edition
+    Source Database Engine Type : Standalone SQL Server
+
+    Target Server Version : SQL Server 2016
+    Target Database Engine Edition : Microsoft SQL Server Enterprise Edition
+    Target Database Engine Type : Standalone SQL Server
+*/
+
+/****** Object:  Index [NDX_Person_Age]    Script Date: 12/31/2017 1:01:06 PM ******/
+IF (SELECT COUNT(*) FROM sys.objects o JOIN sys.columns c ON o.[object_id]=c.[object_id] WHERE o.[object_id]=OBJECT_ID(N'[CEFTest].[Person]') AND c.[name] IN ('Age'))>=1 AND NOT EXISTS (SELECT 0 FROM sys.indexes i WHERE i.name='NDX_Person_Age' AND i.[object_id]=OBJECT_ID(N'[CEFTest].[Person]'))
+CREATE NONCLUSTERED INDEX [NDX_Person_Age] ON [CEFTest].[Person]
+(
+	[Age] ASC
+)
+INCLUDE ( 	[ParentPersonID],
+	[PersonID]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+GO

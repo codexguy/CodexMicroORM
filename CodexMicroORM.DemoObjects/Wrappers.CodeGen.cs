@@ -17,6 +17,7 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
 using CodexMicroORM.Core;
+using CodexMicroORM.Core.Services;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -55,6 +56,13 @@ namespace CodexMicroORM.DemoObjects
         }
 
         #endregion
+
+        // Generated - initialize known collections
+        public PersonWrapped()
+        {
+            Kids = new List<Person>();
+            Phones = new List<Phone>();
+        }
 
         public new IList<Person> Kids
         {

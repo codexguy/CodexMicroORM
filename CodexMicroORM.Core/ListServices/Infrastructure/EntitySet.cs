@@ -198,7 +198,6 @@ namespace CodexMicroORM.Core.Services
             set;
         }
 
-
         protected override void ClearItems()
         {
             _contains = new ConcurrentDictionary<T, bool>();
@@ -264,7 +263,6 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
             }
-
         }
 
         private void ProcessAdd(IList newItems, int newStartingIndex)
@@ -295,19 +293,18 @@ namespace CodexMicroORM.Core.Services
                     {
                         if (ni != null)
                         {
-                            var w = ni as ICEFWrapper;
+                            var w = BoundScope.InternalCreateAddBase(ni, true, null, null, null, new ConcurrentDictionary<object, object>()) as ICEFWrapper;
 
-                            if (w == null)
+                            if (w != null)
                             {
-                                w = BoundScope.InternalCreateAddBase(ni, true, null, null, new Dictionary<object, object>()) as ICEFWrapper;
+                                var cast = w as T;
 
-                                if (w != null)
+                                if (this[idx] != cast)
                                 {
                                     try
                                     {
                                         this.SuspendNotifications(true);
 
-                                        var cast = w as T;
                                         this[idx] = cast;
 
                                         _contains[cast] = true;
@@ -317,9 +314,9 @@ namespace CodexMicroORM.Core.Services
                                     {
                                         this.SuspendNotifications(false);
                                     }
-
-                                    niCopy[idx2] = this[idx];
                                 }
+
+                                niCopy[idx2] = this[idx];
                             }
                         }
 
