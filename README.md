@@ -185,7 +185,7 @@ Because of this, I didn't attempt a "populate and save all" version of tests for
 Dapper although the clear winner on performance was the clear loser on code size / maintainability. Anecdotally, I also had more run-time errors to debug than other framework examples since there's no strong typing. Similarly, changes in the database schema are more likely to cause run-time errors for the same reason: no strong typing we could tie back to code generation. (Although I'm sure if I looked hard enough, someone has created templates to act as wrappers for database objects.) This in turn speaks to its nature, much as EF and nHibernate, being more highly-coupled with your database than you might want to believe (e.g. requiring ID's to support relationships, etc.).
 
 ### CodexMicroORM Results
-CEF offers linear performance results and among the smallest, most succinct code implementations. It's worth noting that you can use EF-generated classes, if you like, with CEF.
+CEF offers linear performance results and has among the smallest, most succinct code implementations. It's worth noting that you can use EF-generated classes, if you like, with CEF.
 
 I did an extra test for CEF that I did not include for other frameworks - because it's somewhat unique to CEF out-of-the-box - the ability to save added data using BULK INSERT. That case for Benchmark 1 yielded a median time of 0.9 ms/row (both 3000 and 6000 row runs). This is the fastest way to "save an existing, full object graph" among all tests. The trade-off? You don't get PhoneID's assigned in memory at the end of saving.
 
@@ -202,7 +202,7 @@ The orange line is allocated memory - within the context of the red box, this is
 * Entity Framework and nHibernate both had at least one non-linear performance scenario.
 * Dapper, although very fast, provided the most verbose implementation by a factor of 2x-3x.
 * None of the frameworks tested (other than CodexMicroORM) natively understand the concept of "last updated by", "last updated date" fields as standardized audit fields. This results in more repetitive code.
-* The pattern of "saving while populating" seems to work better than "save everything at the end" with most frameworks - but this may or may not align with your needs in each situation. For example, you may be populating an object model, passing it around, and saving it after some additional work - this would not align with "save as populate" and if we're looking for the best *generalized* solution, ideally it balances performance while offering different options to solve your problems.
+* The pattern of "saving while populating" seems to work better than "save everything at the end" with some frameworks - but this may or may not align with your needs in each situation. For example, you may be populating an object model, passing it around, and saving it after some additional work - this would not align with "save as populate" and if we're looking for the best *generalized* solution, ideally it balances performance while offering different options to solve your problems.
 * I'm probably biased, but CodexMicroORM shows a good balance of "small code" and good, linear performance over all scenarios presented. These aren't fake metrics - you're free to try them out yourself in the demo project, and improve on them, even!
 
 ## Release Notes
