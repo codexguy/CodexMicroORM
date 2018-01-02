@@ -21,7 +21,6 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Linq;
-using System.Text;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -66,7 +65,7 @@ namespace CodexMicroORM.Core.Services
                            let level = KeyService.GetObjectNestLevel(uw)
                            let sp = (settings.RowSavePreview == null ? (true, null) : settings.RowSavePreview.Invoke(a))
                            let rs = sp.treatas.GetValueOrDefault(a.GetRowState())
-                           where (rs != DataRowState.Unchanged && rs != DataRowState.Detached) && sp.cansave
+                           where (rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && sp.cansave
                            let w = a.GetWrappedObject() as ICEFWrapper
                            let bt = uw.GetBaseType()
                            let rd = new { Row = a, Schema = w?.GetSchemaName(), Name = (w != null ? w.GetBaseType().Name : bt?.Name) }
@@ -80,15 +79,15 @@ namespace CodexMicroORM.Core.Services
 
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Delete) != 0)
             {
-                results.AddRange(from a in _defaultProvider.DeleteRows(cs, (from a in ordRows where a.RowState == DataRowState.Deleted select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
+                results.AddRange(from a in _defaultProvider.DeleteRows(cs, (from a in ordRows where a.RowState == ObjectState.Deleted select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
             }
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Insert) != 0)
             {
-                results.AddRange(from a in _defaultProvider.InsertRows(cs, (from a in ordRows where a.RowState == DataRowState.Added select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
+                results.AddRange(from a in _defaultProvider.InsertRows(cs, (from a in ordRows where a.RowState == ObjectState.Added select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
             }
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Update) != 0)
             {
-                results.AddRange(from a in _defaultProvider.UpdateRows(cs, (from a in ordRows where a.RowState == DataRowState.Modified select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
+                results.AddRange(from a in _defaultProvider.UpdateRows(cs, (from a in ordRows where a.RowState == ObjectState.Modified select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
             }
 
             cs.DoneWork();

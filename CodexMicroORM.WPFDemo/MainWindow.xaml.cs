@@ -123,7 +123,7 @@ namespace CodexMicroORM.WPFDemo
 
                 // We have the option to indicate whether the object should be considered new or not with respect to db, when adding to scope (CreateObject on the other hand is always "new") - in reality we could have used NewObject here too
                 var sally = new Person() { Name = "Sally", Age = 34, Gender = "F" };
-                sally = CEF.IncludeObject(sally, DataRowState.Added);
+                sally = CEF.IncludeObject(sally, ObjectState.Added);
                 ConsoleWriteLine($"Should be 1: {CEF.DBSave().Count()}");
 
                 // Now make a change: we're changing the source model in a simple way - associating already saved kids to a person - should turn into 3 updates and 2 inserts (we can't stop people from adding non-wrapped items, so we watch for this and Billy gets replaced by a PersonWrapped on addition here, plus his phone gets accounted for as well)
@@ -141,7 +141,7 @@ namespace CodexMicroORM.WPFDemo
 
                 ConsoleWriteLine($"Row state for Tristan: {tristan.AsInfraWrapped().GetRowState()}");
                 billy.Phones = new Phone[] { new Phone() { Number = "707-555-1236", PhoneTypeID = PhoneType.Mobile, Owner = billy } };
-                sally.Kids.Add(CEF.IncludeObject(billy, DataRowState.Added));
+                sally.Kids.Add(CEF.IncludeObject(billy, ObjectState.Added));
                 sally.Age += 1;
                 billy.Age += 1;
 
@@ -215,7 +215,7 @@ namespace CodexMicroORM.WPFDemo
                             greatgrandpa.Kids = new Person[] { grandpa };
                             grandpa.Kids = new Person[] { auntie, mom };
                             auntie.Kids = new Person[] { cuz1, cuz2 };
-                            CEF.IncludeObject(greatgrandpa, DataRowState.Added);
+                            CEF.IncludeObject(greatgrandpa, ObjectState.Added);
                             myphone.PhoneTypeID = PhoneType.Mobile;
 
                             // But wait, we didn't initialize mom.Kids with a collection instance! - some of the details of the current scope can be adjusted, such as above where we use InitializeNullCollections=true
@@ -292,7 +292,7 @@ namespace CodexMicroORM.WPFDemo
                                         }
 
                                         // This method of saving limits to this specific set
-                                        phones.DBSave(new DBSaveSettings() { BulkInsertMinimumRows = 10000, RowSavePreview = (row) => { return (true, DataRowState.Added); } });
+                                        phones.DBSave(new DBSaveSettings() { BulkInsertMinimumRows = 10000, RowSavePreview = (row) => { return (true, ObjectState.Added); } });
                                     }
 
                                     ConsoleWriteLine($"Saved 20,000 new phones, time: {watch.ElapsedMilliseconds} ms");

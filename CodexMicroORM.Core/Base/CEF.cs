@@ -201,7 +201,7 @@ namespace CodexMicroORM.Core
             return CurrentServiceScope.NewObject<T>(initial);
         }
 
-        public static T IncludeObject<T>(T toAdd, DataRowState? drs = null) where T : class, new()
+        public static T IncludeObject<T>(T toAdd, ObjectState? drs = null) where T : class, new()
         {
             return CurrentServiceScope.IncludeObject<T>(toAdd, drs, null);
         }
@@ -225,7 +225,7 @@ namespace CodexMicroORM.Core
             return rs;
         }
 
-        public static EntitySet<T> CreateList<T>(object parent, string parentFieldName, DataRowState initialState, params T[] items) where T : class, new()
+        public static EntitySet<T> CreateList<T>(object parent, string parentFieldName, ObjectState initialState, params T[] items) where T : class, new()
         {
             var rs = new EntitySet<T>();
 
@@ -247,7 +247,7 @@ namespace CodexMicroORM.Core
             return rs;
         }
 
-        public static EntitySet<T> CreateList<T>(DataRowState initialState, params T[] items) where T : class, new()
+        public static EntitySet<T> CreateList<T>(ObjectState initialState, params T[] items) where T : class, new()
         {
             var list = new EntitySet<T>(items);
 

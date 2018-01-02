@@ -266,12 +266,12 @@ namespace CodexMicroORM.Core.Services
             return _source;
         }
 
-        public virtual DataRowState GetRowState()
+        public virtual ObjectState GetRowState()
         {
-            return DataRowState.Unchanged;
+            return ObjectState.Unchanged;
         }
 
-        public virtual void SetRowState(DataRowState rs)
+        public virtual void SetRowState(ObjectState rs)
         {
             throw new NotSupportedException();
         }

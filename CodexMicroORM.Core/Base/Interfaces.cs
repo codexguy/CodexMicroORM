@@ -98,9 +98,9 @@ namespace CodexMicroORM.Core
 
         object GetWrappedObject();
 
-        DataRowState GetRowState();
+        ObjectState GetRowState();
 
-        void SetRowState(DataRowState rs);
+        void SetRowState(ObjectState rs);
 
         IDictionary<string, object> GetAllValues();
 

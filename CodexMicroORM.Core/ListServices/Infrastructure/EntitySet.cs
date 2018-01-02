@@ -66,7 +66,7 @@ namespace CodexMicroORM.Core.Services
 
             foreach (var i in source)
             {
-                this.Add(CEF.IncludeObject<T>(i, DataRowState.Unchanged));
+                this.Add(CEF.IncludeObject<T>(i, ObjectState.Unchanged));
             }
 
             EndInit();

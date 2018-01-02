@@ -305,7 +305,7 @@ namespace CodexMicroORM.Core.Services
             return InternalCreateWrapper(need, action, isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(), props, types, visits ?? new ConcurrentDictionary<object, object>());
         }
 
-        public static ICEFInfraWrapper CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, DataRowState? initState, IDictionary<string, object> props, IDictionary<string, Type> types)
+        public static ICEFInfraWrapper CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types)
         {
             // Goal is to provision the lowest overhead object based on need!
             ICEFInfraWrapper infrawrap = null;
@@ -316,7 +316,7 @@ namespace CodexMicroORM.Core.Services
                 {
                     if ((need & WrappingSupport.OriginalValues) != 0)
                     {
-                        infrawrap = new DynamicWithValuesAndBag(o, initState.GetValueOrDefault(isNew ? DataRowState.Added : DataRowState.Unchanged), props, types);
+                        infrawrap = new DynamicWithValuesAndBag(o, initState.GetValueOrDefault(isNew ? ObjectState.Added : ObjectState.Unchanged), props, types);
                     }
                     else
                     {
@@ -325,7 +325,7 @@ namespace CodexMicroORM.Core.Services
                 }
                 else
                 {
-                    infrawrap = new DynamicWithAll(o, initState.GetValueOrDefault(isNew ? DataRowState.Added : DataRowState.Unchanged), props, types);
+                    infrawrap = new DynamicWithAll(o, initState.GetValueOrDefault(isNew ? ObjectState.Added : ObjectState.Unchanged), props, types);
                 }
             }
 

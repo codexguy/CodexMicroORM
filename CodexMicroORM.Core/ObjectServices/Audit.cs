@@ -19,7 +19,6 @@ Major Changes:
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Text;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -87,7 +86,7 @@ namespace CodexMicroORM.Core.Services
             GetLastUpdatedDate = getLastUpdatedDate;
         }
 
-        public static ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, DataRowState state)
+        public static ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, ObjectState state)
         {
             if (!IsLastUpdatedByDBAssigned && !string.IsNullOrEmpty(LastUpdatedByField))
             {
@@ -99,7 +98,7 @@ namespace CodexMicroORM.Core.Services
                 saving.SetValue(LastUpdatedDateField, GetLastUpdatedDate.Invoke());
             }
 
-            if (state == DataRowState.Added)
+            if (state == ObjectState.Added)
             {
                 if (!string.IsNullOrEmpty(IsDeletedField))
                 {

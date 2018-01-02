@@ -63,7 +63,7 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 	* The layer can value-add - optimistic concurrency, audit, etc. - controlled via declarative settings.
 	* There are some interesting optimization opportunities: native compiled procs, for example. Combine that with in-memory tables where it makes sense, and - just wow.
 	* The layer can support non-tabular entities - e.g. flattened procedures that interact with multiple tables, or cross-db situations, etc.
-	* This is just one flavor of database access - the provider interface means it'd be possible to integrate other ways, perhaps even a LINQ to SQL layer (a roadmap item).
+	* This is just one flavor of database access - the provider interface means it'd be possible to integrate other ways, perhaps even a LINQ to SQL layer (a roadmap item). As of 0.2, CEF only supports MS SQL.
 * Databases - need to support the possibility of different objects being sourced/saved to different databases and/or servers and/or schemas. (Needs control type-by-type in registration process.)
 * Use parallelism where possible, and make it as thread-safe as possible for framework users.
 * As a rule, the framework will trade higher memory use for better performance. We do have some data structures that can appear to hog memory, but I've taken the time to ensure that when service scopes are disposed, memory is released as expected. Benchmarking also shows a *linear* performance characteristic, whereas EF is *non-linear*.
@@ -124,7 +124,7 @@ This code is something that we can ideally eventually generate, as opposed to wr
 
 In terms of the SQL to support these examples: a .sql script is included in both the test and demo projects. This script will create a new database called CodexMicroORMTest that includes all the necessary schema objects to support the examples. You may need to adjust the DB\_SERVER constant to match your own SQL Server instance name.
 
-The SQL that's included is a combination of hand-written stored procedures and code generated objects, including procedures (CRUD) and triggers. The code generator I've used is SQL-Hero, but you can use whatever tool you like. The generated SQL is based on declarative settings that identify: a) what type of optimistic concurrency you need (if any), b) what kind of audit history you need (if any).
+The SQL that's included is a combination of hand-written stored procedures and code generated objects, including procedures (CRUD) and triggers. The code generator I've used is [SQL-Hero](http://www.codexframework.com/About/SQLHero), but you can use whatever tool you like. The generated SQL is based on declarative settings that identify: a) what type of optimistic concurrency you need (if any), b) what kind of audit history you need (if any).
 
 Of note, the audit history template used here has an advantage over temporal tables found in SQL 2016: you can identify *who* deleted records, which (unfortunately) can be quite useful! CodexMicroORM plays well with the data layer, providing support for LastUpdatedBy, LastUpdatedDate, and IsDeleted (logical delete) fields in the database.
 
@@ -225,6 +225,6 @@ Release 0.2 covers some basic scenarios. For 0.3 I'd like to add:
 * Some initial code-gen support
 * Add more collection types (EntityHashSet, EntityDictionary)
 
-Clearly tool support such as for code generation could prove *very* useful - watch for that offered as "add-on" products and likely offered initially through SQL-Hero given that some existing templates can likely be tweaked to get a quick win for CodexMicroORM.
+Clearly tool support such as for code generation could prove *very* useful - watch for that offered as "add-on" products and likely offered initially through [SQL-Hero](http://www.codexframework.com/About/SQLHero) given that some existing templates can likely be tweaked to get a quick win for CodexMicroORM.
 
 Have opinions about what you'd like to see? Drop me a line @ joelc@codexframework.com.

@@ -532,7 +532,7 @@ namespace CodexMicroORM.Providers
                 if (doWrap)
                 {
                     // If "the same" object exists in current scope, this will "merge" it with new values, avoids duplicating it in scope
-                    no = CEF.CurrentServiceScope.IncludeObjectWithType<T>(new T(), DataRowState.Unchanged, row);
+                    no = CEF.CurrentServiceScope.IncludeObjectWithType<T>(new T(), ObjectState.Unchanged, row);
                 }
                 else
                 {

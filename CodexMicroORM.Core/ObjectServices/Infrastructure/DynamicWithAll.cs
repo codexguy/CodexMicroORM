@@ -28,7 +28,7 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithAll : DynamicWithValuesAndBag, INotifyPropertyChanged
     {
-        internal DynamicWithAll(object o, DataRowState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, irs, props, types)
+        internal DynamicWithAll(object o, ObjectState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, irs, props, types)
         {            
         }
 

@@ -22,7 +22,6 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Text;
-using System.Threading;
 using CodexMicroORM.Core.Collections;
 using System.Collections.Immutable;
 
@@ -446,7 +445,7 @@ namespace CodexMicroORM.Core.Services
                                     {
                                         var toAdd = sValEnum.Current;
                                         var toAddWrapped = ss.GetDynamicWrapperFor(toAdd, false);
-                                        var toAddTracked = ss.InternalCreateAddBase(toAdd, toAddWrapped != null && toAddWrapped.GetRowState() == System.Data.DataRowState.Added, null, null, null, null);
+                                        var toAddTracked = ss.InternalCreateAddBase(toAdd, toAddWrapped != null && toAddWrapped.GetRowState() == ObjectState.Added, null, null, null, null);
 
                                         if (!asCefList.ContainsItem(toAddTracked))
                                         {

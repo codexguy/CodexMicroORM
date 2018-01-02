@@ -20,6 +20,15 @@ using System;
 
 namespace CodexMicroORM.Core
 {
+    public enum ObjectState
+    {
+        Unchanged = 0,
+        Modified = 1,
+        Added = 2,
+        Deleted = 3,
+        Unlinked = 4
+    }
+
     [Flags]
     public enum BulkRules
     {

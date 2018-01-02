@@ -210,7 +210,7 @@ namespace CodexMicroORM.Core
             return _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), o.AsUnwrapped())?.GetWrapper();
         }
 
-        public T IncludeObjectWithType<T>(T toAdd, DataRowState? drs = null, Dictionary<string, (object value, Type type)> props = null) where T : class, new()
+        public T IncludeObjectWithType<T>(T toAdd, ObjectState? drs = null, Dictionary<string, (object value, Type type)> props = null) where T : class, new()
         {
             Dictionary<string, object> propVals = null;
             Dictionary<string, Type> propTypes = null;
@@ -227,12 +227,12 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            return InternalCreateAdd(toAdd, drs.GetValueOrDefault(DataRowState.Unchanged) == DataRowState.Added ? true : false, drs, propVals, propTypes);
+            return InternalCreateAdd(toAdd, drs.GetValueOrDefault(ObjectState.Unchanged) == ObjectState.Added ? true : false, drs, propVals, propTypes);
         }
 
-        public T IncludeObject<T>(T toAdd, DataRowState? drs = null, Dictionary<string, object> props = null) where T : class, new()
+        public T IncludeObject<T>(T toAdd, ObjectState? drs = null, Dictionary<string, object> props = null) where T : class, new()
         {
-            return InternalCreateAdd(toAdd, drs.GetValueOrDefault(DataRowState.Unchanged) == DataRowState.Added ? true : false, drs, props, null);
+            return InternalCreateAdd(toAdd, drs.GetValueOrDefault(ObjectState.Unchanged) == ObjectState.Added ? true : false, drs, props, null);
         }
 
         public T GetService<T>(object forObject = null) where T : ICEFService
@@ -663,7 +663,7 @@ namespace CodexMicroORM.Core
 
                             if (db != null)
                             {
-                                if (db.State != DataRowState.Detached && db.State != DataRowState.Unchanged)
+                                if (db.State != ObjectState.Unlinked && db.State != ObjectState.Unchanged)
                                 {
                                     tosave.Add(db);
                                 }
@@ -676,7 +676,7 @@ namespace CodexMicroORM.Core
             return tosave;
         }
 
-        internal object InternalCreateAddBase(object initial, bool isNew, DataRowState? initState, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits)
+        internal object InternalCreateAddBase(object initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits)
         {
             if (initial == null)
                 throw new ArgumentNullException("initial");
@@ -881,7 +881,7 @@ namespace CodexMicroORM.Core
                 throw new CEFInvalidOperationException("You require the persistence and change tracking service in order to mark objects for deletion.");
             }
 
-            infra.SetRowState(DataRowState.Deleted);
+            infra.SetRowState(ObjectState.Deleted);
 
             if (action == DeleteCascadeAction.Cascade)
             {
@@ -892,7 +892,7 @@ namespace CodexMicroORM.Core
             }
         }
 
-        internal T InternalCreateAdd<T>(T initial, bool isNew, DataRowState? initState, Dictionary<string, object> props, Dictionary<string, Type> types) where T : class, new()
+        internal T InternalCreateAdd<T>(T initial, bool isNew, ObjectState? initState, Dictionary<string, object> props, Dictionary<string, Type> types) where T : class, new()
         {
             return InternalCreateAddBase(initial ?? new T(), isNew, initState, props, types, new ConcurrentDictionary<object, object>()) as T;
         }

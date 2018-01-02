@@ -155,7 +155,7 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
-        public Func<ICEFInfraWrapper, (bool cansave, DataRowState? treatas)> RowSavePreview
+        public Func<ICEFInfraWrapper, (bool cansave, ObjectState? treatas)> RowSavePreview
         {
             get;
             set;

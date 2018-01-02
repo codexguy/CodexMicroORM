@@ -30,11 +30,11 @@ namespace CodexMicroORM.Core.Services
     public class DynamicWithValuesAndBag : DynamicWithBag, IDisposable
     {
         protected ConcurrentDictionary<string, object> _originalValues = new ConcurrentDictionary<string, object>();
-        protected DataRowState _rowState;
+        protected ObjectState _rowState;
 
         public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
 
-        internal DynamicWithValuesAndBag(object o, DataRowState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, props, types)
+        internal DynamicWithValuesAndBag(object o, ObjectState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, props, types)
         {
             if (o is INotifyPropertyChanged)
             {
@@ -45,32 +45,32 @@ namespace CodexMicroORM.Core.Services
             SetRowState(irs);
         }
 
-        public override DataRowState GetRowState()
+        public override ObjectState GetRowState()
         {
             return State;
         }
 
-        public override void SetRowState(DataRowState rs)
+        public override void SetRowState(ObjectState rs)
         {
             if (_rowState != rs)
             {
                 CEFDebug.WriteInfo($"RowState={rs}, {_source?.GetBaseType().Name}", _source);
                 _rowState = rs;
 
-                if (rs == DataRowState.Unchanged)
+                if (rs == ObjectState.Unchanged)
                 {
                     _isBagChanged = false;
                 }
             }
         }
 
-        public DataRowState State
+        public ObjectState State
         {
             get
             {
-                if (_isBagChanged && _rowState == DataRowState.Unchanged)
+                if (_isBagChanged && _rowState == ObjectState.Unchanged)
                 {
-                    return DataRowState.Modified;
+                    return ObjectState.Modified;
                 }
 
                 return _rowState;
@@ -80,7 +80,7 @@ namespace CodexMicroORM.Core.Services
         public bool ReconcileModifiedState(Action<string, object, object> onChanged = null)
         {
             // For cases where live binding was not possible, tries to identify possible changes in object state (typically at the time of saving)
-            if (_rowState == DataRowState.Unchanged)
+            if (_rowState == ObjectState.Unchanged)
             {
                 foreach (var oval in _originalValues)
                 {
@@ -88,7 +88,7 @@ namespace CodexMicroORM.Core.Services
 
                     if (!oval.Value.IsSame(nval))
                     {
-                        SetRowState(DataRowState.Modified);
+                        SetRowState(ObjectState.Modified);
                         onChanged?.Invoke(oval.Key, oval, nval);
                         return true;
                     }
@@ -105,13 +105,13 @@ namespace CodexMicroORM.Core.Services
 
         public void Delete()
         {
-            if (_rowState == DataRowState.Added)
+            if (_rowState == ObjectState.Added)
             {
-                SetRowState(DataRowState.Detached);
+                SetRowState(ObjectState.Unlinked);
             }
             else
             {
-                SetRowState(DataRowState.Deleted);
+                SetRowState(ObjectState.Deleted);
             }
         }
 
@@ -119,12 +119,12 @@ namespace CodexMicroORM.Core.Services
         {
             base.OnPropertyChanged(propName, oldVal, newVal, isBag);
 
-            if (_rowState == DataRowState.Unchanged)
+            if (_rowState == ObjectState.Unchanged)
             {
-                SetRowState(DataRowState.Modified);
+                SetRowState(ObjectState.Modified);
             }
 
-            DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(DataRowState.Modified));
+            DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(ObjectState.Modified));
         }
 
         private void CEFValueTrackingWrapper_PropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -143,9 +143,9 @@ namespace CodexMicroORM.Core.Services
 
         public override void AcceptChanges()
         {
-            if (_rowState == DataRowState.Deleted)
+            if (_rowState == ObjectState.Deleted)
             {
-                SetRowState(DataRowState.Detached);
+                SetRowState(ObjectState.Unlinked);
                 return;
             }
 
@@ -157,14 +157,14 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            bool changed = (_rowState != DataRowState.Unchanged);
+            bool changed = (_rowState != ObjectState.Unchanged);
 
-            SetRowState(DataRowState.Unchanged);
+            SetRowState(ObjectState.Unchanged);
             _isBagChanged = false;
 
             if (changed)
             {
-                DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(DataRowState.Unchanged));
+                DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(ObjectState.Unchanged));
             }
         }
 
@@ -210,13 +210,13 @@ namespace CodexMicroORM.Core.Services
 
     public class DirtyStateChangeEventArgs : EventArgs
     {
-        public DataRowState NewState
+        public ObjectState NewState
         {
             get;
             private set;
         }
 
-        public DirtyStateChangeEventArgs(DataRowState newState)
+        public DirtyStateChangeEventArgs(ObjectState newState)
         {
             NewState = newState;
         }
