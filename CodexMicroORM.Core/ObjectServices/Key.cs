@@ -29,6 +29,8 @@ namespace CodexMicroORM.Core.Services
 {
     public class KeyService : ICEFService
     {
+        internal const string SHADOW_PROP_PREFIX = "___";
+
         private static long _lowLongKey = long.MinValue;
         private static int _lowIntKey = int.MinValue;
 
@@ -141,6 +143,12 @@ namespace CodexMicroORM.Core.Services
 
         WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object replaced, ServiceScope ss, bool isNew)
         {
+            // If you're using shadow properties, you definitely need a property bag and notification to know when a key might be changed/assigned
+            if (Globals.UseShadowPropertiesForNew)
+            {
+                return WrappingSupport.PropertyBag | WrappingSupport.Notifications;
+            }
+
             var need = WrappingSupport.None;
 
             if (o != null)
@@ -178,9 +186,12 @@ namespace CodexMicroORM.Core.Services
                     {
                         var ks = ss.GetSetter(uw, k);
 
-                        if (ks.setter != null)
+                        // Shadow props in use, we rely on the above for the data type, but we'll be updating the shadow prop instead
+                        var kssp = (!Globals.UseShadowPropertiesForNew ? (null, null) : ss.GetSetter(uw, SHADOW_PROP_PREFIX + k));
+
+                        if ((kssp.setter ?? ks.setter) != null)
                         {
-                            var keyType = ks.type;
+                            var keyType = (ks.type ?? kssp.type);
 
                             if (keyType == null)
                             {
@@ -189,19 +200,19 @@ namespace CodexMicroORM.Core.Services
 
                             if (keyType.Equals(typeof(int)))
                             {
-                                ks.setter.Invoke(System.Threading.Interlocked.Increment(ref _lowIntKey));
+                                (kssp.setter ?? ks.setter).Invoke(System.Threading.Interlocked.Increment(ref _lowIntKey));
                             }
                             else
                             {
                                 if (keyType.Equals(typeof(long)))
                                 {
-                                    ks.setter.Invoke(System.Threading.Interlocked.Increment(ref _lowLongKey));
+                                    (kssp.setter ?? ks.setter).Invoke(System.Threading.Interlocked.Increment(ref _lowLongKey));
                                 }
                                 else
                                 {
-                                    if (keyType.Equals(typeof(Guid)))
+                                    if (keyType.Equals(typeof(Guid)) || keyType.Equals(typeof(string)))
                                     {
-                                        ks.setter.Invoke(Guid.NewGuid());
+                                        (kssp.setter ?? ks.setter).Invoke(Guid.NewGuid());
                                     }
                                 }
                             }
@@ -323,6 +334,8 @@ namespace CodexMicroORM.Core.Services
                 if (uw == null)
                     return;
 
+                bool linked = false;
+
                 var childRels = _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), uw.GetBaseType());
 
                 foreach (var rel in (from a in childRels where !string.IsNullOrEmpty(a.ParentPropertyName) select a))
@@ -351,6 +364,42 @@ namespace CodexMicroORM.Core.Services
                         {
                             iw.SetValue(rel.ParentPropertyName, testParent.GetWrapperTarget());
                             objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true);
+                            linked = true;
+                        }
+                    }
+                }
+
+                if (linked)
+                {
+                    foreach (var rel in (from a in childRels where !string.IsNullOrEmpty(a.ChildPropertyName) select a))
+                    {
+                        // Current entity role name used to look up any existing parent and add to their child collection if not already there
+                        var chRoleVals = GetKeyValues(uw, rel.ChildResolvedKey);
+                        var testParent = objstate.GetTrackedByPKValue(ss, rel.ParentType, (from a in chRoleVals select a.value));
+
+                        if (testParent != null)
+                        {
+                            var parChildGet = ss.GetGetter(testParent.GetInfraWrapperTarget(), rel.ChildPropertyName);
+
+                            if (WrappingHelper.IsWrappableListType(parChildGet.type, null))
+                            {
+                                var parVal = parChildGet.getter.Invoke();
+
+                                if (parVal == null)
+                                {
+                                    parVal = WrappingHelper.CreateWrappingList(ss, parChildGet.type, testParent.AsUnwrapped(), rel.ChildPropertyName);
+
+                                    var parChildSet = ss.GetSetter(testParent.GetInfraWrapperTarget(), rel.ChildPropertyName);
+                                    parChildSet.setter.Invoke(parVal);
+                                }
+
+                                var asCefList = parVal as ICEFList;
+
+                                if (asCefList != null)
+                                {
+                                    asCefList.AddWrappedItem(w ?? uw);
+                                }
+                            }
                         }
                     }
                 }
@@ -460,9 +509,9 @@ namespace CodexMicroORM.Core.Services
 
                             if (asCefList != null)
                             {
-                                if (!asCefList.ContainsItem(w))
+                                if (!asCefList.ContainsItem(w ?? uw))
                                 {
-                                    asCefList.AddWrappedItem(w);
+                                    asCefList.AddWrappedItem(w ?? uw);
                                     objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true);
                                 }
                             }
@@ -503,11 +552,6 @@ namespace CodexMicroORM.Core.Services
             }
 
             return values;
-        }
-
-        internal enum WiringAction
-        {
-            FromListReplacement = 1
         }
 
         internal static void UnlinkChildFromParentContainer(ServiceScope ss, string parentTypeName, string parentFieldName, object parContainer, object child)
@@ -554,7 +598,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        internal static void WireDependents(object o, object replaced, ServiceScope ss, WiringAction action, ICEFList list, bool? objectModelOnly, KeyServiceState state)
+        internal static void WireDependents(object o, object replaced, ServiceScope ss, ICEFList list, bool? objectModelOnly, KeyServiceState state)
         {
             if (state == null)
             {
@@ -729,6 +773,21 @@ namespace CodexMicroORM.Core.Services
                     if (ordinal >= 0 && NotifyParent.IsAlive && NotifyParent.Target != null)
                     {
                         var oldVal = Composite;
+
+                        // If using shadow props and no longer set to default, can remove shadow prop - for now, assume that any assignment will be to a non-null/valid value
+                        if (Globals.UseShadowPropertiesForNew)
+                        {
+                            var iw = Parent.GetInfra();
+
+                            if (iw != null)
+                            {
+                                if (iw.HasProperty(SHADOW_PROP_PREFIX + e.PropertyName))
+                                {
+                                    iw.RemoveProperty(SHADOW_PROP_PREFIX + e.PropertyName);
+                                }
+                            }
+                        }
+
                         Composite = BuildComposite(sender as INotifyPropertyChanged);
 
                         if (oldVal != Composite)
@@ -769,7 +828,17 @@ namespace CodexMicroORM.Core.Services
 
                             if (pkGet == null)
                             {
-                                pkGet = LinkedScope.GetGetter(Parent.GetInfraWrapperTarget(), f).getter;
+                                var iw = Parent.GetInfraWrapperTarget();
+
+                                if (Globals.UseShadowPropertiesForNew && iw.HasProperty(SHADOW_PROP_PREFIX + f))
+                                {
+                                    pkGet = LinkedScope.GetGetter(iw, SHADOW_PROP_PREFIX + f).getter;
+                                }
+
+                                if (pkGet == null)
+                                {
+                                    pkGet = LinkedScope.GetGetter(iw, f).getter;
+                                }
                             }
 
                             if (pkGet != null)

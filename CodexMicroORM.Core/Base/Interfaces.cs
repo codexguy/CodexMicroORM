@@ -73,6 +73,11 @@ namespace CodexMicroORM.Core
     {
     }
 
+    public interface ICEFSerializable
+    {
+        string GetSerializationText(SerializationMode? mode = null);
+    }
+
     /// <summary>
     /// Wrapper classes that implement this have the ability to tailor object names at runtime and identify the source objects they might "wrap".
     /// </summary>
@@ -96,6 +101,8 @@ namespace CodexMicroORM.Core
 
         bool HasProperty(string propName);
 
+        void RemoveProperty(string propName);
+
         object GetWrappedObject();
 
         ObjectState GetRowState();
@@ -108,7 +115,15 @@ namespace CodexMicroORM.Core
 
         object GetValue(string propName);
 
+        object GetOriginalValue(string propName, bool throwIfNotSet);
+
         void AcceptChanges();
+
+        bool SaveContents(Newtonsoft.Json.JsonTextWriter tw, SerializationMode mode);
+
+        void RestoreContents(Newtonsoft.Json.JsonTextReader tr);
+
+        void FinalizeObjectContents(Newtonsoft.Json.JsonTextWriter tw, SerializationMode mode);
     }
 
     /// <summary>

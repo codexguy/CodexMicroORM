@@ -44,7 +44,7 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 	* In-memory indexing, sorting, filtering (LINQ to Objects is a given, but this is a way to make that more efficient especially when dealing with large objects).
 	* Validations (rather than decorate the POCO with these, keep them separate - perhaps some validations are UI-centric, others are not; leave it to the framework user to decide how much or little they want).
 	* Extended properties: for example, being able to retrieve from a procedure that returns extra details not strictly part of the object - useful for binding and ultimately may match a saveable object (i.e. not a completely generic bag). Ideally strong-type these additional fields for intellisense, performance, type safety, effective DB contract, etc. These by being kept separate and managed via a service means it's completely opt-in and we don't carry unneeded baggage. This is different from the ability to load sets of existing objects (e.g. Person) from arbitrary procedures as well: if the result set matches the shape of the object, that should just work out of the box with no special effort.
-	* Persistence and change tracking (PCT) - can identify "original values", "row states", and enough detail to serialize "differences" across process boundaries.
+	* Persistence and change tracking (PCT) - can identify "original values", "row states", and enough detail to serialize "differences" across process boundaries. (*Update* - as of 0.2.2, serialization support has been added, including the ability to send only changes over the wire.)
 	* Audit - manages "last updated" fields, logical deletion, etc. Things like Last Updated fields should have framework support so we don't have to worry about managing these beyond high level settings.
 	* Database Persistence:
 		* Supports stored procedure mapping such that can leverage existing SQL audit templates that do a good job of building a CRUD layer, optimistic concurrency and temporal tables "done right" (i.e. determine *who* deleted a record!! - not something you can do natively with SQL2016 temporal tables).
@@ -171,14 +171,14 @@ Generally speaking, EF is not thread-safe and trying to introduce Parallel opera
 We might give extra marks to EF6 in its ability to properly interpret our LINQ expression in Benchmark 2 and thereby avoid use of the general-purpose stored procedure, up_Person_SummaryForParents. However, we might not always be so lucky: using procedures will make sense in situations where we need to use temp tables or use other SQL coding constructs to squeeze out good performance.
 
 ### nHibernate Results
-Let's face it: nHibernate must deal in *stylized* objects, not necessarily true POCO that might pre-exist in your apps. The clearest evidence is the fact all properties must be *virtual* - you may or may not have implemented your existing POCO's with that trait.
+Let's face it: nHibernate must deal in *stylized* objects, not necessarily true POCO that might pre-exist in your apps. The clearest evidence is the fact all properties must be *virtual* - you may or may not have implemented your existing POCO's with that trait. The counter-argument could be "but you're requiring CEF objects expose collections using interfaces such as ICollection instead of concrete types." My counter-counter argument would be, "there's no strict requirement here - but you do lose some framework 'goodness' and may need to do more 'work' to get your desired results," and "it's a common and generally good design pattern to expose things like collections using interfaces so you can *hide the implementation details*."
 
 Something you might notice in the code is the nHibernate solution includes quite a bit of set-up code. I chose to use the Fluent nHibernate API, but the XML approach would have resulted in quite a bit of configuration as well. I also spent a bit of time trying to understand the ins-and-outs of the correct way to do the self-referencing relationship on Person, and borrowed the generated EF classes which match the database structure completely.
 
 On the performance side, nHibernate scales linearly with the "save existing object model" scenario - but it does *not* for the "save per parent entity" case. (This would also match a case where we chose to use database transactions to commit per parent entity.) Like EF, parallelism was not kind to nHibernate and I had to avoid it generally. Another minor consideration is the fact as of today (12/31/17), nHibernate does not support NetStandard 2.0.
 
 ### Dapper Results
-It became evident as I tried to implement the Dapper solution that it's not really the *same* style or purpose as the other ORM tools. I'd call it more of a "data access helper library" instead. Unlike the other frameworks tested, it does *not track row state*: it's up to you as the developer to know when to apply insert, update or delete operations against the database. This helps it achieve its excellent performance, but it's just a thin wrapper for raw ADO.Net calls.
+It became evident as I tried to implement the Dapper solution that it's not really the *same* style or purpose as the other ORM tools. I'd call it more of a "data access helper library" instead. Unlike the other frameworks tested, it *does not track row state*: it's up to you as the developer to know when to apply insert, update or delete operations against the database. This helps it achieve its excellent performance, but it's just a thin wrapper for raw ADO.Net calls.
 
 Because of this, I didn't attempt a "populate and save all" version of tests for Dapper: it only really made sense to do the "save per parent entity" method. If we constructed a way to do a generalized "save" using Dapper, chances are good we'd lose the extreme performance benefits since we'd be applying the principles that make other frameworks slower.
 
@@ -214,14 +214,16 @@ The orange line is allocated memory - within the context of the red box, this is
 	* "performance and memory fixes"
 	* initial benchmarks
 	* other minor adjustments
+* 0.2.2 - January 2018
+	* Serialization - supports multiple serialization modes including serialization of "just changes" (has importance for over-the-wire scenarios); new test added to demonstrate serailization (SerializeDeserializeSave); watch for a blog I'll be using to cover more details about serialization and other topics
+	* Added support for "Shadow property values" - this is more of an advanced topic where we can leverage these to avoid updating your POCO objects with "system-assigned temporary keys" yet still retain identity like we do in earlier releases. In short, you might not care about this a lot but there could be some interesting "other applications" that I'll discuss in future blog posts.
 
 ## Roadmap / Plans
 Release 0.2 covers some basic scenarios. For 0.3 I'd like to add:
 
 * Validation services
 * Name translation services
-* Serializing changes / rehydrating objects
-* Support for more types of cardinalities, object mapping
+* Support for more types of cardinalities, object mapping (including many-to-many with payloads)
 * Some initial code-gen support
 * Add more collection types (EntityHashSet, EntityDictionary)
 

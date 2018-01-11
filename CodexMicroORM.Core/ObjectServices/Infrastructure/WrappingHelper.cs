@@ -24,6 +24,7 @@ using System.Data;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Collections;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -39,15 +40,6 @@ namespace CodexMicroORM.Core.Services
     {
         private static ConcurrentDictionary<Type, Type> _directTypeMap = new ConcurrentDictionary<Type, Type>();
         private static ConcurrentDictionary<Type, string> _cachedTypeMap = new ConcurrentDictionary<Type, string>();
-
-        public static void RegisterTypeMap<T, W>()
-        {
-            if (!(typeof(W) is ICEFWrapper))
-            {
-            }
-
-            _directTypeMap[typeof(T)] = typeof(W);
-        }
 
         private static string GetFullyQualifiedWrapperName(object o)
         {
@@ -330,6 +322,61 @@ namespace CodexMicroORM.Core.Services
             }
 
             return infrawrap;
+        }
+
+        /// <summary>
+        /// Performs a depth-first traversal of object graph, invoking a delegate of choice for each infrastructure wrapper found.
+        /// </summary>
+        /// <param name="iw">Root object to start traversal.</param>
+        /// <param name="toRun">A delegate to invoke for each infrastructure wrapper found.</param>
+        public static void NodeVisiter(ICEFInfraWrapper iw, Action<ICEFInfraWrapper> toRun)
+        {
+            InternalNodeVisiter(iw, toRun, new ConcurrentDictionary<object, bool>());
+        }
+
+        private static void InternalNodeVisiter(ICEFInfraWrapper iw, Action<ICEFInfraWrapper> toRun, IDictionary<object, bool> visits)
+        {
+            if (visits.ContainsKey(iw))
+            {
+                return;
+            }
+
+            visits[iw] = true;
+
+            var av = (from a in iw.GetAllValues() where a.Value != null && !a.Value.GetType().IsValueType && !a.Value.GetType().FullName.StartsWith("System.") select a).ToList();
+            var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 2 && av.Count() > Environment.ProcessorCount >> 1 ? Environment.ProcessorCount >> 1 : 1;
+
+            Parallel.ForEach(av, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (kvp) =>
+            {
+                var asEnum = kvp.Value as IEnumerable;
+
+                if (asEnum != null)
+                {
+                    var sValEnum = asEnum.GetEnumerator();
+
+                    while (sValEnum.MoveNext())
+                    {
+                        var iw2 = CEF.CurrentServiceScope.GetOrCreateInfra(sValEnum.Current, false);
+
+                        if (iw2 != null)
+                        {
+                            InternalNodeVisiter(iw2, toRun, visits);
+                        }
+                    }
+                }
+                else
+                {
+                    // If it's a tracked object, recurse
+                    var iw2 = CEF.CurrentServiceScope.GetOrCreateInfra(kvp.Value, false);
+
+                    if (iw2 != null)
+                    {
+                        InternalNodeVisiter(iw2, toRun, visits);
+                    }
+                }
+            });
+
+            toRun.Invoke(iw);
         }
     }
 }

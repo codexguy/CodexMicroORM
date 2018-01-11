@@ -145,6 +145,36 @@ namespace CodexMicroORM.Core
             set;
         } = Environment.ProcessorCount;
 
+        public static string SerializationStatePropertyName
+        {
+            get;
+            set;
+        } = "_os_";
+
+        public static string SerializationTypePropertyName
+        {
+            get;
+            set;
+        } = "_typename_";
+
+        public static bool SerializationStateAsInteger
+        {
+            get;
+            set;
+        } = true;
+
+        public static bool UseShadowPropertiesForNew
+        {
+            get;
+            set;
+        } = true;
+
+        public static SerializationMode DefaultSerializationMode
+        {
+            get;
+            set;
+        } = SerializationMode.Default;
+
         public static int? CommandTimeoutSeconds
         {
             get;

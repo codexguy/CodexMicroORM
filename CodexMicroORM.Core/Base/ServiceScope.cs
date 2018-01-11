@@ -25,6 +25,11 @@ using CodexMicroORM.Core.Collections;
 using System.ComponentModel;
 using System.Data;
 using System.Reflection;
+using System.Text.RegularExpressions;
+using Newtonsoft.Json.Linq;
+using System.Text;
+using Newtonsoft.Json;
+using System.IO;
 
 namespace CodexMicroORM.Core
 {
@@ -342,9 +347,231 @@ namespace CodexMicroORM.Core
             InternalDelete(root, visits, action);
         }
 
+        public void AcceptAllChanges()
+        {
+            foreach (var to in _scopeObjects)
+            {
+                if (to.IsAlive && to.Infra != null)
+                {
+                    to.Infra.AcceptChanges();
+                }
+            }
+        }
+
+        public IEnumerable<ICEFInfraWrapper> GetAllTracked()
+        {
+            foreach (var to in _scopeObjects)
+            {
+                if (to.IsAlive)
+                {
+                    yield return to.GetCreateInfra();
+                }
+            }
+        }
+
         public T NewObject<T>(T initial = null, Dictionary<string, object> props = null) where T : class, new()
         {
             return InternalCreateAdd(initial, true, null, props, null);
+        }
+
+        public int DeserializeScope(string json)
+        {
+            // Must be an array...
+            if (!Regex.IsMatch(json, @"^\s*\[") || !Regex.IsMatch(json, @"\]\s*$"))
+            {
+                throw new CEFInvalidOperationException("JSON provided is not an array (must be to deserialize a service scope).");
+            }
+
+            var setArray = JArray.Parse(json);
+            ConcurrentDictionary<object, object> visits = new ConcurrentDictionary<object, object>();
+
+            foreach (var i in setArray.Children())
+            {
+                if (i.First.Type == JTokenType.Property)
+                {
+                    var tpn = ((JProperty)i.First).Name;
+
+                    if (tpn == Globals.SerializationTypePropertyName)
+                    {
+                        InternalDeserialize(Type.GetType(((JProperty)i.First).Value.ToString()), i.ToString(), visits);
+                    }
+                }
+            }
+
+            return visits.Count;
+        }
+
+        public T Deserialize<T>(string json) where T : class, new()
+        {
+            // Must be an object...
+            if (!Regex.IsMatch(json, @"^\s*\{") || !Regex.IsMatch(json, @"\}\s*$"))
+            {
+                throw new CEFInvalidOperationException("JSON provided is not an object.");
+            }
+
+            return InternalDeserialize(typeof(T), json, new ConcurrentDictionary<object, object>()) as T;
+        }
+
+        private object InternalDeserialize(Type type, string json, IDictionary<object, object> visits)
+        {
+            var copyFrom = JObject.Parse(json);
+
+            Dictionary<string, object> props = new Dictionary<string, object>();
+            Dictionary<string, (Type type, IEnumerable<string> json)> lists = new Dictionary<string, (Type type, IEnumerable<string> json)>();
+            Dictionary<string, (Type type, string json)> objs = new Dictionary<string, (Type type, string json)>();
+            ObjectState rs = ObjectState.Unchanged;
+
+            foreach (var c in (from a in copyFrom.Children() where a.Type == JTokenType.Property select a))
+            {
+                var propName = ((JProperty)c).Name;
+
+                if (string.Compare(propName, Globals.SerializationStatePropertyName) == 0)
+                {
+                    if (int.TryParse(c.First.ToString(), out int rs2))
+                    {
+                        rs = (ObjectState)rs2;
+                    }
+                    else
+                    {
+                        if (Enum.TryParse<ObjectState>(c.First.ToString(), out ObjectState rs3))
+                        {
+                            rs = rs3;
+                        }
+                    }
+                }
+                else
+                {
+                    switch (c.First.Type)
+                    {
+                        case JTokenType.Array:
+                            {
+                                var lp = type.GetProperty(propName);
+
+                                // Can't deal with enumerations as bag properties (yet)
+                                if (lp != null && lp.CanWrite && lp.PropertyType.IsGenericType && WrappingHelper.IsWrappableListType(lp.PropertyType, null))
+                                {
+                                    List<string> itemData = new List<string>();
+
+                                    foreach (var cc in c.First.Children())
+                                    {
+                                        itemData.Add(cc.ToString());
+                                    }
+
+                                    lists[propName] = (lp.PropertyType, itemData);
+                                }
+                                else
+                                {
+                                    throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                                }
+                            }
+                            break;
+
+                        case JTokenType.Object:
+                            {
+                                var lp = type.GetProperty(propName);
+
+                                // Can't deal with objects as bag properties (yet)
+                                if (lp != null && lp.CanWrite)
+                                {
+                                    objs[propName] = (lp.PropertyType, c.ToString());
+                                }
+                                else
+                                {
+                                    throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                                }
+                            }
+                            break;
+
+                        case JTokenType.Boolean:
+                            props[propName] = c.First.Value<bool>();
+                            break;
+
+                        case JTokenType.Date:
+                            props[propName] = c.First.Value<DateTime>();
+                            break;
+
+                        case JTokenType.Float:
+                            props[propName] = c.First.Value<decimal>();
+                            break;
+
+                        case JTokenType.Guid:
+                            props[propName] = c.First.Value<Guid>();
+                            break;
+
+                        case JTokenType.Integer:
+                            props[propName] = c.First.Value<int>();
+                            break;
+
+                        case JTokenType.String:
+                            if (string.Compare(propName, Globals.SerializationTypePropertyName) != 0)
+                            {
+                                props[propName] = c.First.ToString();
+                            }
+                            break;
+
+                        case JTokenType.Null:
+                            props[propName] = null;
+                            break;
+
+                        default:
+                            throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                    }
+                }
+            }
+
+            var constructed = CEF.CurrentServiceScope.InternalCreateAddBase(Activator.CreateInstance(type), rs == ObjectState.Added, rs, props, null, visits);
+
+            var iw = constructed.AsInfraWrapped();
+
+            // Lists and objs should get wired up properly - easiest (fewer changes in core) if the parent already exists which is why we deferred this action, more of a breadth-first traversal
+            foreach (var kvp in objs)
+            {
+                iw.SetValue(kvp.Key, InternalDeserialize(kvp.Value.type, kvp.Value.json, visits));
+            }
+
+            foreach (var kvp in lists)
+            {
+                var lw = WrappingHelper.CreateWrappingList(CEF.CurrentServiceScope, kvp.Value.type, constructed, kvp.Key);
+                iw.SetValue(kvp.Key, lw);
+
+                var itemType = kvp.Value.type.GenericTypeArguments[0];
+
+                (lw as ISupportInitializeNotification)?.BeginInit();
+
+                foreach (var itemText in kvp.Value.json)
+                {
+                    InternalDeserialize(itemType, itemText, visits);
+                }
+
+                (lw as ISupportInitializeNotification)?.EndInit();
+            }
+
+            iw.AcceptChanges();
+            iw.SetRowState(rs);
+
+            return constructed;
+        }
+
+        public EntitySet<T> DeserializeSet<T>(string json) where T : class, new()
+        {
+            // Must be an array...
+            if (!Regex.IsMatch(json, @"^\s*\[") || !Regex.IsMatch(json, @"\]\s*$"))
+            {
+                throw new CEFInvalidOperationException("JSON provided is not an array (must be to deserialize as an EntitySet).");
+            }
+
+            // Construct a shadow copy that we'll traverse to build the corresponding wrapped structure
+            var setArray = JArray.Parse(json);
+            var outSet = new EntitySet<T>();
+            outSet.BeginInit();
+
+            foreach (var i in setArray.Children())
+            {
+                outSet.Add(Deserialize<T>(i.ToString()));
+            }
+
+            outSet.EndInit();
+            return outSet;
         }
 
         #endregion
@@ -489,7 +716,6 @@ namespace CodexMicroORM.Core
                         return ((v) =>
                         {
                             target.FastSetValue(propName, v);
-                            //pi.SetValue(target, v);
                         }
                         , pi.PropertyType);
                     }
@@ -618,7 +844,43 @@ namespace CodexMicroORM.Core
             return filterRows.Count == 0 ? null : filterRows;
         }
 
-        private int ReconcileModifiedState(HashSet<object> filterRows)
+        public string GetScopeSerializationText(SerializationMode? mode)
+        {
+            ReconcileModifiedState(null);
+
+            ConcurrentDictionary<object, bool> visits = new ConcurrentDictionary<object, bool>();
+            StringBuilder sb = new StringBuilder(16384);
+            var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode);
+
+            using (var jw = new JsonTextWriter(new StringWriter(sb)))
+            {
+                jw.WriteStartArray();
+
+                foreach (var to in _scopeObjects)
+                {
+                    if (to.IsAlive && !visits.ContainsKey(to.GetWrapperTarget()))
+                    {
+                        var iw = to.GetInfra();
+
+                        if (iw != null)
+                        {
+                            var rs = iw.GetRowState();
+
+                            if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
+                            {
+                                PCTService.InternalSaveContents(jw, to.GetWrapperTarget(), actmode | SerializationMode.IncludeType, visits);
+                            }
+                        }
+                    }
+                }
+
+                jw.WriteEndArray();
+            }
+
+            return sb.ToString();
+        }
+
+        internal int ReconcileModifiedState(HashSet<object> filterRows)
         {
             int count = 0;
 

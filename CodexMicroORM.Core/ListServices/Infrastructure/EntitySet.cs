@@ -26,6 +26,9 @@ using System.Linq;
 using System.Threading;
 using System.Collections;
 using System.Collections.Concurrent;
+using Newtonsoft.Json;
+using System.Text;
+using System.IO;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -35,7 +38,7 @@ namespace CodexMicroORM.Core.Services
     /// You should not care much about this implementation detail: handle most of your collections as ICollection<T> or IList<T>.
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public class EntitySet<T> : ObservableCollection<T>, ICEFList, ISupportInitializeNotification where T : class, new()
+    public class EntitySet<T> : ObservableCollection<T>, ICEFList, ICEFSerializable, ISupportInitializeNotification where T : class, new()
     {
         #region "Private state"
 
@@ -86,6 +89,34 @@ namespace CodexMicroORM.Core.Services
                 return false;
 
             return this._contains.ContainsKey(o as T);
+        }
+
+        public string GetSerializationText(SerializationMode? mode = null)
+        {
+            StringBuilder sb = new StringBuilder(4096);
+            var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode);
+
+            CEF.CurrentServiceScope.ReconcileModifiedState(null);
+
+            using (var jw = new JsonTextWriter(new StringWriter(sb)))
+            {
+                jw.WriteStartArray();
+
+                foreach (var i in this)
+                {
+                    var iw = i.AsInfraWrapped();
+                    var rs = iw.GetRowState();
+
+                    if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
+                    {
+                        PCTService.InternalSaveContents(jw, i, actmode, new ConcurrentDictionary<object, bool>());
+                    }
+                }
+
+                jw.WriteEndArray();
+            }
+
+            return sb.ToString();
         }
 
         public void RemoveItem(object o)
@@ -209,7 +240,7 @@ namespace CodexMicroORM.Core.Services
             for (int i = firstToWire.GetValueOrDefault(); i <= lastToWire.GetValueOrDefault() && i < this.Count; ++i)
             {
                 var item = this[i];
-                KeyService.WireDependents(item.AsUnwrapped(), item, BoundScope, KeyService.WiringAction.FromListReplacement, this, null, null);
+                KeyService.WireDependents(item.AsUnwrapped(), item, BoundScope, this, null, null);
             }
         }
 

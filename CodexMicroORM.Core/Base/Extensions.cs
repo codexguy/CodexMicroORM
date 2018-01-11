@@ -20,6 +20,7 @@ using System;
 using CodexMicroORM.Core.Services;
 using System.ComponentModel;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace CodexMicroORM.Core
 {
@@ -222,6 +223,71 @@ namespace CodexMicroORM.Core
         public static T AsWrapped<T>(this object unwrapped) where T : class, ICEFWrapper
         {
             return CEF.CurrentServiceScope.GetWrapperFor(unwrapped) as T;
+        }
+
+        /// <summary>
+        /// Returns the JSON representation of the object. If it's an infrastructure wrapped object, used CEF rules, otherwise plain Newtonsoft serialization rules.
+        /// </summary>
+        /// <param name="o">Object to serialize.</param>
+        /// <param name="mode">Serialization mode (applicable if an infrastructure wrapped object).</param>
+        /// <returns>String representation of object.</returns>
+        public static string AsJSON(this object o, SerializationMode? mode = null)
+        {
+            if (o == null)
+                return null;
+
+            // Special case - if o is a session scope, we're asking to serialize everything in scope, as one big array of objects!
+            if (o is ServiceScope)
+            {
+                return ((ServiceScope)o).GetScopeSerializationText(mode);
+            }
+
+            var iw = o.AsInfraWrapped(false) as ICEFSerializable;
+
+            if (iw == null)
+            {
+                return JsonConvert.SerializeObject(o);
+            }
+
+            CEF.CurrentServiceScope.ReconcileModifiedState(null);
+
+            return iw.GetSerializationText(mode);
+        }
+
+        public static void AcceptAllChanges(this ICEFInfraWrapper iw)
+        {
+            WrappingHelper.NodeVisiter(iw, (iw2) =>
+            {
+                iw2.AcceptChanges();
+            });
+        }
+
+        public static void AcceptAllChanges(this ICEFInfraWrapper iw, Type onlyForType)
+        {
+            if (onlyForType == null)
+                throw new ArgumentNullException("onlyForType");
+
+            WrappingHelper.NodeVisiter(iw, (iw2) =>
+            {
+                if (iw2.GetBaseType().Equals(onlyForType))
+                {
+                    iw2.AcceptChanges();
+                }
+            });
+        }
+
+        public static void AcceptAllChanges(this ICEFInfraWrapper iw, Func<ICEFInfraWrapper, bool> check)
+        {
+            if (check == null)
+                throw new ArgumentNullException("check");
+
+            WrappingHelper.NodeVisiter(iw, (iw2) =>
+            {
+                if (check.Invoke(iw2))
+                {
+                    iw2.AcceptChanges();
+                }
+            });
         }
 
         /// <summary>

@@ -20,6 +20,21 @@ using System;
 
 namespace CodexMicroORM.Core
 {
+    [Flags]
+    public enum SerializationMode
+    {
+        ObjectState = 1,
+        OnlyChanged = 2,
+        IncludeReadOnlyProps = 4,
+        IncludeNull = 8,
+        OriginalForConcurrency = 16,
+        OnlyCLRProperties = 32,
+        IncludeType = 64,
+        Default = 9,
+        OverWire = 25,
+        OverWireOnlyChanges = 27
+    }
+
     public enum ObjectState
     {
         Unchanged = 0,

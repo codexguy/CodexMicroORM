@@ -22,9 +22,12 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Dynamic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -34,7 +37,7 @@ namespace CodexMicroORM.Core.Services
     /// Disposal is important here since we have an event handler observing the source for changes. (Infrastructure cascades disposal.)
     /// Data types are inferred based on source values OR by explicit definition - latter is preferred since if source value is null, we can't infer real type (assumes object).
     /// </summary>
-    public class DynamicWithBag : DynamicObject, ICEFInfraWrapper
+    public class DynamicWithBag : DynamicObject, ICEFInfraWrapper, ICEFSerializable
     {
         protected ConcurrentDictionary<string, object> _valueBag = new ConcurrentDictionary<string, object>();
         protected ConcurrentDictionary<string, Type> _preferredType = new ConcurrentDictionary<string, Type>();
@@ -84,8 +87,26 @@ namespace CodexMicroORM.Core.Services
         {
         }
 
+        /// <summary>
+        /// Used by DynamicObject to return values for dynamic properties. Internal use only.
+        /// </summary>
+        /// <param name="binder"></param>
+        /// <param name="result"></param>
+        /// <returns></returns>
         public override bool TryGetMember(GetMemberBinder binder, out object result)
         {
+            if (_valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + binder.Name))
+            {
+                result = _valueBag[KeyService.SHADOW_PROP_PREFIX + binder.Name];
+                return true;
+            }
+
+            if (!_source.FastPropertyWriteable(binder.Name) && _valueBag.ContainsKey(binder.Name))
+            {
+                result = _valueBag[binder.Name];
+                return true;
+            }
+
             if (_source.FastPropertyReadable(binder.Name))
             {
                 result = _source.FastGetValue(binder.Name);
@@ -97,10 +118,17 @@ namespace CodexMicroORM.Core.Services
                 result = _valueBag[binder.Name];
                 return true;
             }
+
             result = null;
             return false;
         }
 
+        /// <summary>
+        /// Used by DynamicObject to set values for dynamic properties. Internal use only.
+        /// </summary>
+        /// <param name="binder"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
         public override bool TrySetMember(SetMemberBinder binder, object value)
         {
             return SetValue(binder.Name, value);
@@ -135,6 +163,11 @@ namespace CodexMicroORM.Core.Services
 
         public virtual object GetValue(string propName)
         {
+            if (_valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
+            {
+                return _valueBag[KeyService.SHADOW_PROP_PREFIX + propName];
+            }
+
             if (_valueBag.ContainsKey(propName))
             {
                 return _valueBag[propName];
@@ -246,6 +279,11 @@ namespace CodexMicroORM.Core.Services
             return WrappingSupport.PropertyBag;
         }
 
+        public void RemoveProperty(string propName)
+        {
+            _valueBag.TryRemove(propName, out object val);
+        }
+
         public bool HasProperty(string propName)
         {
             if (_source.FastPropertyReadable(propName))
@@ -291,6 +329,42 @@ namespace CodexMicroORM.Core.Services
         public virtual void AcceptChanges()
         {
             _isBagChanged = false;
+        }
+
+        public virtual bool SaveContents(JsonTextWriter tw, SerializationMode mode)
+        {
+            return PCTService.InternalSaveContents(tw, this, mode, new ConcurrentDictionary<object, bool>());
+        }
+
+        public virtual void RestoreContents(JsonTextReader tr)
+        {
+        }
+
+        public virtual void FinalizeObjectContents(JsonTextWriter tw, SerializationMode mode)
+        {
+        }
+
+        /// <summary>
+        /// Returns the JSON representation of the infrastructure wrapper.
+        /// </summary>
+        /// <param name="mode">Optional control over JSON format (if omitted, uses session / global default).</param>
+        /// <returns></returns>
+        public string GetSerializationText(SerializationMode? mode = null)
+        {
+            StringBuilder sb = new StringBuilder(4096);
+            var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode);
+
+            using (var jw = new JsonTextWriter(new StringWriter(sb)))
+            {
+                SaveContents(jw, actmode);
+            }
+
+            return sb.ToString();
+        }
+
+        public virtual object GetOriginalValue(string propName, bool throwIfNotSet)
+        {
+            throw new NotSupportedException();
         }
     }
 

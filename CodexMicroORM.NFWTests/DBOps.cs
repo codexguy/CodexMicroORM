@@ -187,6 +187,72 @@ namespace CodexMicroORM.NFWTests
         }
 
         [TestMethod]
+        public void SerializeDeserializeSave()
+        {
+            string serTextPerson;
+            string serTextScope;
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { SerializationMode = SerializationMode.OverWireOnlyChanges, InitializeNullCollections = true }))
+            {
+                var p1 = CEF.NewObject(new Person() { Name = "STFred", Age = 44 });
+                p1.Phones.Add(new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile });
+                var p2 = CEF.NewObject(new Person() { Name = "STSam", Age = 44 });
+                p2.Phones.Add(new Phone() { Number = "222-8172", PhoneTypeID = PhoneType.Mobile });
+                var p3 = new Person() { Name = "STCarol", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile } } };
+                var p4 = new Person() { Name = "STKylo", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile } } };
+                var p5 = new Person() { Name = "STPerry", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile } } };
+                var p6 = new Person() { Name = "STWilliam", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile } } };
+                p1.Kids.Add(p2);
+                p1.Kids.Add(p3);
+                p2.Kids.Add(p4);
+                p3.Kids.Add(p5);
+                Assert.AreEqual(10, CEF.DBSave().Count());
+
+                // Previous op should have assigned keys from DB, but now let's make some changes
+                p2.Age += 1;
+                p2.Phones.RemoveAt(0);
+                p3.Kids.Add(p6);
+
+                // Serializing a single object (and all its child info)
+                serTextPerson = p1.AsJSON();
+
+                // Serialize every tracked object in scope (with serialization mode caveats)
+                serTextScope = CEF.CurrentServiceScope.AsJSON();
+            }
+
+            using (CEF.NewServiceScope())
+            {
+                // Should reconstitute only items needed to support saving the person change (adding of child and their phone, and increment of age) - notably, does not include the disassociated phone object since we're using a serialized *person* object and all their directly related data
+                var start = DateTime.UtcNow;
+                var p1b = CEF.Deserialize<Person>(serTextPerson);
+                Assert.AreEqual(3, CEF.DBSave().Count());
+                Assert.AreEqual("222-3338", (from a in p1b.Kids where a.Name == "STCarol" from b in a.Kids where b.Name == "STWilliam" select b.Phones.First()).First().Number);
+
+                // There were 3 changed items, yes, but had to have 5 in total to properly "root" all objects in the hierarchy
+                Assert.AreEqual(5, CEF.GetAllTracked().Count());
+
+                var end = (from a in p1b.Kids where a.Age == 45 select a).First().AsDynamic().LastUpdatedDate;
+                Assert.IsTrue(end > start);
+            }
+
+            using (CEF.NewServiceScope())
+            {
+                // Reconstituting for everything that was in scope includes the disassociated phone object - let's mark everything as clean then dirty up that one up again so it should cause a single update when we save
+                var start = DateTime.UtcNow;
+                CEF.DeserializeScope(serTextScope);
+                CEF.AcceptAllChanges();
+                var phone = (from a in CEF.GetAllTracked() where a.HasProperty(nameof(Phone.Number)) && string.Compare(a.GetValue(nameof(Phone.Number))?.ToString(), "222-8172") == 0 select a).First().AsDynamic();
+                phone.Number = "222-8173";
+                Assert.AreEqual(1, CEF.DBSave().Count());
+                var end = phone.LastUpdatedDate;
+                Assert.IsTrue(end > start);
+
+                // Service scope serialization is a bit different than it was for the person: we're only expecting 4 objects in the scope (not doing as an object graph, doing everything as a list, effectively)
+                Assert.AreEqual(4, CEF.GetAllTracked().Count());
+            }
+        }
+
+        [TestMethod]
         public void PopulateFromInitialPocoVariousRetrievalsSaves()
         {
             using (CEF.NewServiceScope())

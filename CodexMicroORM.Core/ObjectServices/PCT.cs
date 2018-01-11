@@ -15,13 +15,19 @@ limitations under the License.
 
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
+01/2018    0.2.2   Primary implementation (Joel Champagne)
 ***********************************************************************/
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -30,6 +36,215 @@ namespace CodexMicroORM.Core.Services
         Type ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
         {
             return null;
+        }
+
+        /// <summary>
+        /// For a given object, persist its JSON representation to stream.
+        /// </summary>
+        /// <param name="tw"></param>
+        /// <param name="o"></param>
+        /// <param name="mode"></param>
+        /// <param name="visits"></param>
+        /// <returns></returns>
+        internal static bool InternalSaveContents(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits)
+        {
+            if (visits.ContainsKey(o))
+            {
+                return visits[o];
+            }
+
+            bool include = true;
+
+            if ((mode & SerializationMode.OnlyChanged) != 0)
+            {
+                // Point of this? if we have object graph a->b->c, if c is modified, both a and b need to be included even if unmodified to support proper hierarchy
+                include = RequiresPersistence(o, new ConcurrentDictionary<object, bool>());
+            }
+
+            if (include)
+            {
+                WriteSerializationText(tw, o, mode, visits);
+            }
+
+            visits[o] = true;
+
+            return include;
+        }
+
+        internal static void WriteSerializationText(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits)
+        {
+            var iw = o.AsInfraWrapped(false);
+
+            if (iw != null)
+            {
+                tw.WriteStartObject();
+
+                var wot = iw.GetWrappedObject()?.GetType() ?? iw.GetBaseType();
+
+                // We only really want/need to include type info on outermost objects (session scope level only), so reset this for all nested objects
+                var nextmode = (SerializationMode)((int)mode & (-1 ^ (int)SerializationMode.IncludeType));
+
+                if ((mode & SerializationMode.IncludeType) != 0)
+                {
+                    tw.WritePropertyName(Globals.SerializationTypePropertyName);
+                    tw.WriteValue(o.GetType().AssemblyQualifiedName);
+                }
+
+                foreach (var kvp in iw.GetAllValues())
+                {
+                    // If it's enumerable, recurse each item
+                    if (kvp.Value is IEnumerable && !kvp.Value.GetType().FullName.StartsWith("System."))
+                    {
+                        tw.WritePropertyName(kvp.Key);
+                        tw.WriteStartArray();
+
+                        var asEnum = (kvp.Value as IEnumerable).GetEnumerator();
+
+                        while (asEnum.MoveNext())
+                        {
+                            InternalSaveContents(tw, asEnum.Current, nextmode, visits);
+                        }
+
+                        tw.WriteEndArray();
+                    }
+                    else
+                    {
+                        // If it's a tracked object, recurse
+                        if (kvp.Value != null && !kvp.Value.GetType().IsValueType && CEF.CurrentServiceScope.GetTrackedByWrapperOrTarget(kvp.Value) != null)
+                        {
+                            var iw2 = kvp.Value.AsInfraWrapped();
+
+                            if (iw2 != null)
+                            {
+                                tw.WritePropertyName(kvp.Key);
+                                InternalSaveContents(tw, iw2, nextmode, visits);
+                            }
+                        }
+                        else
+                        {
+                            if (kvp.Value != null || (mode & SerializationMode.IncludeNull) != 0)
+                            {
+                                if (((mode & SerializationMode.IncludeReadOnlyProps) != 0) || (wot.GetProperty(kvp.Key)?.CanWrite).GetValueOrDefault(true))
+                                {
+                                    if (((mode & SerializationMode.OnlyCLRProperties) == 0) || (wot.GetProperty(kvp.Key)?.CanRead).GetValueOrDefault(false))
+                                    {
+                                        if (((mode & SerializationMode.OriginalForConcurrency) == 0) || (string.Compare(AuditService.LastUpdatedDateField, kvp.Key, true) != 0 && string.Compare(AuditService.IsDeletedField, kvp.Key, true) != 0))
+                                        {
+                                            tw.WritePropertyName(kvp.Key);
+                                            tw.WriteValue(kvp.Value);
+                                        }
+                                        else
+                                        {
+                                            // Only need to send original date - do not send isdeleted at all
+                                            if (string.Compare(AuditService.IsDeletedField, kvp.Key, true) != 0)
+                                            {
+                                                var rs = iw.GetRowState();
+
+                                                if (rs != ObjectState.Added && rs != ObjectState.Unlinked)
+                                                {
+                                                    var val = iw.GetOriginalValue(kvp.Key, false);
+
+                                                    if (val != null)
+                                                    {
+                                                        tw.WritePropertyName(kvp.Key);
+                                                        tw.WriteValue(val);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Allows for inclusion of object state, etc.
+                iw.FinalizeObjectContents(tw, mode);
+
+                tw.WriteEndObject();
+            }
+            else
+            {
+                tw.WriteValue(o);
+            }
+        }
+
+        /// <summary>
+        /// Only applicable if trying to persist changes. Need to determine if the given object needs persistence because one of its child objects may need it.
+        /// </summary>
+        /// <param name="o"></param>
+        /// <param name="visits"></param>
+        /// <returns></returns>
+        internal static bool RequiresPersistence(object o, IDictionary<object, bool> visits)
+        {
+            if (visits.ContainsKey(o))
+            {
+                return visits[o];
+            }
+
+            var iw = o.AsInfraWrapped(false);
+
+            if (iw != null)
+            {
+                var rs = iw.GetRowState();
+
+                if (rs != ObjectState.Unchanged && rs != ObjectState.Unlinked)
+                {
+                    visits[iw] = true;
+                    return true;
+                }
+
+                int requires = 0;
+                var av = (from a in iw.GetAllValues() where a.Value != null && !a.Value.GetType().IsValueType && !a.Value.GetType().FullName.StartsWith("System.") select a).ToList();
+                var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 2 && av.Count() > Environment.ProcessorCount >> 1 ? Environment.ProcessorCount >> 1 : 1;
+
+                Parallel.ForEach(av, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (kvp, pls) =>
+                {
+                    // If it's a tracked list, recurse each item
+                    var asEnum = kvp.Value as IEnumerable;
+
+                    if (asEnum != null)
+                    {
+                        var sValEnum = asEnum.GetEnumerator();
+
+                        while (sValEnum.MoveNext())
+                        {
+                            // Only makes sense if enumerating something wrapped, otherwise assume does NOT require serialization (no changes)
+                            var iw2 = CEF.CurrentServiceScope.GetOrCreateInfra(sValEnum.Current, false);
+
+                            if (iw2 != null)
+                            {
+                                if (RequiresPersistence(iw2, visits))
+                                {
+                                    Interlocked.Increment(ref requires);
+                                    pls.Break();
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // If it's a tracked object, recurse
+                        var iw2 = CEF.CurrentServiceScope.GetOrCreateInfra(kvp.Value, false);
+
+                        if (iw2 != null)
+                        {
+                            if (RequiresPersistence(iw2, visits))
+                            {
+                                Interlocked.Increment(ref requires);
+                                pls.Break();
+                            }
+                        }
+                    }
+                });
+
+                visits[o] = requires > 0;
+                return requires > 0;
+            }
+
+            visits[o] = false;
+            return false;
         }
 
         void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state)

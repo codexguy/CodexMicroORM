@@ -34,6 +34,12 @@ namespace CodexMicroORM.Core
             set;
         } = Globals.DefaultInitializeNullCollections;
 
+        public SerializationMode SerializationMode
+        {
+            get;
+            set;
+        } = Globals.DefaultSerializationMode;
+
         public MergeBehavior MergeBehavior
         {
             get;

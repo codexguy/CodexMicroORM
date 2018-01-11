@@ -21,6 +21,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using Newtonsoft.Json;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -157,6 +158,11 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
+            foreach (var kvp in _valueBag)
+            {
+                _originalValues[kvp.Key] = kvp.Value;
+            }
+
             bool changed = (_rowState != ObjectState.Unchanged);
 
             SetRowState(ObjectState.Unchanged);
@@ -168,11 +174,35 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public object OriginalValueFor(string propName)
+        public override void FinalizeObjectContents(JsonTextWriter tw, SerializationMode mode)
+        {
+            base.FinalizeObjectContents(tw, mode);
+
+            if ((mode & SerializationMode.ObjectState) != 0)
+            {
+                tw.WritePropertyName(Globals.SerializationStatePropertyName);
+
+                if (Globals.SerializationStateAsInteger)
+                {
+                    tw.WriteValue((int)State);
+                }
+                else
+                {
+                    tw.WriteValue(State.ToString());
+                }
+            }
+        }
+
+        public override object GetOriginalValue(string propName, bool throwIfNotSet)
         {
             if (!_originalValues.ContainsKey(propName))
             {
-                throw new CEFInvalidOperationException($"Property {propName} does not exist on this wrapper.");
+                if (throwIfNotSet)
+                {
+                    throw new CEFInvalidOperationException($"Property {propName} does not exist on this wrapper.");
+                }
+
+                return null;
             }
 
             return _originalValues[propName];

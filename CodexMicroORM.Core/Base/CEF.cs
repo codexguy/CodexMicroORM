@@ -121,6 +121,26 @@ namespace CodexMicroORM.Core
             }
         }
 
+        public static T Deserialize<T>(string json) where T : class, new()
+        {
+            return CurrentServiceScope.Deserialize<T>(json);
+        }
+
+        public static int DeserializeScope(string json)
+        {
+            return CurrentServiceScope.DeserializeScope(json);
+        }
+
+        public static IEnumerable<ICEFInfraWrapper> GetAllTracked()
+        {
+            return CurrentServiceScope.GetAllTracked();
+        }
+
+        public static void AcceptAllChanges()
+        {
+            CurrentServiceScope.AcceptAllChanges();
+        }
+
         public static IEnumerable<(object item, string message, int status)> DBSave(DBSaveSettings settings = null)
         {
             return CurrentServiceScope.DBSave(settings);
