@@ -228,7 +228,7 @@ I've added a new benchmark test in the WPF demo app, implemented for both Dapper
 
 ![Benchmark #2 for CEF and Dapper](http://www.xskrape.com/images/cef_benchmark2.png)
 
-(I stuck with just these two frameworks since it's clear from the prior testing that nHibernate and Entity Framework aren't removely competitive in terms of performance.)
+(I stuck with just these two frameworks since it's clear from the prior testing that nHibernate and Entity Framework aren't remotely competitive in terms of performance.)
 
 The nature of this new benchmark is to work with a pre-populated set of database records, retrieving data in a loop and making a couple of updates in the process. We've also split some of the functionality into multiple methods where the parameters are restricted to ID values, like we might see in a theoretical library / API. The final results for both CEF and Dapper are verified in the database at the end. Of note:
 
@@ -244,7 +244,7 @@ The nature of this new benchmark is to work with a pre-populated set of database
 	db.Execute("CEFTest.up_Person_u", new { RetVal = 1, Msg = "", parent.PersonID, parent.Name, parent.Age, ParentPersonID = ppid, Gender = gender, parent.LastUpdatedBy, parent.LastUpdatedDate }, commandType: CommandType.StoredProcedure);
 ```
 
-	Trying to do the Execute with in-line use of parent.ParentPersonID would result in run-time errors, and the simplest, most desirable approach of simply using "parent" as the second parameter does no work, either.
+Doing the Execute() with in-line use of parent.ParentPersonID results in a run-time error, and the simplest, most desirable approach of simply using "parent" as the second parameter does not work, either.
 
 The final performance result is that Dapper's per-database-call timing was an average of 0.47 milliseconds, whereas for CEF is was 0.26 milliseconds - nearly half the time of Dapper. In terms of code size, CEF's implementation was 1618 characters compared to Dapper's 2629 characters - meaning CEF offered a 40+% performance gain with nearly 40% less code to write and maintain! Now, there are ways to achieve similar results using Dapper - by writing even *more* code.
 
