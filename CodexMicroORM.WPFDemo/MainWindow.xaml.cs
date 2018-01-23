@@ -37,7 +37,7 @@ namespace CodexMicroORM.WPFDemo
     /// </summary>
     public partial class MainWindow : Window
     {
-        private const string DB_SERVER = @"(local)\sql2016";
+        private const string DB_SERVER = @".\sql2016";
 
         GenericBindableSet _bindableFamilies;
 
@@ -454,6 +454,14 @@ namespace CodexMicroORM.WPFDemo
                                 case 7:
                                     NHBenchmarks.Benchmark1SavePer(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
                                     break;
+
+                                case 8:
+                                    CEFBenchmarks.Benchmark2(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 9:
+                                    DapperBenchmarks.Benchmark2(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
                             }
                         }
                     }
@@ -485,11 +493,19 @@ namespace CodexMicroORM.WPFDemo
                         ConsoleWriteLine($"Median duration: {testTimes[TESTS_TO_RUN >> 1]} ms");
                         ConsoleWriteLine($"Rows: {rowcount / TESTS_TO_RUN}");
                         ConsoleWriteLine($"Duration per row: {testTimes[TESTS_TO_RUN >> 1] * 1.0 * TESTS_TO_RUN / rowcount:0.00} ms");
-                        ConsoleWriteLine($"Part 2.");
-                        ConsoleWriteLine($"Median duration: {testTimes2[TESTS_TO_RUN >> 1]} ms");
-                        ConsoleWriteLine($"Rows: {rowcount2 / TESTS_TO_RUN}");
-                        ConsoleWriteLine($"Duration per row: {testTimes2[TESTS_TO_RUN >> 1] * 1.0 * TESTS_TO_RUN / rowcount2:0.00} ms");
-                        ConsoleWriteLine($"Final Phone row count: {CEF.CurrentDBService().ExecuteScalar<int>(CommandType.Text, "SELECT COUNT(*) as Rows FROM CEFTest.Phone")} (should be 12200/24400)");
+
+                        if (testTimes2.Any())
+                        {
+                            ConsoleWriteLine($"Part 2.");
+                            ConsoleWriteLine($"Median duration: {testTimes2[TESTS_TO_RUN >> 1]} ms");
+                            ConsoleWriteLine($"Rows: {rowcount2 / TESTS_TO_RUN}");
+                            ConsoleWriteLine($"Duration per row: {testTimes2[TESTS_TO_RUN >> 1] * 1.0 * TESTS_TO_RUN / rowcount2:0.00} ms");
+                        }
+
+                        if (testType < 8)
+                        {
+                            ConsoleWriteLine($"Final Phone row count: {CEF.CurrentDBService().ExecuteScalar<int>("SELECT COUNT(*) as Rows FROM CEFTest.Phone")} (should be 12200/24400)");
+                        }
 
                         StartTests.IsEnabled = true;
                         RunBenchmark.IsEnabled = true;

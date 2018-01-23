@@ -77,6 +77,8 @@
                         <ComboBoxItem>Dapper Suite 1</ComboBoxItem>
                         <ComboBoxItem>nHibernate Suite 1</ComboBoxItem>
                         <ComboBoxItem>nHibernate Suite 1 (save per)</ComboBoxItem>
+                        <ComboBoxItem>CodexMicroORM Suite 2</ComboBoxItem>
+                        <ComboBoxItem>Dapper Suite 2</ComboBoxItem>
                     </ComboBox>
                     <Button MinWidth="60" Margin="20,0,0,0" x:Name="RunBenchmark" Click="RunBenchmark_Click">Run</Button>
                 </StackPanel>

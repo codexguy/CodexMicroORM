@@ -22,45 +22,45 @@ using System.Data;
 
 namespace CodexMicroORM.Core.Services
 {
-    public class AuditService : ICEFService
+    public class AuditService : ICEFAuditHost
     {
-        public static Func<string> GetLastUpdatedBy
+        public Func<string> GetLastUpdatedBy
         {
             get;
             set;
         } = () => { return Environment.UserName; };
 
-        public static Func<DateTime> GetLastUpdatedDate
+        public Func<DateTime> GetLastUpdatedDate
         {
             get;
             set;
         } = () => { return DateTime.UtcNow; };
 
-        public static string IsDeletedField
+        public string IsDeletedField
         {
             get;
             set;
         } = "IsDeleted";
 
-        public static string LastUpdatedByField
+        public string LastUpdatedByField
         {
             get;
             set;
         } = "LastUpdatedBy";
 
-        public static string LastUpdatedDateField
+        public string LastUpdatedDateField
         {
             get;
             set;
         } = "LastUpdatedDate";
 
-        public static bool IsLastUpdatedByDBAssigned
+        public bool IsLastUpdatedByDBAssigned
         {
             get;
             set;
         } = false;
 
-        public static bool IsLastUpdatedDateDBAssigned
+        public bool IsLastUpdatedDateDBAssigned
         {
             get;
             set;
@@ -86,7 +86,7 @@ namespace CodexMicroORM.Core.Services
             GetLastUpdatedDate = getLastUpdatedDate;
         }
 
-        public static ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, ObjectState state)
+        public ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, ObjectState state)
         {
             if (!IsLastUpdatedByDBAssigned && !string.IsNullOrEmpty(LastUpdatedByField))
             {
@@ -132,6 +132,10 @@ namespace CodexMicroORM.Core.Services
         }
 
         void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state)
+        {
+        }
+
+        public virtual void Disposing(ServiceScope ss)
         {
         }
     }

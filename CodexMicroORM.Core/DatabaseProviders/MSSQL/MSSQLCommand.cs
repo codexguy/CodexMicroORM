@@ -24,6 +24,7 @@ using System.Data;
 using System.Text.RegularExpressions;
 using CodexMicroORM.Core;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace CodexMicroORM.Providers
 {
@@ -43,6 +44,21 @@ namespace CodexMicroORM.Providers
             _cmd.Transaction = conn.CurrentTransaction;
         }
 
+        public IDictionary<string, object> GetParameterValues()
+        {
+            Dictionary<string, object> parms = new Dictionary<string, object>();
+
+            if (_cmd.Parameters != null)
+            {
+                foreach (var p in _cmd.Parameters.Cast<SqlParameter>())
+                {
+                    parms[p.ParameterName] = p.Value;
+                }
+            }
+
+            return parms;
+        }
+
         public string LastMessage
         {
             get;
@@ -55,9 +71,11 @@ namespace CodexMicroORM.Providers
             private set;
         }
 
+        private static Regex _splitter = new Regex(@"^(?:\[?(?<s>.+?)\]?\.)?\[?(?<n>.+?)\]?$", RegexOptions.Compiled);
+
         public static (string schema, string name) SplitIntoSchemaAndName(string fullname)
         {
-            var matObj = Regex.Match(fullname, @"^(?:\[?(?<s>.+?)\]?\.)?\[?(?<n>.+?)\]?$");
+            var matObj = _splitter.Match(fullname);
             return (matObj.Groups["s"].Value, matObj.Groups["n"].Value);
         }
 
@@ -68,7 +86,6 @@ namespace CodexMicroORM.Providers
             {
                 discoverConn.Open();
 
-                // Min is SQL2008
                 using (var discoverCmd = new SqlCommand("[sys].[sp_procedure_params_100_managed]", discoverConn))
                 {
                     discoverCmd.CommandType = CommandType.StoredProcedure;
@@ -206,37 +223,36 @@ namespace CodexMicroORM.Providers
 
         public IEnumerable<Dictionary<string, (object value, Type type)>> ExecuteReadRows()
         {
-            CEFDebug.DumpSQLCall(_cmd.CommandText, _cmd.Parameters);
-
             using (var da = new SqlDataAdapter(_cmd))
             {
-                var r = _cmd.ExecuteReader();
-
-                while (r.Read())
+                using (var r = _cmd.ExecuteReader())
                 {
-                    Dictionary<string, (object, Type)> values = new Dictionary<string, (object, Type)>();
-
-                    for (int i = 0; i < r.FieldCount; ++i)
+                    while (r.Read())
                     {
-                        var prefType = r.GetFieldType(i);
-                        var val = r.GetValue(i);
+                        Dictionary<string, (object, Type)> values = new Dictionary<string, (object, Type)>();
 
-                        if (DBNull.Value.Equals(val))
+                        for (int i = 0; i < r.FieldCount; ++i)
                         {
-                            val = null;
+                            var prefType = r.GetFieldType(i);
+                            var val = r.GetValue(i);
+
+                            if (DBNull.Value.Equals(val))
+                            {
+                                val = null;
+                            }
+
+                            values[r.GetName(i)] = (val, prefType);
                         }
 
-                        values[r.GetName(i)] = (val, prefType);
+                        yield return values;
                     }
-
-                    yield return values;
                 }
             }
         }
 
-        public MSSQLCommand ExecuteNoResultSet()
+        public IDBProviderCommand ExecuteNoResultSet()
         {
-            CEFDebug.DumpSQLCall(_cmd.CommandText, _cmd.Parameters);
+            CEFDebug.DumpSQLCall(_cmd.CommandText, this.GetParameterValues());
 
             try
             {

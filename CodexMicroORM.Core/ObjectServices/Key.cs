@@ -27,7 +27,7 @@ using System.Collections.Immutable;
 
 namespace CodexMicroORM.Core.Services
 {
-    public class KeyService : ICEFService
+    public class KeyService : ICEFKeyHost
     {
         internal const string SHADOW_PROP_PREFIX = "___";
 
@@ -60,7 +60,7 @@ namespace CodexMicroORM.Core.Services
         {
             get;
             set;
-        } = MergeBehavior.SilentMerge;
+        } = Globals.DefaultMergeBehavior;
 
         #endregion
 
@@ -232,7 +232,7 @@ namespace CodexMicroORM.Core.Services
             LinkByValuesInScope(to, ss, keystate);
         }
 
-        public static IEnumerable<object> GetParentObjects(ServiceScope ss, object o, bool all = false)
+        public IEnumerable<object> GetParentObjects(ServiceScope ss, object o, bool all = false)
         {
             return InternalGetParentObjects(ss.GetServiceState<KeyServiceState>(), ss, o, all, new HashSet<object>());
         }
@@ -267,7 +267,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public static IEnumerable<object> GetChildObjects(ServiceScope ss, object o, bool all = false)
+        public IEnumerable<object> GetChildObjects(ServiceScope ss, object o, bool all = false)
         {
             return InternalGetChildObjects(ss.GetServiceState<KeyServiceState>(), ss, o, all, new HashSet<object>());
         }
@@ -302,7 +302,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public static void UpdateBoundKeys(ServiceScope.TrackedObject to, ServiceScope ss, string fieldName, object oval, object nval)
+        public void UpdateBoundKeys(ServiceScope.TrackedObject to, ServiceScope ss, string fieldName, object oval, object nval)
         {
             foreach (var rel in _relations.GetAllByName(nameof(TypeChildRelationship.FullChildParentPropertyName), $"{to.GetTarget().GetBaseType().Name}.{fieldName}"))
             {
@@ -322,7 +322,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private static void LinkByValuesInScope(ServiceScope.TrackedObject to, ServiceScope ss, KeyServiceState objstate)
+        private void LinkByValuesInScope(ServiceScope.TrackedObject to, ServiceScope ss, KeyServiceState objstate)
         {
             var iw = to.GetCreateInfra();
 
@@ -521,7 +521,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public static IList<(int ordinal, string name, object value)> GetKeyValues(object o, IList<string> cols = null)
+        public IList<(int ordinal, string name, object value)> GetKeyValues(object o, IList<string> cols = null)
         {
             if (o == null)
                 throw new ArgumentNullException("o");
@@ -554,7 +554,7 @@ namespace CodexMicroORM.Core.Services
             return values;
         }
 
-        internal static void UnlinkChildFromParentContainer(ServiceScope ss, string parentTypeName, string parentFieldName, object parContainer, object child)
+        public void UnlinkChildFromParentContainer(ServiceScope ss, string parentTypeName, string parentFieldName, object parContainer, object child)
         {
             string key = $"{parentTypeName}.{parentFieldName}";
             var ki = KeyService.GetMappedPropertyByFieldName(key);
@@ -576,7 +576,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        internal static void LinkChildInParentContainer(ServiceScope ss, string parentTypeName, string parentFieldName, object parContainer, object child)
+        public void LinkChildInParentContainer(ServiceScope ss, string parentTypeName, string parentFieldName, object parContainer, object child)
         {
             string key = $"{parentTypeName}.{parentFieldName}";
             var ki = KeyService.GetMappedPropertyByFieldName(key);
@@ -598,11 +598,13 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        internal static void WireDependents(object o, object replaced, ServiceScope ss, ICEFList list, bool? objectModelOnly, KeyServiceState state)
+        public void WireDependents(object o, object replaced, ServiceScope ss, ICEFList list, bool? objectModelOnly)
         {
+            var state = ss.GetServiceState<KeyServiceState>();
+
             if (state == null)
             {
-                state = ss.GetServiceState<KeyServiceState>();
+                throw new CEFInvalidOperationException("Could not find key service state.");
             }
 
             var uw = o.AsUnwrapped();
@@ -671,14 +673,14 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public static IDictionary<Type, IList<string>> GetChildTypes(object o, bool all = true)
+        public IDictionary<Type, IList<string>> GetChildTypes(object o, bool all = true)
         {
             Dictionary<Type, IList<string>> visits = new Dictionary<Type, IList<string>>();
             InternalGetChildTypes(o.GetBaseType(), visits, all);
             return visits;
         }
 
-        public static IDictionary<Type, IList<string>> GetParentTypes(object o, bool all = true)
+        public IDictionary<Type, IList<string>> GetParentTypes(object o, bool all = true)
         {
             Dictionary<Type, IList<string>> visits = new Dictionary<Type, IList<string>>();
             InternalGetParentTypes(o.GetBaseType(), visits, all);
@@ -731,15 +733,18 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public static int GetObjectNestLevel(object o)
+        public int GetObjectNestLevel(object o)
         {
             return GetParentObjects(CEF.CurrentServiceScope, o, true).Count();
         }
 
+        public virtual void Disposing(ServiceScope ss)
+        {
+        }
 
         #region "Key Object State"
 
-        internal class KeyServiceState : ICEFServiceObjState
+        public class KeyServiceState : ICEFServiceObjState
         {
             public class KeyObjectStatePK : IDisposable, ICEFIndexedListItem
             {

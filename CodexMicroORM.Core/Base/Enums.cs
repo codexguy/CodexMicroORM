@@ -30,9 +30,24 @@ namespace CodexMicroORM.Core
         OriginalForConcurrency = 16,
         OnlyCLRProperties = 32,
         IncludeType = 64,
+        SingleLevel = 128,
         Default = 9,
         OverWire = 25,
         OverWireOnlyChanges = 27
+    }
+
+    [Flags]
+    public enum CacheBehavior
+    {
+        Off = 0,
+        IdentityBased = 1,
+        QueryBased = 2,
+        ConvertQueryToIdentity = 4,
+        OnlyForAllQuery = 8,
+        ForAllDoesntConvertToIdentity = 16,
+        Default = 5,
+        ListCentricDefault = 29,
+        MaximumDefault = 23
     }
 
     public enum ObjectState
@@ -79,10 +94,13 @@ namespace CodexMicroORM.Core
         All = 7
     }
 
+    [Flags]
     public enum MergeBehavior
     {
-        SilentMerge = 0,
-        FailIfDifferent = 1
+        SilentMerge = 1,
+        FailIfDifferent = 2,
+        CheckScopeIfPending = 4,
+        Default = 5
     }
 
     public enum DeleteCascadeAction

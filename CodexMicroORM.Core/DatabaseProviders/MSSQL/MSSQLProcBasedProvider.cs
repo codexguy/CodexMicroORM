@@ -27,6 +27,7 @@ using CodexMicroORM.Core.Services;
 using System.Collections.Concurrent;
 using System.Data;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 
 namespace CodexMicroORM.Providers
 {
@@ -203,12 +204,14 @@ namespace CodexMicroORM.Providers
 
         public IDBProviderConnection CreateOpenConnection(string config = "default", bool transactional = true, string connStringOverride = null)
         {
-            if (connStringOverride == null && !_csMap.ContainsKey(config))
+            string cs = null;
+
+            if (connStringOverride == null && !_csMap.TryGetValue(config, out cs))
             {
                 throw new CEFInvalidOperationException($"Connection string {config} is not recognized / was not registered.");
             }
 
-            var connString = connStringOverride ?? _csMap[config];
+            var connString = connStringOverride ?? cs ?? throw new CEFInvalidOperationException($"Connection string {config} is not recognized / was not registered.");
             var conn = new SqlConnection(connString);
             conn.Open();
 
@@ -230,36 +233,36 @@ namespace CodexMicroORM.Providers
 
         private MSSQLCommand CreateProcCommand(MSSQLConnection conn, CommandType cmdType, string schemaName, string objName, ICEFInfraWrapper row, IList<object> parms)
         {
-            StringBuilder proc = new StringBuilder(128);
+            string proc = "";
 
             if (!string.IsNullOrEmpty(schemaName))
             {
-                proc.Append($"[{schemaName}].");
+                proc = string.Concat("[", schemaName, "].");
             }
 
             switch (cmdType)
             {
                 case CommandType.Insert:
-                    proc.Append($"[{ProcedurePrefix}{InsertPrefix}{objName}{InsertSuffix}]");
+                    proc = string.Concat(proc, "[", ProcedurePrefix, InsertPrefix, objName, InsertSuffix, "]");
                     break;
                 case CommandType.Update:
-                    proc.Append($"[{ProcedurePrefix}{UpdatePrefix}{objName}{UpdateSuffix}]");
+                    proc = string.Concat(proc, "[", ProcedurePrefix, UpdatePrefix, objName, UpdateSuffix, "]");
                     break;
                 case CommandType.Delete:
-                    proc.Append($"[{ProcedurePrefix}{DeletePrefix}{objName}{DeleteSuffix}]");
+                    proc = string.Concat(proc, "[", ProcedurePrefix, DeletePrefix, objName, DeleteSuffix, "]");
                     break;
                 case CommandType.RetrieveAll:
-                    proc.Append($"[{ProcedurePrefix}{objName}{ForListSuffix}]");
+                    proc = string.Concat(proc, "[", ProcedurePrefix, objName, ForListSuffix, "]");
                     break;
                 case CommandType.RetrieveByKey:
-                    proc.Append($"[{ProcedurePrefix}{objName}{ByKeySuffix}]");
+                    proc = string.Concat(proc, "[", ProcedurePrefix, objName, ByKeySuffix, "]");
                     break;
                 case CommandType.RetrieveByProc:
-                    proc.Append($"[{objName}]");
+                    proc = string.Concat(proc, "[", objName, "]");
                     break;
             }
 
-            var cmd = new MSSQLCommand(conn, proc.ToString(), System.Data.CommandType.StoredProcedure);
+            var cmd = new MSSQLCommand(conn, proc, System.Data.CommandType.StoredProcedure);
 
             if (row != null)
             {
@@ -293,15 +296,20 @@ namespace CodexMicroORM.Providers
                     }
                 }
 
-                // Remove PK if DB-assigned, along with LastUpdatedBy/Date if DB assigned
-                if (!string.IsNullOrEmpty(AuditService.LastUpdatedByField) && AuditService.IsLastUpdatedByDBAssigned && dt.Columns.Contains(AuditService.LastUpdatedByField))
-                {
-                    dt.Columns.Remove(AuditService.LastUpdatedByField);
-                }
+                var aud = CEF.CurrentServiceScope.GetService<ICEFAuditHost>();
 
-                if (!string.IsNullOrEmpty(AuditService.LastUpdatedDateField) && AuditService.IsLastUpdatedDateDBAssigned && dt.Columns.Contains(AuditService.LastUpdatedDateField))
+                if (aud != null)
                 {
-                    dt.Columns.Remove(AuditService.LastUpdatedDateField);
+                    // Remove PK if DB-assigned, along with LastUpdatedBy/Date if DB assigned
+                    if (!string.IsNullOrEmpty(aud.LastUpdatedByField) && aud.IsLastUpdatedByDBAssigned && dt.Columns.Contains(aud.LastUpdatedByField))
+                    {
+                        dt.Columns.Remove(aud.LastUpdatedByField);
+                    }
+
+                    if (!string.IsNullOrEmpty(aud.LastUpdatedDateField) && aud.IsLastUpdatedDateDBAssigned && dt.Columns.Contains(aud.LastUpdatedDateField))
+                    {
+                        dt.Columns.Remove(aud.LastUpdatedDateField);
+                    }
                 }
 
                 if (KeyService.DefaultPrimaryKeysCanBeDBAssigned)
@@ -527,6 +535,8 @@ namespace CodexMicroORM.Providers
                 sqlcmd = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, type, schema, name, null, parms);
             }
 
+            CEFDebug.DumpSQLCall(cmdText, sqlcmd.GetParameterValues());
+
             foreach (var row in sqlcmd.ExecuteReadRows())
             {
                 if (doWrap)
@@ -544,24 +554,24 @@ namespace CodexMicroORM.Providers
                     }
 
                     no = new T();
-                    WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new ConcurrentDictionary<object, object>());
+                    WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new ConcurrentDictionary<object, object>(), false);
                 }
 
                 yield return no;
             }
         }
 
-        IEnumerable<T> IDBProvider.RetrieveAll<T>(ConnectionScope conn, bool doWrap) 
+        public IEnumerable<T> RetrieveAll<T>(ConnectionScope conn, bool doWrap) where T : class, new()
         {
             return CommonRetrieveRows<T>(conn, doWrap, null, CommandType.RetrieveAll, null);
         }
 
-        IEnumerable<T> IDBProvider.RetrieveByKey<T>(ConnectionScope conn, bool doWrap, object[] key)
+        public IEnumerable<T> RetrieveByKey<T>(ConnectionScope conn, bool doWrap, object[] key) where T : class, new()
         {
             return CommonRetrieveRows<T>(conn, doWrap, null, CommandType.RetrieveByKey, key);
         }
 
-        IEnumerable<T> IDBProvider.RetrieveByQuery<T>(ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, object[] parms) 
+        public IEnumerable<T> RetrieveByQuery<T>(ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, object[] parms) where T : class, new()
         {
             return CommonRetrieveRows<T>(conn, doWrap, cmdText, cmdType == System.Data.CommandType.StoredProcedure ? CommandType.RetrieveByProc : CommandType.RetrieveByText, parms);
         }

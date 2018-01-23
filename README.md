@@ -205,6 +205,51 @@ The orange line is allocated memory - within the context of the red box, this is
 * The pattern of "saving while populating" seems to work better than "save everything at the end" with some frameworks - but this may or may not align with your needs in each situation. For example, you may be populating an object model, passing it around, and saving it after some additional work - this would not align with "save as populate" and if we're looking for the best *generalized* solution, ideally it balances performance while offering different options to solve your problems.
 * I'm probably biased, but CodexMicroORM shows a good balance of "small code" and good, linear performance over all scenarios presented. These aren't fake metrics - you're free to try them out yourself in the demo project, and improve on them, even!
 
+### Update (0.2.3): CEF Beats Dapper Performance With Async Saving
+As of version 0.2.3, I've introduced a new feature that makes a big enough difference for performance that in a new benchmark, CEF beats Dapper performance by *45%*! This feature is *asynchronous saving* and can be enabled globally:
+
+```c#
+    Globals.UseAsyncSave = true;
+```
+... or at a service scope level:
+
+```c#
+    using (CEF.NewServiceScope(new ServiceScopeSettings() { UseAsyncSave = true }))
+    {
+```
+
+... or on an individual request level:
+
+```c#
+    someItem.DBSave(new DBSaveSettings() { UseAsyncSave = true });
+```
+
+I've added a new benchmark test in the WPF demo app, implemented for both Dapper and CEF:
+
+![Benchmark #2 for CEF and Dapper](http://www.xskrape.com/images/cef_benchmark2.png)
+
+(I stuck with just these two frameworks since it's clear from the prior testing that nHibernate and Entity Framework aren't removely competitive in terms of performance.)
+
+The nature of this new benchmark is to work with a pre-populated set of database records, retrieving data in a loop and making a couple of updates in the process. We've also split some of the functionality into multiple methods where the parameters are restricted to ID values, like we might see in a theoretical library / API. The final results for both CEF and Dapper are verified in the database at the end. Of note:
+
+* The Dapper implementation uses the same stored procedures as the CEF example uses to help be more apples-to-apples.
+* In the Dapper implementation, I had to do some trickery to make the Person update procedure call work:
+
+```c#
+{
+	parent.Age += 1;
+	parent.LastUpdatedBy = Environment.UserName;
+	int? ppid = parent.ParentPersonID;
+	string gender = parent.Gender;
+	db.Execute("CEFTest.up_Person_u", new { RetVal = 1, Msg = "", parent.PersonID, parent.Name, parent.Age, ParentPersonID = ppid, Gender = gender, parent.LastUpdatedBy, parent.LastUpdatedDate }, commandType: CommandType.StoredProcedure);
+```
+
+	Trying to do the Execute with in-line use of parent.ParentPersonID would result in run-time errors, and the simplest, most desirable approach of simply using "parent" as the second parameter does no work, either.
+
+The final performance result is that Dapper's per-database-call timing was an average of 0.47 milliseconds, whereas for CEF is was 0.26 milliseconds - nearly half the time of Dapper. In terms of code size, CEF's implementation was 1618 characters compared to Dapper's 2629 characters - meaning CEF offered a 40+% performance gain with nearly 40% less code to write and maintain! Now, there are ways to achieve similar results using Dapper - by writing even *more* code.
+
+CEF's implementation of async saving leverages a combination of in-memory caching and parallel operations that we can synchronize on as needed. (In fact, leaving your service scope ensures all outstanding async operations will be complete.) The use of the new MemoryFileSystemBacked caching service is something I'll cover in a future blog post, but in this particular benchmark, async saving was the clear way to "win" against Dapper.
+
 ## Release Notes
 * 0.2.0 - December 2017 - Initial Release (binaries available on [NuGet - Core](https://www.nuget.org/packages/CodexMicroORM.Core/), [Nuget - Bindings](https://www.nuget.org/packages/CodexMicroORM.BindingSupport/))
 * 0.2.1 - December 2017
@@ -217,6 +262,10 @@ The orange line is allocated memory - within the context of the red box, this is
 * 0.2.2 - January 2018
 	* Serialization - supports multiple serialization modes including serialization of "just changes" (has importance for over-the-wire scenarios); new test added to demonstrate serailization (SerializeDeserializeSave); watch for a blog I'll be using to cover more details about serialization and other topics
 	* Added support for "Shadow property values" - this is more of an advanced topic where we can leverage these to avoid updating your POCO objects with "system-assigned temporary keys" yet still retain identity like we do in earlier releases. In short, you might not care about this a lot but there could be some interesting "other applications" that I'll discuss in future blog posts.
+* 0.2.3 - January 2018
+	* Async saving - easily enabled for situations that do not require immediate round-tripping of values assigned by the database, offers significant performance benefits (see above for some tangible benchmarks).
+	* Caching - default caching service is MemoryFileSystemBacked; offers performance benefits in a number of scenarios including mitigating slow connections. New illustrative test: MemFileCacheRetrieves. More examples will be made available in future articles.
+	* internal refactoring - removal of many static methods used in services in favor of interfaces that enable full "pluggability" for anyone wanting to write their own replacement service.
 
 ## Roadmap / Plans
 Release 0.2 covers some basic scenarios. For 0.3 I'd like to add:

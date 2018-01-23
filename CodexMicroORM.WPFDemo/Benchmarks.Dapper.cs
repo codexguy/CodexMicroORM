@@ -26,6 +26,7 @@ using Dapper;
 using System.Data.SqlClient;
 using System.Data;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace CodexMicroORM.WPFDemo
 {
@@ -117,6 +118,150 @@ namespace CodexMicroORM.WPFDemo
             rowcount2 += (int)cnt2;
             watch.Stop();
             testTimes2.Add(watch.ElapsedMilliseconds);
+        }
+
+        public static void Benchmark2(int total_parents, List<long> testTimes, List<long> testTimes2, ref int rowcount, ref int rowcount2)
+        {
+            CEFBenchmarks.Benchmark2Setup(total_parents);
+
+            var watch = new System.Diagnostics.Stopwatch();
+            watch.Start();
+
+            string connstring = @"Data Source=(local)\sql2016;Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true";
+            SqlMapper.AddTypeMap(typeof(DateTime), DbType.DateTime2);
+
+            // With caching enabled, we make 2 passes over the data where we a) use a query to get all parents (only), b) call a method that represents some API to get all phones for said parent, c) increment age on parents where they have a mobile phone, d) apply a possible update for the phones to modify their numbers based on another api method that only accepts a PhoneID (i.e. need to reretrieve some data)
+            for (int j = 1; j <= 2; ++j)
+            {
+                using (IDbConnection db = new SqlConnection(connstring))
+                {
+                    var parents = db.Query("CEFTest.up_Person_SummaryForParents", new { RetVal = 1, Msg = "", MinimumAge = 30 }, commandType: CommandType.StoredProcedure);
+
+                    foreach (var parent in parents)
+                    {
+                        var phones = db.Query("CEFTest.up_Phone_ByPersonID", new { RetVal = 1, Msg = "", parent.PersonID }, commandType: CommandType.StoredProcedure);
+                        rowcount += 1;
+
+                        if ((from a in phones where a.PhoneTypeID == (int)PhoneType.Mobile select a).Any())
+                        {
+                            parent.Age += 1;
+                            parent.LastUpdatedBy = Environment.UserName;
+                            int? ppid = parent.ParentPersonID;
+                            string gender = parent.Gender;
+                            db.Execute("CEFTest.up_Person_u", new { RetVal = 1, Msg = "", parent.PersonID, parent.Name, parent.Age, ParentPersonID = ppid, Gender = gender, parent.LastUpdatedBy, parent.LastUpdatedDate }, commandType: CommandType.StoredProcedure);
+                            rowcount += 1;
+                        }
+
+                        foreach (var phone in phones)
+                        {
+                            string area = "";
+
+                            switch ((PhoneType)phone.PhoneTypeID)
+                            {
+                                case PhoneType.Home:
+                                    area = "707";
+                                    break;
+
+                                case PhoneType.Mobile:
+                                    area = "415";
+                                    break;
+
+                                case PhoneType.Work:
+                                    area = "800";
+                                    break;
+                            }
+
+                            UpdatePhoneAPITest1(phone.PhoneID, area, ref rowcount);
+
+                            if (!PhoneAPITest2(phone.PhoneID, parent.PersonID, ref rowcount))
+                            {
+                                throw new Exception("Failure!");
+                            }
+                        }
+                    }
+                }
+            }
+
+            watch.Stop();
+            testTimes.Add(watch.ElapsedMilliseconds);
+
+            // Extra verification that results match expected
+            if (!CEFBenchmarks.Benchmark2Verify(total_parents))
+            {
+                throw new Exception("Unexpected final result.");
+            }
+        }
+
+        private static void UpdatePhoneAPITest1(int phoneID, string area, ref int rowcount)
+        {
+            string connstring = @"Data Source=(local)\sql2016;Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true";
+
+            using (IDbConnection db = new SqlConnection(connstring))
+            {
+                var phones = db.Query("CEFTest.up_Phone_ByKey", new { RetVal = 1, Msg = "", PhoneID = phoneID }, commandType: CommandType.StoredProcedure);
+                var phone = phones.FirstOrDefault();
+                rowcount += 1;
+
+                if (phone != null)
+                {
+                    string oldNumber = phone.Number;
+
+                    if (!string.IsNullOrEmpty(phone.Number) && (phone.Number.Length != 12 || !phone.Number.StartsWith(area)))
+                    {
+                        if (phone.Number.Length == 8)
+                        {
+                            phone.Number = area + "-" + phone.Number;
+                        }
+                        else
+                        {
+                            if (phone.Number.Length == 12)
+                            {
+                                phone.Number = area + "-" + phone.Number.Substring(4, 8);
+                            }
+                        }
+
+                        if (oldNumber != phone.Number)
+                        {
+                            phone.LastUpdatedBy = Environment.UserName;
+                            db.Execute("CEFTest.up_Phone_u", new
+                            {
+                                RetVal = 1,
+                                Msg = "",
+                                PhoneID = phoneID,
+                                PhoneTypeID = (int)phone.PhoneTypeID,
+                                phone.Number,
+                                phone.PersonID,
+                                phone.LastUpdatedBy,
+                                phone.LastUpdatedDate
+                            }, commandType: CommandType.StoredProcedure);
+
+                            rowcount += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        private static bool PhoneAPITest2(int phoneID, int personID, ref int rowcount)
+        {
+            string connstring = @"Data Source=(local)\sql2016;Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true";
+
+            using (IDbConnection db = new SqlConnection(connstring))
+            {
+                var phones = db.Query("CEFTest.up_Phone_ByKey", new { RetVal = 1, Msg = "", PhoneID = phoneID }, commandType: CommandType.StoredProcedure);
+                var phone = phones.FirstOrDefault();
+                rowcount += 1;
+
+                if (phone != null)
+                {
+                    if (phone.PersonID == personID)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
     }
 }

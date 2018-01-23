@@ -28,10 +28,11 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace CodexMicroORM.Core.Services
 {
-    public class PCTService : ICEFService
+    public class PCTService : ICEFPersistenceHost
     {
         Type ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
         {
@@ -46,7 +47,7 @@ namespace CodexMicroORM.Core.Services
         /// <param name="mode"></param>
         /// <param name="visits"></param>
         /// <returns></returns>
-        internal static bool InternalSaveContents(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits)
+        public bool SaveContents(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits)
         {
             if (visits.ContainsKey(o))
             {
@@ -58,7 +59,7 @@ namespace CodexMicroORM.Core.Services
             if ((mode & SerializationMode.OnlyChanged) != 0)
             {
                 // Point of this? if we have object graph a->b->c, if c is modified, both a and b need to be included even if unmodified to support proper hierarchy
-                include = RequiresPersistence(o, new ConcurrentDictionary<object, bool>());
+                include = RequiresPersistenceForChanges(o, mode, new ConcurrentDictionary<object, bool>());
             }
 
             if (include)
@@ -71,7 +72,20 @@ namespace CodexMicroORM.Core.Services
             return include;
         }
 
-        internal static void WriteSerializationText(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits)
+        public IEnumerable<T> GetItemsFromSerializationText<T>(string json) where T : class, new()
+        {
+            var setArray = JArray.Parse(json);
+
+            foreach (var i in setArray.Children())
+            {
+                if (i.First.Type == JTokenType.Object)
+                {
+                    yield return CEF.Deserialize<T>(i.ToString());
+                }
+            }
+        }
+
+        private void WriteSerializationText(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits)
         {
             var iw = o.AsInfraWrapped(false);
 
@@ -93,7 +107,8 @@ namespace CodexMicroORM.Core.Services
                 foreach (var kvp in iw.GetAllValues())
                 {
                     // If it's enumerable, recurse each item
-                    if (kvp.Value is IEnumerable && !kvp.Value.GetType().FullName.StartsWith("System."))
+                    // TODO - better way to detect primitive type like string w/o hardcoding??
+                    if (kvp.Value is IEnumerable && kvp.Value.GetType() != typeof(string))
                     {
                         tw.WritePropertyName(kvp.Key);
                         tw.WriteStartArray();
@@ -102,7 +117,32 @@ namespace CodexMicroORM.Core.Services
 
                         while (asEnum.MoveNext())
                         {
-                            InternalSaveContents(tw, asEnum.Current, nextmode, visits);
+                            var i = asEnum.Current;
+
+                            // We only need to do this for tracked objects, for now we only do for value types or non-system (TODO)
+                            if (i == null || i.GetType().IsValueType || i.GetType().FullName.StartsWith("System."))
+                            {
+                                tw.WriteValue(i);
+                            }
+                            else
+                            {
+                                if ((mode & SerializationMode.SingleLevel) == 0)
+                                {
+                                    var iw2 = i.AsInfraWrapped();
+
+                                    if (iw2 != null)
+                                    {
+                                        SaveContents(tw, iw2, nextmode, visits);
+                                    }
+                                    else
+                                    {
+                                        if (i.GetType().IsSerializable)
+                                        {
+                                            tw.WriteValue(i);
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         tw.WriteEndArray();
@@ -112,12 +152,15 @@ namespace CodexMicroORM.Core.Services
                         // If it's a tracked object, recurse
                         if (kvp.Value != null && !kvp.Value.GetType().IsValueType && CEF.CurrentServiceScope.GetTrackedByWrapperOrTarget(kvp.Value) != null)
                         {
-                            var iw2 = kvp.Value.AsInfraWrapped();
-
-                            if (iw2 != null)
+                            if ((mode & SerializationMode.SingleLevel) == 0)
                             {
-                                tw.WritePropertyName(kvp.Key);
-                                InternalSaveContents(tw, iw2, nextmode, visits);
+                                var iw2 = kvp.Value.AsInfraWrapped();
+
+                                if (iw2 != null)
+                                {
+                                    tw.WritePropertyName(kvp.Key);
+                                    SaveContents(tw, iw2, nextmode, visits);
+                                }
                             }
                         }
                         else
@@ -128,26 +171,34 @@ namespace CodexMicroORM.Core.Services
                                 {
                                     if (((mode & SerializationMode.OnlyCLRProperties) == 0) || (wot.GetProperty(kvp.Key)?.CanRead).GetValueOrDefault(false))
                                     {
-                                        if (((mode & SerializationMode.OriginalForConcurrency) == 0) || (string.Compare(AuditService.LastUpdatedDateField, kvp.Key, true) != 0 && string.Compare(AuditService.IsDeletedField, kvp.Key, true) != 0))
+                                        var aud = CEF.CurrentServiceScope.GetService<ICEFAuditHost>();
+
+                                        if (aud != null)
                                         {
-                                            tw.WritePropertyName(kvp.Key);
-                                            tw.WriteValue(kvp.Value);
-                                        }
-                                        else
-                                        {
-                                            // Only need to send original date - do not send isdeleted at all
-                                            if (string.Compare(AuditService.IsDeletedField, kvp.Key, true) != 0)
+                                            if (((mode & SerializationMode.OriginalForConcurrency) == 0) || (string.Compare(aud.LastUpdatedDateField, kvp.Key, true) != 0 && string.Compare(aud.IsDeletedField, kvp.Key, true) != 0))
                                             {
-                                                var rs = iw.GetRowState();
-
-                                                if (rs != ObjectState.Added && rs != ObjectState.Unlinked)
+                                                if (kvp.Value == null || kvp.Value.GetType().IsSerializable)
                                                 {
-                                                    var val = iw.GetOriginalValue(kvp.Key, false);
+                                                    tw.WritePropertyName(kvp.Key);
+                                                    tw.WriteValue(kvp.Value);
+                                                }
+                                            }
+                                            else
+                                            {
+                                                // Only need to send original date - do not send isdeleted at all
+                                                if (string.Compare(aud.IsDeletedField, kvp.Key, true) != 0)
+                                                {
+                                                    var rs = iw.GetRowState();
 
-                                                    if (val != null)
+                                                    if (rs != ObjectState.Added && rs != ObjectState.Unlinked)
                                                     {
-                                                        tw.WritePropertyName(kvp.Key);
-                                                        tw.WriteValue(val);
+                                                        var val = iw.GetOriginalValue(kvp.Key, false);
+
+                                                        if (val != null)
+                                                        {
+                                                            tw.WritePropertyName(kvp.Key);
+                                                            tw.WriteValue(val);
+                                                        }
                                                     }
                                                 }
                                             }
@@ -176,7 +227,7 @@ namespace CodexMicroORM.Core.Services
         /// <param name="o"></param>
         /// <param name="visits"></param>
         /// <returns></returns>
-        internal static bool RequiresPersistence(object o, IDictionary<object, bool> visits)
+        private static bool RequiresPersistenceForChanges(object o, SerializationMode mode, IDictionary<object, bool> visits)
         {
             if (visits.ContainsKey(o))
             {
@@ -193,6 +244,12 @@ namespace CodexMicroORM.Core.Services
                 {
                     visits[iw] = true;
                     return true;
+                }
+
+                if ((mode & SerializationMode.SingleLevel) != 0)
+                {
+                    visits[iw] = false;
+                    return false;
                 }
 
                 int requires = 0;
@@ -215,7 +272,7 @@ namespace CodexMicroORM.Core.Services
 
                             if (iw2 != null)
                             {
-                                if (RequiresPersistence(iw2, visits))
+                                if (RequiresPersistenceForChanges(iw2, mode, visits))
                                 {
                                     Interlocked.Increment(ref requires);
                                     pls.Break();
@@ -230,7 +287,7 @@ namespace CodexMicroORM.Core.Services
 
                         if (iw2 != null)
                         {
-                            if (RequiresPersistence(iw2, visits))
+                            if (RequiresPersistenceForChanges(iw2, mode, visits))
                             {
                                 Interlocked.Increment(ref requires);
                                 pls.Break();
@@ -266,6 +323,10 @@ namespace CodexMicroORM.Core.Services
         IList<Type> ICEFService.RequiredServices()
         {
             return new Type[] { typeof(KeyService) };
+        }
+
+        public void Disposing(ServiceScope ss)
+        {
         }
     }
 }

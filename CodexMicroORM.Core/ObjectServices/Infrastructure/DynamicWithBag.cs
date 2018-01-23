@@ -314,11 +314,40 @@ namespace CodexMicroORM.Core.Services
             throw new NotSupportedException();
         }
 
-        public IDictionary<string, object> GetAllValues()
+        private static ConcurrentDictionary<Type, bool> _serializableCahce = new ConcurrentDictionary<Type, bool>();
+
+        private bool IsTypeSerializable(Type t)
+        {
+            if (_serializableCahce.TryGetValue(t, out bool val))
+            {
+                return val;
+            }
+
+            var can = t.IsSerializable;
+
+            if (can)
+            {
+                // If generic, generic parm must be too!
+                if (t.IsGenericType && (from a in t.GenericTypeArguments where !IsTypeSerializable(a) select a).Any())
+                {
+                    can = false;
+                }
+            }
+
+            _serializableCahce[t] = can;
+            return can;
+        }
+
+        public IDictionary<string, object> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false)
         {
             Dictionary<string, object> vals = new Dictionary<string, object>();
 
-            foreach (var v in (from a in _valueBag select new { a.Key, a.Value }).Concat(from pi in _source.GetType().GetProperties() select new { Key = pi.Name, Value = _source.FastGetValue(pi.Name) }))
+            foreach (var v in (from a in _valueBag
+                               where (!onlySerializable || a.Value == null || IsTypeSerializable(a.Value.GetType()))
+                               select new { a.Key, a.Value }).
+                Concat(from pi in _source.GetType().GetProperties()
+                       where (!onlyWriteable || pi.CanWrite) && (!onlySerializable || IsTypeSerializable(pi.PropertyType))
+                       select new { Key = pi.Name, Value = _source.FastGetValue(pi.Name) }))
             {
                 vals[v.Key] = v.Value;
             }
@@ -333,7 +362,7 @@ namespace CodexMicroORM.Core.Services
 
         public virtual bool SaveContents(JsonTextWriter tw, SerializationMode mode)
         {
-            return PCTService.InternalSaveContents(tw, this, mode, new ConcurrentDictionary<object, bool>());
+            return (CEF.CurrentPCTService()?.SaveContents(tw, this, mode, new ConcurrentDictionary<object, bool>())).GetValueOrDefault();
         }
 
         public virtual void RestoreContents(JsonTextReader tr)

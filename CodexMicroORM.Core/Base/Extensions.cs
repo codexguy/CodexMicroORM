@@ -124,7 +124,12 @@ namespace CodexMicroORM.Core
         {
             foreach (var i in items)
             {
-                yield return i.AsInfraWrapped();
+                var iw = i.AsInfraWrapped();
+
+                if (iw != null)
+                {
+                    yield return i.AsInfraWrapped();
+                }
             }
         }
 
@@ -143,6 +148,21 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static Type GetBaseType(this object wrapped)
         {
+            if (wrapped == null)
+            {
+                throw new ArgumentNullException("wrapped");
+            }
+
+            if (wrapped is ICEFInfraWrapper)
+            {
+                var wo = ((ICEFInfraWrapper)wrapped).GetWrappedObject();
+
+                if (wo != null)
+                {
+                    wrapped = wo;
+                }
+            }
+
             if (wrapped is ICEFWrapper)
             {
                 return ((ICEFWrapper)wrapped).GetBaseType();
@@ -157,6 +177,12 @@ namespace CodexMicroORM.Core
 
             if (uw == null)
             {
+                // It's an error if the wrapped object presents itself as an IW object at this point!
+                if (wrapped is ICEFInfraWrapper)
+                {
+                    throw new CEFInvalidOperationException("Cannot determine base type for infrastructure wrapped object, no contained object available.");
+                }
+
                 return wrapped.GetType();
             }
 

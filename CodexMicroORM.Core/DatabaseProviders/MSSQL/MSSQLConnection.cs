@@ -85,7 +85,7 @@ namespace CodexMicroORM.Providers
                 if (_conn != null)
                 {
                     // todo - review if can avoid this somehow (does appear helpful currently)
-                    SqlConnection.ClearPool(_conn);
+                    //SqlConnection.ClearPool(_conn);
 
                     _conn.Dispose();
                     _conn = null;

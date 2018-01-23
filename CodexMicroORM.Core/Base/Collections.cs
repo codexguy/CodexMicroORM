@@ -52,6 +52,8 @@ namespace CodexMicroORM.Core.Collections
 
         #endregion
 
+        public static object NullValue => _asNull;
+
         public ConcurrentIndexedList(params string[] propsToIndex)
         {
             foreach (var props in propsToIndex)

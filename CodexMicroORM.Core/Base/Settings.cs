@@ -40,6 +40,30 @@ namespace CodexMicroORM.Core
             set;
         } = Globals.DefaultSerializationMode;
 
+        public bool? UseAsyncSave
+        {
+            get;
+            set;
+        } = null;
+
+        public bool? AsyncCacheUpdates
+        {
+            get;
+            set;
+        } = null;
+
+        public CacheBehavior? CacheBehavior
+        {
+            get;
+            set;
+        } = null;
+
+        public int? GlobalCacheDuration
+        {
+            get;
+            set;
+        } = null;
+
         public MergeBehavior MergeBehavior
         {
             get;
@@ -50,7 +74,7 @@ namespace CodexMicroORM.Core
         {
             get;
             set;
-        } = AuditService.GetLastUpdatedBy;
+        } = () => { return Environment.UserName; };
 
         [ThreadStatic]
         public bool CanDispose = true;
@@ -100,11 +124,35 @@ namespace CodexMicroORM.Core
             All = 7
         }
 
+        public bool? UseAsyncSave
+        {
+            get;
+            set;
+        } = null;
+
+        public bool? AsyncCacheUpdates
+        {
+            get;
+            set;
+        } = null;
+
         public object RootObject
         {
             get;
             set;
         } = null;
+
+        public bool IncludeRootChildren
+        {
+            get;
+            set;
+        } = true;
+
+        public bool IncludeRootParents
+        {
+            get;
+            set;
+        } = true;
 
         public Operations AllowedOperations
         {

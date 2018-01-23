@@ -98,13 +98,61 @@ namespace CodexMicroORM.Core
         public static ServiceScope UseServiceScope(ServiceScope toUse)
         {
             // This is a special type of service scope - we create a shallow copy and flag it as not allowing destruction of contents when disposed
-            ServiceScopeInit(new ServiceScope(toUse ?? throw new ArgumentNullException("toUse")));
+            ServiceScopeInit(new ServiceScope(toUse ?? throw new ArgumentNullException("toUse")), null);
+            return _currentServiceScope;
+        }
+
+        public static ServiceScope NewOrCurrentServiceScope(ServiceScopeSettings settings, params ICEFService[] additionalServices)
+        {
+            if (_currentServiceScope != null)
+            {
+                ServiceScopeInit(new ServiceScope(_currentServiceScope), null);
+                return _currentServiceScope;
+            }
+
+            ServiceScopeInit(new ServiceScope(settings), additionalServices);
+            return _currentServiceScope;
+        }
+
+        public static ServiceScope NewOrCurrentServiceScope(params ICEFService[] additionalServices)
+        {
+            if (_currentServiceScope != null)
+            {
+                ServiceScopeInit(new ServiceScope(_currentServiceScope), null);
+                return _currentServiceScope;
+            }
+
+            ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), additionalServices);
+            return _currentServiceScope;
+        }
+
+        public static ServiceScope NewOrCurrentServiceScope(ServiceScopeSettings settings = null)
+        {
+            if (_currentServiceScope != null)
+            {
+                ServiceScopeInit(new ServiceScope(_currentServiceScope), null);
+                return _currentServiceScope;
+            }
+
+            ServiceScopeInit(new ServiceScope(settings ?? new ServiceScopeSettings()), null);
+            return _currentServiceScope;
+        }
+
+        public static ServiceScope NewServiceScope(ServiceScopeSettings settings, params ICEFService[] additionalServices)
+        {
+            ServiceScopeInit(new ServiceScope(settings), additionalServices);
+            return _currentServiceScope;
+        }
+
+        public static ServiceScope NewServiceScope(params ICEFService[] additionalServices)
+        {
+            ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), additionalServices);
             return _currentServiceScope;
         }
 
         public static ServiceScope NewServiceScope(ServiceScopeSettings settings = null)
         {
-            ServiceScopeInit(new ServiceScope(settings ?? new ServiceScopeSettings()));
+            ServiceScopeInit(new ServiceScope(settings ?? new ServiceScopeSettings()), null);
             return _currentServiceScope;
         }
 
@@ -114,7 +162,7 @@ namespace CodexMicroORM.Core
             {
                 if (_currentServiceScope == null)
                 {
-                    ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()));
+                    ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), null);
                 }
 
                 return _currentServiceScope;
@@ -146,7 +194,18 @@ namespace CodexMicroORM.Core
             return CurrentServiceScope.DBSave(settings);
         }
 
-        public static T DBSave<T>(this T tosave, DBSaveSettings settings = null) where T : ICEFWrapper
+        public static T DBSave<T>(this T tosave, bool allRelated) where T : class, new()
+        {
+            var settings = new DBSaveSettings();
+            settings.RootObject = tosave;
+            settings.IncludeRootChildren = allRelated;
+            settings.IncludeRootParents = allRelated;
+
+            CurrentServiceScope.DBSave(settings);
+            return tosave;
+        }
+
+        public static T DBSave<T>(this T tosave, DBSaveSettings settings = null) where T : class, new()
         {
             if (settings == null)
             {
@@ -260,7 +319,7 @@ namespace CodexMicroORM.Core
                     rs.Add(CEF.IncludeObject(i, initialState));
 
                     // Extra work here to wire up relationship since we know it exists
-                    KeyService.LinkChildInParentContainer(CEF.CurrentServiceScope, rs.ParentTypeName, parentFieldName, parent, i);
+                    CurrentKeyService()?.LinkChildInParentContainer(CEF.CurrentServiceScope, rs.ParentTypeName, parentFieldName, parent, i);
                 }
             }
 
@@ -288,14 +347,86 @@ namespace CodexMicroORM.Core
 
         #region "Internals"
 
-        private static T CurrentService<T>(object forObject) where T : ICEFService
+        private static T CurrentService<T>(object forObject = null) where T : class, ICEFService
         {
-            return CurrentServiceScope.GetService<T>(forObject);
+            var svc = CurrentServiceScope.GetService<T>(forObject);
+
+            if (svc != null)
+            {
+                return svc;
+            }
+
+            if (_allServiceScopes != null)
+            {
+                foreach (var ss in _allServiceScopes)
+                {
+                    svc = ss.GetService<T>(forObject);
+
+                    if (svc != null)
+                    {
+                        return svc;
+                    }
+                }
+            }
+
+            return null;
         }
 
-        public static DBService CurrentDBService(object forObject = null)
+        public static ICEFPersistenceHost CurrentPCTService(object forObject = null)
         {
-            return CurrentService<DBService>(forObject);
+            var s = CurrentService<ICEFPersistenceHost>(forObject);
+
+            if (s == null)
+            {
+                s = Activator.CreateInstance(Globals.DefaultPCTServiceType) as ICEFPersistenceHost;
+                AddGlobalService(s);
+            }
+
+            return s;
+        }
+
+        public static ICEFKeyHost CurrentKeyService(object forObject = null)
+        {
+            var s = CurrentService<ICEFKeyHost>(forObject);
+
+            if (s == null)
+            {
+                s = Activator.CreateInstance(Globals.DefaultKeyServiceType) as ICEFKeyHost;
+                AddGlobalService(s);
+            }
+
+            return s;
+        }
+
+        public static ICEFAuditHost CurrentAuditService(object forObject = null)
+        {
+            var s = CurrentService<ICEFAuditHost>(forObject);
+
+            if (s == null)
+            {
+                s = Activator.CreateInstance(Globals.DefaultAuditServiceType) as ICEFAuditHost;
+                AddGlobalService(s);
+            }
+
+            return s;
+        }
+
+        public static ICEFDataHost CurrentDBService(object forObject = null)
+        {
+            var s = CurrentService<ICEFDataHost>(forObject);
+            
+            if (s == null)
+            {
+                s = Activator.CreateInstance(Globals.DefaultDBServiceType) as ICEFDataHost;
+                AddGlobalService(s);
+            }
+
+            return s;
+        }
+
+        public static ICEFCachingHost CurrentCacheService(object forObject = null)
+        {
+            return CurrentService<ICEFCachingHost>(forObject);
         }
 
         internal static void Register<T>(ICEFService service)
@@ -357,7 +488,7 @@ namespace CodexMicroORM.Core
             };
         }
 
-        private static void ServiceScopeInit(ServiceScope newss)
+        private static void ServiceScopeInit(ServiceScope newss, ICEFService[] additionalServices)
         {
             if (_currentServiceScope != null)
             {
@@ -369,10 +500,29 @@ namespace CodexMicroORM.Core
                 _allServiceScopes.Push(_currentServiceScope);
             }
 
+            if (additionalServices != null)
+            {
+                foreach (var s in additionalServices)
+                {
+                    newss.AddLocalService(s);
+                }
+            }
+
             _currentServiceScope = newss ?? throw new ArgumentNullException("newss");
 
             newss.Disposed = () =>
             {
+                if (additionalServices != null)
+                {
+                    foreach (var s in additionalServices)
+                    {
+                        if (s is IDisposable)
+                        {
+                            ((IDisposable)s).Dispose();
+                        }
+                    }
+                }
+
                 if (_allServiceScopes?.Count > 0)
                 {
                     do
@@ -395,8 +545,6 @@ namespace CodexMicroORM.Core
         {
             pop.BeginInit();
 
-            var firstIdx = pop.Count();
-
             foreach (var row in CurrentDBService().RetrieveAll<T>())
             {
                 pop.Add(row);
@@ -409,8 +557,6 @@ namespace CodexMicroORM.Core
         {
             pop.BeginInit();
 
-            var firstIdx = pop.Count();
-
             foreach (var row in CurrentDBService().RetrieveByKey<T>(key))
             {
                 pop.Add(row);
@@ -422,8 +568,6 @@ namespace CodexMicroORM.Core
         private static void InternalDBAppendByQuery<T>(EntitySet<T> pop, CommandType cmdType, string cmdText, object[] parms) where T : class, new()
         {
             pop.BeginInit();
-
-            var firstIdx = pop.Count();
 
             foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, parms))
             {

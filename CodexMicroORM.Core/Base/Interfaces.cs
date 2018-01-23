@@ -17,9 +17,11 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
 using CodexMicroORM.Core.Services;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Threading.Tasks;
 
 namespace CodexMicroORM.Core
 {
@@ -40,6 +42,8 @@ namespace CodexMicroORM.Core
 
         // Main purposes: all infra wrappers are now in place, can complete init
         void FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state);
+
+        void Disposing(ServiceScope ss);
     }
 
     public interface ICEFServiceObjState
@@ -71,11 +75,141 @@ namespace CodexMicroORM.Core
 
     public interface IDBProviderCommand
     {
+        IDictionary<string, object> GetParameterValues();
+
+        IEnumerable<Dictionary<string, (object value, Type type)>> ExecuteReadRows();
+
+        IDBProviderCommand ExecuteNoResultSet();
+
+        IEnumerable<(string name, object value)> GetOutputValues();
+    }
+
+    public interface ICEFDataHost : ICEFService
+    {
+        void WaitOnCompletions();
+
+        void AddCompletionTask(Task t);
+
+        void AddCompletionException(Exception ex);
+
+        IList<(object item, string message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings);
+
+        void ExecuteRaw(string cmdText, bool doThrow = true, bool stopOnError = true);
+
+        T ExecuteScalar<T>(string cmdText);
+
+        IEnumerable<T> RetrieveAll<T>() where T : class, new();
+
+        IEnumerable<T> RetrieveByKey<T>(params object[] key) where T : class, new();
+
+        IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, params object[] parms) where T : class, new();
+    }
+
+    public interface ICEFKeyHost : ICEFService
+    {
+        void LinkChildInParentContainer(ServiceScope ss, string parentTypeName, string parentFieldName, object parContainer, object child);
+
+        void UnlinkChildFromParentContainer(ServiceScope ss, string parentTypeName, string parentFieldName, object parContainer, object child);
+
+        void UpdateBoundKeys(ServiceScope.TrackedObject to, ServiceScope ss, string fieldName, object oval, object nval);
+
+        void WireDependents(object o, object replaced, ServiceScope ss, ICEFList list, bool? objectModelOnly);
+
+        IEnumerable<object> GetChildObjects(ServiceScope ss, object o, bool all = false);
+
+        IEnumerable<object> GetParentObjects(ServiceScope ss, object o, bool all = false);
+
+        IList<(int ordinal, string name, object value)> GetKeyValues(object o, IList<string> cols = null);
+
+        int GetObjectNestLevel(object o);
+    }
+
+    public interface ICEFPersistenceHost : ICEFService
+    {
+        IEnumerable<T> GetItemsFromSerializationText<T>(string json) where T : class, new();
+
+        bool SaveContents(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits);
+    }
+
+    public interface ICEFCachingHost : ICEFService, IDisposable
+    {
+        void Shutdown();
+
+        string Start();
+
+        T GetByIdentity<T>(object[] key) where T : class, new();
+
+        IEnumerable<T> GetByQuery<T>(string text, object[] parms) where T : class, new();
+
+        void AddByIdentity<T>(T o, object[] key = null, int? expirySeconds = null) where T : class, new();
+
+        void AddByQuery<T>(IEnumerable<T> list, string text, object[] parms = null, int? expirySeconds = null) where T : class, new();
+
+        void InvalidateForByQuery(Type t, bool typeSpecific);
+
+        void InvalidateIdentityEntry(Type baseType, IDictionary<string, object> props);
+
+        void UpdateByIdentity(Type baseType, IDictionary<string, object> props, object[] key = null, int? expirySeconds = null);
+
+        bool IsCacheBusy();
+
+        int GetActiveCount();
+
+        void DoingWork();
+
+        void DoneWork();
     }
 
     public interface ICEFSerializable
     {
         string GetSerializationText(SerializationMode? mode = null);
+    }
+
+    public interface ICEFAuditHost : ICEFService
+    {
+        ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, ObjectState state);
+
+        Func<string> GetLastUpdatedBy
+        {
+            get;
+            set;
+        }
+
+        Func<DateTime> GetLastUpdatedDate
+        {
+            get;
+            set;
+        }
+
+        string IsDeletedField
+        {
+            get;
+            set;
+        }
+
+        string LastUpdatedByField
+        {
+            get;
+            set;
+        }
+
+        string LastUpdatedDateField
+        {
+            get;
+            set;
+        }
+
+        bool IsLastUpdatedByDBAssigned
+        {
+            get;
+            set;
+        }
+
+        bool IsLastUpdatedDateDBAssigned
+        {
+            get;
+            set;
+        }
     }
 
     /// <summary>
@@ -109,7 +243,7 @@ namespace CodexMicroORM.Core
 
         void SetRowState(ObjectState rs);
 
-        IDictionary<string, object> GetAllValues();
+        IDictionary<string, object> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false);
 
         bool SetValue(string propName, object value, Type preferredType = null, bool isRequired = false);
 

@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+using CodexMicroORM.Core.Services;
 using System;
 
 namespace CodexMicroORM.Core
@@ -26,6 +27,78 @@ namespace CodexMicroORM.Core
     public static class Globals
     {
         private static WrappingAction _wrappingAction = WrappingAction.Dynamic;
+        private static Type _defaultAuditServiceType = typeof(AuditService);
+        private static Type _defaultDBServiceType = typeof(DBService);
+        private static Type _defaultKeyServiceType = typeof(KeyService);
+        private static Type _defaultPCTServiceType = typeof(PCTService);
+
+        public static Type DefaultPCTServiceType
+        {
+            get
+            {
+                return _defaultPCTServiceType;
+            }
+            set
+            {
+                if (value.GetInterface("ICEFPersistenceHost") == null)
+                {
+                    throw new ArgumentException("Type does not implement ICEFPersistenceHost.");
+                }
+
+                _defaultPCTServiceType = value;
+            }
+        }
+
+        public static Type DefaultAuditServiceType
+        {
+            get
+            {
+                return _defaultAuditServiceType;
+            }
+            set
+            {
+                if (value.GetInterface("ICEFAuditService") == null)
+                {
+                    throw new ArgumentException("Type does not implement ICEFAuditService.");
+                }
+
+                _defaultAuditServiceType = value;
+            }
+        }
+
+        public static Type DefaultDBServiceType
+        {
+            get
+            {
+                return _defaultDBServiceType;
+            }
+            set
+            {
+                if (value.GetInterface("ICEFDataHost") == null)
+                {
+                    throw new ArgumentException("Type does not implement ICEFDataHost.");
+                }
+
+                _defaultDBServiceType = value;
+            }
+        }
+
+        public static Type DefaultKeyServiceType
+        {
+            get
+            {
+                return _defaultKeyServiceType;
+            }
+            set
+            {
+                if (value.GetInterface("ICEFKeyHost") == null)
+                {
+                    throw new ArgumentException("Type does not implement ICEFKeyHost.");
+                }
+
+                _defaultKeyServiceType = value;
+            }
+        }
 
         /// <summary>
         /// If wrapper classes are available/used, this identifies what capabilities they have (notifications? property bags? etc.)
@@ -169,6 +242,30 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
+        public static bool AsyncCacheUpdates
+        {
+            get;
+            set;
+        } = false;
+
+        public static bool UseAsyncSave
+        {
+            get;
+            set;
+        } = false;
+
+        public static bool TypeSpecificCacheEvictionsOnUpdates
+        {
+            get;
+            set;
+        } = false;
+
+        public static int MaximumCompletionItemsQueued
+        {
+            get;
+            set;
+        } = Environment.ProcessorCount * 20;
+
         public static SerializationMode DefaultSerializationMode
         {
             get;
@@ -181,17 +278,35 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
+        public static int DefaultGlobalCacheIntervalSeconds
+        {
+            get;
+            set;
+        } = 600;
+
+        public static CacheBehavior DefaultCacheBehavior
+        {
+            get;
+            set;
+        } = CacheBehavior.Default;
+
         public static MergeBehavior DefaultMergeBehavior
         {
             get;
             set;
-        } = MergeBehavior.SilentMerge;
+        } = MergeBehavior.Default;
 
         public static Type DefaultKeyType
         {
             get;
             set;
         } = typeof(int);
+
+        public static bool? ByKeyRetrievalChecksScopeFirst
+        {
+            get;
+            set;
+        } = null;
 
         public static bool OptimisticConcurrencyWithLastUpdatedDate
         {

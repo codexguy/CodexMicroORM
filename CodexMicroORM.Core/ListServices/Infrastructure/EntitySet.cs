@@ -29,6 +29,8 @@ using System.Collections.Concurrent;
 using Newtonsoft.Json;
 using System.Text;
 using System.IO;
+using System.Text.RegularExpressions;
+using Newtonsoft.Json.Linq;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -91,6 +93,20 @@ namespace CodexMicroORM.Core.Services
             return this._contains.ContainsKey(o as T);
         }
 
+        public void PopulateFromSerializationText(string json)
+        {
+            // Must be an array...
+            if (!Regex.IsMatch(json, @"^\s*\[") || !Regex.IsMatch(json, @"\]\s*$"))
+            {
+                throw new CEFInvalidOperationException("JSON provided is not an array (must be to deserialize a service scope).");
+            }
+
+            foreach (var i in CEF.CurrentPCTService()?.GetItemsFromSerializationText<T>(json))
+            {
+                this.Add(i);
+            }
+        }
+
         public string GetSerializationText(SerializationMode? mode = null)
         {
             StringBuilder sb = new StringBuilder(4096);
@@ -109,7 +125,7 @@ namespace CodexMicroORM.Core.Services
 
                     if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
                     {
-                        PCTService.InternalSaveContents(jw, i, actmode, new ConcurrentDictionary<object, bool>());
+                        CEF.CurrentPCTService()?.SaveContents(jw, i, actmode, new ConcurrentDictionary<object, bool>());
                     }
                 }
 
@@ -240,7 +256,7 @@ namespace CodexMicroORM.Core.Services
             for (int i = firstToWire.GetValueOrDefault(); i <= lastToWire.GetValueOrDefault() && i < this.Count; ++i)
             {
                 var item = this[i];
-                KeyService.WireDependents(item.AsUnwrapped(), item, BoundScope, this, null, null);
+                CEF.CurrentKeyService()?.WireDependents(item.AsUnwrapped(), item, BoundScope, this, null);
             }
         }
 
@@ -290,7 +306,7 @@ namespace CodexMicroORM.Core.Services
                     if (oi != null)
                     {
                         // Attempt to establish a FK relationship, carry parent key down
-                        KeyService.UnlinkChildFromParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, oi);
+                        CEF.CurrentKeyService()?.UnlinkChildFromParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, oi);
                     }
                 }
             }
@@ -363,7 +379,7 @@ namespace CodexMicroORM.Core.Services
                         if (ni != null)
                         {
                             // Attempt to establish a FK relationship, carry parent key down
-                            KeyService.LinkChildInParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, ni);
+                            CEF.CurrentKeyService()?.LinkChildInParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, ni);
                         }
                     }
                 }

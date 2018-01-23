@@ -29,7 +29,7 @@ namespace CodexMicroORM.Core
     /// Internal class offers extension functions that can improve performance of what would noramlly be Reflection operations.
     /// In testing, it looks like probably a 50% improvement!
     /// </summary>
-    public static class PropertyHelper
+    internal static class PropertyHelper
     {
         private static ConcurrentDictionary<string, Delegate> _getterCache = new ConcurrentDictionary<string, Delegate>();
         private static ConcurrentDictionary<string, Delegate> _setterCache = new ConcurrentDictionary<string, Delegate>();

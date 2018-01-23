@@ -27,6 +27,8 @@ using System.Data;
 using System;
 using System.Text.RegularExpressions;
 using System.IO;
+using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace CodexMicroORM.NFWTests
 {
@@ -47,6 +49,7 @@ namespace CodexMicroORM.NFWTests
             Globals.WrappingClassNamespace = null;
             Globals.WrapperClassNamePattern = "{0}Wrapped";
             CEF.AddGlobalService(new DBService(new MSSQLProcBasedProvider($@"Data Source={DB_SERVER};Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true", defaultSchema: "CEFTest")));
+            CEF.AddGlobalService(new AuditService());
 
             KeyService.RegisterKey<Person>(nameof(Person.PersonID));
             KeyService.RegisterKey<Phone>("PhoneID");
@@ -231,8 +234,10 @@ namespace CodexMicroORM.NFWTests
                 // There were 3 changed items, yes, but had to have 5 in total to properly "root" all objects in the hierarchy
                 Assert.AreEqual(5, CEF.GetAllTracked().Count());
 
-                var end = (from a in p1b.Kids where a.Age == 45 select a).First().AsDynamic().LastUpdatedDate;
-                Assert.IsTrue(end > start);
+                var end1 = (from a in p1b.Kids where a.Age == 45 select a).First().AsDynamic().LastUpdatedDate;
+                var end2 = (from a in p1b.Kids where a.Name == "STCarol" from b in a.Kids where b.Name == "STWilliam" select b).First().AsDynamic().LastUpdatedDate;
+                Assert.IsTrue(end1 > start);
+                Assert.IsTrue(end2 > start);
             }
 
             using (CEF.NewServiceScope())
@@ -253,6 +258,121 @@ namespace CodexMicroORM.NFWTests
         }
 
         [TestMethod]
+        public void MemFileCacheRetrieves()
+        {
+            int p1id;
+            int ph2id;
+
+            // Create some data specific to this test
+            using (CEF.NewServiceScope())
+            {
+                var p1 = new Person() { Name = "Freddie", Age = 48, Phones = new Phone[] { new Phone() { Number = "678-3333", PhoneTypeID = PhoneType.Mobile } } };
+                var p2 = new Person() { Name = "Sam", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3334", PhoneTypeID = PhoneType.Mobile } } };
+                var p3 = new Person() { Name = "Carol", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile } } };
+                var p4 = new Person() { Name = "Kylo", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile } } };
+                var p5 = new Person() { Name = "Perry", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile } } };
+                var p6 = new Person() { Name = "William", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile } } };
+                p1.Kids = new Person[] { p2, p3 };
+                p2.Kids = new Person[] { p4 };
+                p3.Kids = new Person[] { p5, p6 };
+                CEF.NewObject(p1);
+                Assert.AreEqual(12, CEF.DBSave().Count());
+                p1id = p1.PersonID;
+                ph2id = p2.Phones.First().AsDynamic().PhoneID;
+            }
+
+            // DB speed (still in db cache, though)
+            long dbspeed = 0;
+
+            using (CEF.NewServiceScope())
+            {
+                new EntitySet<Phone>().DBRetrieveByKey(ph2id);
+                var sw = new Stopwatch();
+                sw.Start();
+                var t1 = new EntitySet<Phone>().DBRetrieveByKey(ph2id).First().Number == "222-3334";
+                dbspeed = sw.ElapsedTicks;
+                Assert.IsTrue(t1);
+            }
+
+            MemoryFileSystemBacked.FlushAll("CEF_Testing");
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { CacheBehavior = CacheBehavior.MaximumDefault }, new MemoryFileSystemBacked("CEF_Testing", MemoryFileSystemBacked.CacheStorageStrategy.SingleDirectory)))
+            {
+                // By retrieving from db, we're caching it by identity
+                var p1b = new EntitySet<Person>().DBRetrieveByKey(p1id).First();
+                Assert.AreEqual(48, p1b.Age);
+
+                // Make a change in the object and "recache" its changed form
+                p1b.Age = 49;
+                CEF.CurrentCacheService().AddByIdentity(p1b);
+            }
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { CacheBehavior = CacheBehavior.MaximumDefault }, new MemoryFileSystemBacked("CEF_Testing", MemoryFileSystemBacked.CacheStorageStrategy.SingleDirectory)))
+            {
+                // Having gone out of scope, the previous object no longer exists, right? Wrong - it does in the file-backed cache. Verify it exists by attempting to retrieve the object as if from the database - instead, we get it from the cache since we've initialized it at the scope level.
+                // How can I be sure it came from the cache and not DB? I cached something that should be mismatched from DB (the age)
+                var p1bset = new EntitySet<Person>().DBRetrieveByKey(p1id);
+                Assert.AreEqual(49, p1bset.First().Age);
+
+                // Now let's try to load phones - using a custom query to load all phones for a given family
+                var sw2 = new Stopwatch();
+                sw2.Start();
+                var phones = new EntitySet<Phone>().DBRetrieveAllForFamily(p1id);
+                var elapsed2 = sw2.ElapsedTicks;
+
+                // We do some of the important work in the background so be sure that's done before continue test. In a real-world setting, it would be fine to continue without the work complete - we might end up reading from the DB when could have gotten from cache but having the main work be background is likely to give better overall results.
+                Task.Delay(7000).Wait();
+
+                // Doing a retrieve now for a specific phone should be based on cache
+                var sw = new Stopwatch();
+                sw.Start();
+                var ph2 = new EntitySet<Phone>().DBRetrieveByKey(ph2id).First();
+                var elapsed = sw.ElapsedTicks;
+                Assert.AreEqual("222-3334", ph2.Number);
+            }
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { CacheBehavior = CacheBehavior.MaximumDefault }, new MemoryFileSystemBacked("CEF_Testing", MemoryFileSystemBacked.CacheStorageStrategy.SingleDirectory)))
+            {
+                // Doing a retrieve now for a specific phone should be fast (direct from disk - slower than memory but faster than a database where the call has to go through a bunch of sql parsing/processing)
+                var sw = new Stopwatch();
+                sw.Start();
+                var ph2 = new EntitySet<Phone>().DBRetrieveByKey(ph2id).First().Number;
+                var elapsed = sw.ElapsedTicks;
+                Assert.AreEqual("222-3334", ph2);
+
+                // Should be memory-cached at this point... better be fast!
+                var sw2 = new Stopwatch();
+                sw2.Start();
+                var ph2a = new EntitySet<Phone>().DBRetrieveByKey(ph2id).First();
+                var elapsed2 = sw2.ElapsedTicks;
+
+                // From disk cache for a set
+                var sw3 = new Stopwatch();
+                sw3.Start();
+                var phCnt = new EntitySet<Phone>().DBRetrieveAllForFamily(p1id).Count;
+                var elapsed3 = sw3.ElapsedTicks;
+                Assert.AreEqual(3, phCnt);
+
+                // Do an update to a single phone and save it - should update the cache, invalidate any phone queries
+                Assert.AreEqual(5, CEF.CurrentCacheService().GetActiveCount());
+                ph2a.Number = "223-3334";
+                CEF.DBSave();
+                Assert.AreEqual(4, CEF.CurrentCacheService().GetActiveCount());
+
+                // Delete/save/retrieve - should not come back from cache
+                var ph2aid = (int)ph2a.AsDynamic().PhoneID;
+                CEF.DeleteObject(ph2a);
+                CEF.DBSave();
+                Assert.AreEqual(3, CEF.CurrentCacheService().GetActiveCount());
+
+                var delCnt = new EntitySet<Phone>().DBRetrieveByKey(ph2aid).Count;
+                Assert.AreEqual(0, delCnt);
+
+                Task.Delay(5000).Wait();
+            }
+        }
+
+        [TestMethod]
         public void PopulateFromInitialPocoVariousRetrievalsSaves()
         {
             using (CEF.NewServiceScope())
@@ -268,8 +388,8 @@ namespace CodexMicroORM.NFWTests
                 p3.Kids = new Person[] { p5, p6 };
                 CEF.NewObject(p1);
                 Assert.AreEqual(12, CEF.DBSave().Count());
-                Assert.AreEqual(2, KeyService.GetObjectNestLevel(p6));
-                Assert.AreEqual(3, KeyService.GetObjectNestLevel(p6.Phones.First()));
+                Assert.AreEqual(2, CEF.CurrentKeyService().GetObjectNestLevel(p6));
+                Assert.AreEqual(3, CEF.CurrentKeyService().GetObjectNestLevel(p6.Phones.First()));
                 var es1 = new EntitySet<Person>().DBRetrieveByKey(p5.PersonID).DBAppendByKey(p6.PersonID);
                 Assert.AreEqual(2, es1.Count);
                 var es2 = new EntitySet<PersonWrapped>().DBRetrieveByKey(p3.PersonID).DBAppendByParentID(p3.PersonID);

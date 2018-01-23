@@ -22,6 +22,7 @@ using CodexMicroORM.Core.Services;
 using System.Diagnostics;
 using System.Linq;
 using System.Data.SqlClient;
+using System.Collections.Generic;
 
 namespace CodexMicroORM.Core
 {
@@ -31,12 +32,45 @@ namespace CodexMicroORM.Core
     public static class CEFDebug
     {
         private static bool _handled = false;
+        private static Stopwatch _sw = new Stopwatch();
+
+        public static long LastElapsedTick
+        {
+            get;
+            set;
+        }
 
         public static bool DebugEnabled
         {
             get;
             set;
         } = false;
+
+        public static bool DebugTimeEnabled
+        {
+            get;
+            set;
+        } = false;
+
+        [System.Diagnostics.Conditional("DEBUG")]
+        public static void StartTimer()
+        {
+            _sw.Start();
+            _sw.Restart();
+        }
+
+        [System.Diagnostics.Conditional("DEBUG")]
+        public static void LogTime(string descriptor)
+        {
+            LastElapsedTick = _sw.ElapsedTicks;
+
+            if (DebugEnabled || DebugTimeEnabled)
+            {
+                Debug.WriteLine($"CEF Timer - {descriptor} - {LastElapsedTick}");
+            }
+
+            _sw.Restart();
+        }
 
         [System.Diagnostics.Conditional("DEBUG")]
         public static void WaitAttach()
@@ -90,13 +124,13 @@ namespace CodexMicroORM.Core
         }
 
         [System.Diagnostics.Conditional("DEBUG")]
-        public static void DumpSQLCall(string cmd, SqlParameterCollection spc)
+        public static void DumpSQLCall(string cmd, IDictionary<string, object> spc)
         {
             if (!DebugEnabled)
                 return;
 
-            var parm = (from a in spc.Cast<SqlParameter>() select $"{a.ParameterName}={a.Value}").ToArray();
-            Debug.WriteLine($"SQL: {cmd} {string.Join(", ", parm)}");
+            var parm = (from a in spc select $"{a.Key}={a.Value}").ToArray();
+            Debug.WriteLine($"{cmd} {string.Join(", ", parm)}");
         }
 
         [System.Diagnostics.Conditional("DEBUG")]

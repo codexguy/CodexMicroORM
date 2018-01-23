@@ -97,16 +97,18 @@ namespace CodexMicroORM.Core.Services
 
         internal static bool IsWrappableListType(Type sourceType, object sourceVal)
         {
+            if (sourceType.IsValueType || !sourceType.IsConstructedGenericType || sourceType.GenericTypeArguments?.Length != 1 || sourceType.GenericTypeArguments[0].IsValueType)
+            {
+                return false;
+            }
+
             if (sourceVal != null && sourceVal.GetType().Name.StartsWith("EntitySet`"))
             {
                 // Should already be wrapped when added to an EntitySet
                 return false;
             }
 
-            return (sourceType.IsConstructedGenericType 
-                && sourceType.GenericTypeArguments?.Length == 1 
-                && !sourceType.GenericTypeArguments[0].IsValueType 
-                && (sourceType.Name.StartsWith("IList`") || sourceType.Name.StartsWith("ICollection`") || sourceType.Name.StartsWith("IEnumerable`")));
+            return (sourceType.Name.StartsWith("IList`") || sourceType.Name.StartsWith("ICollection`") || sourceType.Name.StartsWith("IEnumerable`"));
         }
 
         internal static ICEFList CreateWrappingList(ServiceScope ss, Type sourceType, object host, string propName)
@@ -119,7 +121,7 @@ namespace CodexMicroORM.Core.Services
             return wrappedCol;
         }
 
-        internal static void CopyParsePropertyValues(IDictionary<string, object> sourceProps, object source, object target, bool isNew, ServiceScope ss, IDictionary<object, object> visits)
+        internal static void CopyParsePropertyValues(IDictionary<string, object> sourceProps, object source, object target, bool isNew, ServiceScope ss, IDictionary<object, object> visits, bool justTraverse)
         {
             // Recursively parse property values for an object graph. This not only adjusts collection types to be trackable concrete types, but registers child objects into the current service scope.
 
@@ -195,7 +197,10 @@ namespace CodexMicroORM.Core.Services
                     }
                     else
                     {
-                        target.FastSetValue(info.PropName, info.SourceVal);
+                        if (!justTraverse)
+                        {
+                            target.FastSetValue(info.PropName, info.SourceVal);
+                        }
                     }
                 }
             });
@@ -216,7 +221,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            CopyParsePropertyValues(props, source, target, isNew, ss, visits);
+            CopyParsePropertyValues(props, source, target, isNew, ss, visits, false);
 
             if (removeIfSet != null)
             {

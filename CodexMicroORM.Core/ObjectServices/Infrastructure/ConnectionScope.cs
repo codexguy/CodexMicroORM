@@ -67,11 +67,12 @@ namespace CodexMicroORM.Core.Services
             {
                 lock (_sync)
                 {
-                    if (_conn == null)
+                    if (_conn != null)
                     {
-                        _conn = Provider.CreateOpenConnection("default", IsTransactional, _connStringOverride);
+                        return _conn;
                     }
 
+                    _conn = Provider.CreateOpenConnection("default", IsTransactional, _connStringOverride);
                     return _conn;
                 }
             }
@@ -88,7 +89,8 @@ namespace CodexMicroORM.Core.Services
 
         public void DoneWork()
         {
-            if (IsStandalone)
+            // If not standalone or not transactional - we don't need to discard connection, keep it alive
+            if (IsStandalone && IsTransactional)
             {
                 CanCommit();
                 Dispose();
