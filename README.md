@@ -243,7 +243,7 @@ The nature of this new benchmark is to work with a pre-populated set of database
 
 Doing the Execute() with in-line use of parent.ParentPersonID and parent.Gender results in run-time errors, and the simplest, most desirable approach of simply using "parent" as the second parameter does not work, either.
 
-The final performance result is that Dapper's per-database-call timing was an average of 0.47 milliseconds, whereas for CEF is was 0.26 milliseconds - nearly half the time of Dapper. In terms of code size, CEF's implementation was 1618 characters compared to Dapper's 2629 characters - meaning CEF offered a 40+% performance gain with nearly 40% less code to write and maintain! Now, there are ways to achieve similar results using Dapper - by writing even *more* code.
+The final performance result is that Dapper's per-database-call timing averages 0.47 milliseconds, whereas CEF is 0.26 milliseconds - nearly half the time of Dapper. In terms of code size, CEF's implementation is 1618 characters compared to Dapper's 2629 characters - meaning CEF in this example offers a 40+% performance gain with nearly 40% less code to write and maintain! Now, there are ways to achieve similar results using Dapper - by writing even *more* code.
 
 CEF's implementation of async saving leverages a combination of in-memory caching and parallel operations that we can synchronize on as needed. (In fact, leaving your service scope ensures all outstanding async operations will be complete.) The use of the new MemoryFileSystemBacked caching service is something I'll cover in a future blog post, but in this particular benchmark, async saving was the clear way to "win" against Dapper.
 
