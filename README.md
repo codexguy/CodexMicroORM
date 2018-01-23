@@ -232,19 +232,16 @@ I've added a new benchmark test in the WPF demo app, implemented for both Dapper
 
 The nature of this new benchmark is to work with a pre-populated set of database records, retrieving data in a loop and making a couple of updates in the process. We've also split some of the functionality into multiple methods where the parameters are restricted to ID values, like we might see in a theoretical library / API. The final results for both CEF and Dapper are verified in the database at the end. Of note:
 
-* The Dapper implementation uses the same stored procedures as the CEF example uses to help be more apples-to-apples.
+* The Dapper implementation uses the same stored procedures that the CEF example uses to help be more apples-to-apples.
 * In the Dapper implementation, I had to do some trickery to make the Person update procedure call work:
 
 ```c#
-{
-	parent.Age += 1;
-	parent.LastUpdatedBy = Environment.UserName;
 	int? ppid = parent.ParentPersonID;
 	string gender = parent.Gender;
 	db.Execute("CEFTest.up_Person_u", new { RetVal = 1, Msg = "", parent.PersonID, parent.Name, parent.Age, ParentPersonID = ppid, Gender = gender, parent.LastUpdatedBy, parent.LastUpdatedDate }, commandType: CommandType.StoredProcedure);
 ```
 
-Doing the Execute() with in-line use of parent.ParentPersonID results in a run-time error, and the simplest, most desirable approach of simply using "parent" as the second parameter does not work, either.
+Doing the Execute() with in-line use of parent.ParentPersonID and parent.Gender results in run-time errors, and the simplest, most desirable approach of simply using "parent" as the second parameter does not work, either.
 
 The final performance result is that Dapper's per-database-call timing was an average of 0.47 milliseconds, whereas for CEF is was 0.26 milliseconds - nearly half the time of Dapper. In terms of code size, CEF's implementation was 1618 characters compared to Dapper's 2629 characters - meaning CEF offered a 40+% performance gain with nearly 40% less code to write and maintain! Now, there are ways to achieve similar results using Dapper - by writing even *more* code.
 
