@@ -190,6 +190,42 @@ namespace CodexMicroORM.NFWTests
         }
 
         [TestMethod]
+        public void AsyncSaveCommitted()
+        {
+            Person p1;
+            Person p2;
+            Person p3;
+            Person p4;
+            Person p5;
+            Person p6;
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { UseAsyncSave = true, InitializeNullCollections = true }))
+            {
+                p1 = CEF.NewObject(new Person() { Name = "STFred", Age = 44 });
+                p1.Phones.Add(new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile });
+                p2 = CEF.NewObject(new Person() { Name = "STSam", Age = 44 });
+                p2.Phones.Add(new Phone() { Number = "222-8172", PhoneTypeID = PhoneType.Mobile });
+                p3 = new Person() { Name = "STCarol", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile } } };
+                p4 = new Person() { Name = "STKylo", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile } } };
+                p5 = new Person() { Name = "STPerry", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile } } };
+                p6 = new Person() { Name = "STWilliam", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile } } };
+                p1.Kids.Add(p2);
+                p1.Kids.Add(p3);
+                p2.Kids.Add(p4);
+                p3.Kids.Add(p5);
+                CEF.DBSave();
+            }
+
+            Assert.IsTrue(p1.PersonID > 0);
+            Assert.IsTrue(p2.PersonID > 0);
+            Assert.IsTrue(p3.PersonID > 0);
+            Assert.IsTrue(p4.PersonID > 0);
+            Assert.IsTrue(p5.PersonID > 0);
+            Assert.IsTrue(p6.PersonID == 0);
+        }
+
+
+        [TestMethod]
         public void SerializeDeserializeSave()
         {
             string serTextPerson;
