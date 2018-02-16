@@ -19,14 +19,10 @@ Major Changes:
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Dynamic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
-using System.Threading.Tasks;
 using Newtonsoft.Json;
 
 namespace CodexMicroORM.Core.Services
@@ -39,8 +35,8 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithBag : DynamicObject, ICEFInfraWrapper, ICEFSerializable
     {
-        protected ConcurrentDictionary<string, object> _valueBag = new ConcurrentDictionary<string, object>();
-        protected ConcurrentDictionary<string, Type> _preferredType = new ConcurrentDictionary<string, Type>();
+        protected ConcurrentDictionary<string, object> _valueBag = new ConcurrentDictionary<string, object>(Globals.CurrentStringComparer);
+        protected ConcurrentDictionary<string, Type> _preferredType = new ConcurrentDictionary<string, Type>(Globals.CurrentStringComparer);
         protected object _source;
         protected bool _isBagChanged = false;
 
@@ -73,14 +69,29 @@ namespace CodexMicroORM.Core.Services
         {
             if (_source != null)
             {
-                return _source.IsSame(obj);
+                var uw1 = this.AsUnwrapped();
+                var uw2 = obj.AsUnwrapped();
+                return uw1 == uw2;
             }
+
             return base.Equals(obj);
         }
 
         public override int GetHashCode()
         {
-            return (_source?.GetHashCode()).GetValueOrDefault(base.GetHashCode());
+            if (_source != null)
+            {
+                var uw1 = this.AsUnwrapped();
+
+                if (uw1 == null)
+                {
+                    return 0;
+                }
+
+                return uw1.GetHashCode();
+            }
+
+            return base.GetHashCode();
         }
 
         protected virtual void OnPropertyChanged(string propName, object oldVal, object newVal, bool isBag)
@@ -234,6 +245,17 @@ namespace CodexMicroORM.Core.Services
                 _preferredType[propName] = preferredType;
             }
 
+            // Special case - if setting a property where there exists a shadow property already AND the new prop is NOT default - blow away the shadow property!
+            if (value != null && !propName.StartsWith(KeyService.SHADOW_PROP_PREFIX) && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
+            {
+                var defVal = WrappingHelper.GetDefaultForType(value.GetType());
+
+                if (!defVal.IsSame(value))
+                {
+                    _valueBag.TryRemove(KeyService.SHADOW_PROP_PREFIX + propName, out object discard);
+                }
+            }
+
             if (_source.FastPropertyWriteable(propName))
             {
                 var oldVal = _source.FastGetValue(propName);
@@ -277,6 +299,16 @@ namespace CodexMicroORM.Core.Services
         public virtual WrappingSupport SupportsWrapping()
         {
             return WrappingSupport.PropertyBag;
+        }
+
+        public virtual void UpdateData()
+        {
+            if (_source != null)
+            {
+                HashSet<object> hs = new HashSet<object>();
+                hs.Add(_source);
+                CEF.CurrentServiceScope.ReconcileModifiedState(hs);
+            }
         }
 
         public void RemoveProperty(string propName)
@@ -395,6 +427,10 @@ namespace CodexMicroORM.Core.Services
         {
             throw new NotSupportedException();
         }
-    }
 
+        public ValidationWrapper GetValidationState()
+        {
+            return new ValidationWrapper(this);
+        }
+    }
 }

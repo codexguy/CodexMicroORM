@@ -30,7 +30,7 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithValuesAndBag : DynamicWithBag, IDisposable
     {
-        protected ConcurrentDictionary<string, object> _originalValues = new ConcurrentDictionary<string, object>();
+        protected ConcurrentDictionary<string, object> _originalValues = new ConcurrentDictionary<string, object>(Globals.CurrentStringComparer);
         protected ObjectState _rowState;
 
         public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
@@ -78,10 +78,10 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public bool ReconcileModifiedState(Action<string, object, object> onChanged = null)
+        public bool ReconcileModifiedState(Action<string, object, object> onChanged = null, bool force = false)
         {
             // For cases where live binding was not possible, tries to identify possible changes in object state (typically at the time of saving)
-            if (_rowState == ObjectState.Unchanged)
+            if (force || _rowState == ObjectState.Unchanged)
             {
                 foreach (var oval in _originalValues)
                 {
@@ -150,17 +150,24 @@ namespace CodexMicroORM.Core.Services
                 return;
             }
 
-            foreach (var pi in _source.GetType().GetProperties())
+            if (_originalValues != null)
             {
-                if (_source.FastPropertyReadable(pi.Name) && _source.FastPropertyWriteable(pi.Name))
+                if (_source != null)
                 {
-                    _originalValues[pi.Name] = _source.FastGetValue(pi.Name);
+                    // Handle CLR properties that are R/W
+                    foreach (var pi in _source.GetType().GetProperties())
+                    {
+                        if (_source.FastPropertyReadable(pi.Name) && _source.FastPropertyWriteable(pi.Name))
+                        {
+                            _originalValues[pi.Name] = _source.FastGetValue(pi.Name);
+                        }
+                    }
                 }
-            }
 
-            foreach (var kvp in _valueBag)
-            {
-                _originalValues[kvp.Key] = kvp.Value;
+                foreach (var kvp in _valueBag)
+                {
+                    _originalValues[kvp.Key] = kvp.Value;
+                }
             }
 
             bool changed = (_rowState != ObjectState.Unchanged);

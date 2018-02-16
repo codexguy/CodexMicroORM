@@ -34,6 +34,13 @@ namespace CodexMicroORM.BindingSupport
         private bool _isDirty = false;
 
         public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
+        public event EventHandler<PropertyChangedEventArgs> RowPropertyChanged;
+
+        public bool ScanClean
+        {
+            get;
+            set;
+        } = false;
 
         internal GenericBindableSet(IEnumerable<DynamicBindable> source) : base(source)
         {
@@ -43,7 +50,28 @@ namespace CodexMicroORM.BindingSupport
         private void ItemPropertyChanged(object sender, PropertyChangedEventArgs e)
         {
             SetDirty();
+            RowPropertyChanged?.Invoke(sender, e);
         }
+
+        public bool IsValid
+        {
+            get
+            {
+                foreach (var r in this)
+                {
+                    var ide = r.Wrapped as IDataErrorInfo;
+
+                    if (ide != null && !string.IsNullOrEmpty(ide.Error))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        }
+
+        public bool IsDirty => _isDirty;
 
         public void ResetClean()
         {
@@ -68,6 +96,18 @@ namespace CodexMicroORM.BindingSupport
             foreach (var s in toAdd)
             {
                 s.PropertyChanged += ItemPropertyChanged;
+                s.DirtyStateChange += S_DirtyStateChange;
+            }
+        }
+
+        private void S_DirtyStateChange(object sender, Core.Services.DirtyStateChangeEventArgs e)
+        {
+            if (ScanClean && e.NewState == Core.ObjectState.Unchanged)
+            {
+                if (!(from a in this where a.State != Core.ObjectState.Unchanged select a).Any())
+                {
+                    ResetClean();
+                }
             }
         }
 
@@ -76,6 +116,7 @@ namespace CodexMicroORM.BindingSupport
             foreach (var s in toRemove)
             {
                 s.PropertyChanged -= ItemPropertyChanged;
+                s.DirtyStateChange -= S_DirtyStateChange;
             }
         }
 

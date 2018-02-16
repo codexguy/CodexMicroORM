@@ -21,6 +21,7 @@ using CodexMicroORM.Core.Services;
 using System.ComponentModel;
 using System.Collections.Generic;
 using Newtonsoft.Json;
+using System.Text;
 
 namespace CodexMicroORM.Core
 {
@@ -141,6 +142,28 @@ namespace CodexMicroORM.Core
             }
         }
 
+        public static (int code, string message) AsString(this IEnumerable<(ValidationErrorCode error, string message)> msgs, ValidationErrorCode? only = null, string concat = " ")
+        {
+            int code = 0;
+            StringBuilder sb = new StringBuilder();
+
+            foreach (var m in msgs)
+            {
+                if (!only.HasValue || (only.Value & m.error) != 0)
+                {
+                    if (sb.Length > 0)
+                    {
+                        sb.Append(concat);
+                    }
+
+                    sb.Append(m.message);
+                    code |= (int)m.error;
+                }
+            }
+
+            return (-code, sb.ToString());
+        }
+
         /// <summary>
         /// Given a potentially wrapped object, returns the base object type that it maps to. (E.g. an instance of a derived class from a base POCO object passed in would return the base POCO Type.)
         /// </summary>
@@ -252,6 +275,21 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Returns true if the underlying infra wrapper indicates the row state is not unchanged.
+        /// </summary>
+        /// <param name="iw">An infra wrapper object.</param>
+        /// <returns></returns>
+        public static bool IsDirty(this ICEFInfraWrapper iw)
+        {
+            if (iw != null)
+            {
+                return iw.GetRowState() != ObjectState.Unchanged;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Returns the JSON representation of the object. If it's an infrastructure wrapped object, used CEF rules, otherwise plain Newtonsoft serialization rules.
         /// </summary>
         /// <param name="o">Object to serialize.</param>
@@ -266,6 +304,11 @@ namespace CodexMicroORM.Core
             if (o is ServiceScope)
             {
                 return ((ServiceScope)o).GetScopeSerializationText(mode);
+            }
+
+            if (o is ICEFList)
+            {
+                return ((ICEFList)o).GetSerializationText(mode);
             }
 
             var iw = o.AsInfraWrapped(false) as ICEFSerializable;

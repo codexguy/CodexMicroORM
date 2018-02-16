@@ -31,6 +31,25 @@ namespace CodexMicroORM.Core
         private static Type _defaultDBServiceType = typeof(DBService);
         private static Type _defaultKeyServiceType = typeof(KeyService);
         private static Type _defaultPCTServiceType = typeof(PCTService);
+        private static Type _defaultValidationServiceType = typeof(ValidationService);
+        //private static Type _defaultFieldMapServiceType = typeof(FieldMapService);
+
+        //public static Type DefaultFieldMapServiceType
+        //{
+        //    get
+        //    {
+        //        return _defaultFieldMapServiceType;
+        //    }
+        //    set
+        //    {
+        //        if (value.GetInterface("ICEFFieldMapHost") == null)
+        //        {
+        //            throw new ArgumentException("Type does not implement ICEFFieldMapHost.");
+        //        }
+
+        //        _defaultFieldMapServiceType = value;
+        //    }
+        //}
 
         public static Type DefaultPCTServiceType
         {
@@ -83,6 +102,23 @@ namespace CodexMicroORM.Core
             }
         }
 
+        public static Type DefaultValidationServiceType
+        {
+            get
+            {
+                return _defaultValidationServiceType;
+            }
+            set
+            {
+                if (value.GetInterface("ICEFValidationHost") == null)
+                {
+                    throw new ArgumentException("Type does not implement ICEFValidationHost.");
+                }
+
+                _defaultValidationServiceType = value;
+            }
+        }
+
         public static Type DefaultKeyServiceType
         {
             get
@@ -113,6 +149,18 @@ namespace CodexMicroORM.Core
         /// When false, every case that might use a wrapper class requires one; otherwise wrapper classes are not required and infrastructure wrappers can be silently used.
         /// </summary>
         public static bool MissingWrapperAllowed
+        {
+            get;
+            set;
+        } = true;
+
+        public static ValidationErrorCode ValidationChecksOnSave
+        {
+            get;
+            set;
+        } = ValidationErrorCode.SaveFailDefault;
+
+        public static bool ValidationFailureIsException
         {
             get;
             set;
@@ -181,6 +229,12 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = "{0}ID";
+
+        public static RetrievalPostProcessing DefaultRetrievalPostProcessing
+        {
+            get;
+            set;
+        } = RetrievalPostProcessing.Default;
 
         public static ScopeMode DefaultConnectionScopeMode
         {
@@ -313,5 +367,26 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = true;
+
+        public static bool CaseSensitiveDictionaries
+        {
+            get;
+            set;
+        } = true;
+
+        public static StringComparer CurrentStringComparer
+        {
+            get
+            {
+                if (CaseSensitiveDictionaries)
+                {
+                    return StringComparer.CurrentCulture;
+                }
+                else
+                {
+                    return StringComparer.CurrentCultureIgnoreCase;
+                }
+            }
+        }
     }
 }

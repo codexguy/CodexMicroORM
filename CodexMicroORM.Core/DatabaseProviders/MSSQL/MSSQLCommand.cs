@@ -33,8 +33,13 @@ namespace CodexMicroORM.Providers
     /// </summary>
     public class MSSQLCommand : IDBProviderCommand
     {
-        private static ConcurrentDictionary<string, IEnumerable<SqlParameter>> _paramCache = new ConcurrentDictionary<string, IEnumerable<SqlParameter>>();
+        private static ConcurrentDictionary<string, IEnumerable<SqlParameter>> _paramCache = new ConcurrentDictionary<string, IEnumerable<SqlParameter>>(Globals.CurrentStringComparer);
         private SqlCommand _cmd;
+
+        public static void FlushCaches()
+        {
+            _paramCache.Clear();
+        }
 
         public MSSQLCommand(MSSQLConnection conn, string cmdText, CommandType cmdType)
         {
@@ -193,6 +198,7 @@ namespace CodexMicroORM.Providers
             BuildParameters();
 
             // We will do this positionally - skip any fields that are strictly framework managed
+            // We can do no name mapping since we have no source names!
             int idx = 0;
             foreach (var p in (from a in _cmd.Parameters.Cast<SqlParameter>() select new { Name = a.ParameterName.StartsWith("@") ? a.ParameterName.Substring(1) : a.ParameterName, Parm = a }))
             {
@@ -206,13 +212,16 @@ namespace CodexMicroORM.Providers
             return this;
         }
 
-        public MSSQLCommand MapParameters(IDictionary<string, object> parms)
+        public MSSQLCommand MapParameters(Type baseType, object forObject, IDictionary<string, object> parms)
         {
             BuildParameters();
 
-            // The procedure signature is king - map underlying object to it
+            var db = CEF.CurrentDBService(forObject);
+
+            // The procedure signature is king - map underlying object to it, using and supplied name translations in scope
             foreach (var p in (from a in _cmd.Parameters.Cast<SqlParameter>()
-                               let pn = a.ParameterName.StartsWith("@") ? a.ParameterName.Substring(1) : a.ParameterName
+                               let sn = a.ParameterName.StartsWith("@") ? a.ParameterName.Substring(1) : a.ParameterName
+                               let pn = db?.GetPropertyNameFromStorageName(baseType, sn) ?? sn
                                where parms.ContainsKey(pn) select new { Parm = a, Value = parms[pn] }))
             {
                 p.Parm.Value = p.Value ?? DBNull.Value;

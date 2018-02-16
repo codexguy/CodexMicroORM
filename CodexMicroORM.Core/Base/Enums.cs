@@ -85,13 +85,49 @@ namespace CodexMicroORM.Core
     }
 
     [Flags]
+    public enum RetrievalPostProcessing
+    {
+        None = 0,
+        PropertyGroups = 1,
+        ParentInstancesWithoutCLRProperties = 2,
+        PropertyNameFixups = 4,
+        Default = 7
+    }
+
+    /// <summary>
+    /// Identifies the type of validation failure presented by the validation engine. Can also be used as a filter to represent what types of validations are of interest. As such, is a flag that can be combined as a filter, or discrete values to indicate specific failures.
+    /// Why are some types such as required field validation not included in default save validation? The database is also effectively doing this too, and we assume an app might have their own method of validation, so picking the least-overhead approach as the default: but easy to override at a Global level.
+    /// </summary>
+    [Flags]
+    public enum ValidationErrorCode
+    {
+        None = 0,
+        MissingRequired = 65536,
+        TooLarge = (65536 * 2),
+        CustomError = (65536 * 4),
+        NumericRange = (65536 * 8),
+        IllegalUpdate = (65536 * 16),
+        SaveFailDefault = (65536 * 4) | (65536 * 2) | (65536 * 8) | (65536 * 16)
+    }
+
+    [Flags]
+    public enum RelationTypes
+    {
+        None = 0,
+        Parents = 1,
+        Children = 2,
+        Both = 3
+    }
+
+    [Flags]
     public enum WrappingSupport
     {
         None = 0,
         Notifications = 1,
         OriginalValues = 2,
         PropertyBag = 4,
-        All = 7
+        DataErrors = 8,
+        All = 15
     }
 
     [Flags]

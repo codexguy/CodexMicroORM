@@ -14,10 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 Major Changes:
-1/2018     0.2.3   Primary implementation (Joel Champagne) (Joel Champagne)
+1/2018     0.2.3   Primary implementation (Joel Champagne)
 ***********************************************************************/
 using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -38,12 +37,17 @@ using System.Runtime.Serialization.Formatters.Binary;
 namespace CodexMicroORM.Providers
 {
     /// <summary>
-    /// The general principle here is we store everything in memory, up to a configurable memory limit. (After that, we evict based on read quantity asc, last read asc till go below the limit.)
-    /// Items going into the cache can optionally be backed by the file system. The idea is the file system cache can be larger than the memory cache - no size restrictions by default, other than expiry dates, set by object (type, normally).
-    /// Queries for data would first check the cache - if in memory, return a copy from there (a warm instance is best, otherwise spin up a new instance using CEF deserialization), otherwise check disk and rebuild from there if found - otherwise it's a cache miss and let the DB access happen and cache the results.
+    /// The general principle here is we store everything in memory, committing to disk in the background only. (After that, we evict based on read quantity asc, last read asc till go below the limit.)
+    /// The idea is the file system cache can be larger than the memory cache - no size restrictions by default, other than expiry dates, set by object (type, normally).
+    /// Queries for data would first check the cache - if in memory, return a copy from there, otherwise check disk and rebuild from there if found - otherwise it's a cache miss and let the DB access happen and cache the results.
+    /// There are two main types of cache entry: by query and by identity. By query can cache collections of rows based on some source query (retreve by query). By identity caches one object at a time based on its key (retrieve by key).
+    /// Query-based caching can optionally translate each cached row into "by identity" entries, improving performance.
     /// </summary>
     public class MemoryFileSystemBacked : ICEFCachingHost
     {
+        /// <summary>
+        /// Specific to this caching implementation, we can describe placement of objects - either in memory only or in file system with directory splitting as an option.
+        /// </summary>
         public enum CacheStorageStrategy
         {
             OnlyMemory = 1,
@@ -52,6 +56,9 @@ namespace CodexMicroORM.Providers
             DirPerDay = 4
         }
 
+        /// <summary>
+        /// Cache entries contain some persistent properties, some that are only in-memory.
+        /// </summary>
         private class MFSEntry : ICEFIndexedListItem
         {
             public object GetValue(string propName, bool unwrap)
@@ -92,9 +99,9 @@ namespace CodexMicroORM.Providers
             public bool Persisted { get; set; }
 
             public long Sequence { get; set; }
-
-            public BinaryFormatter Formatter { get; set; }
         }
+
+        #region "Internal state"
 
         private ConcurrentDictionary<Type, long> _totalReadCounter = new ConcurrentDictionary<Type, long>();
 
@@ -111,6 +118,11 @@ namespace CodexMicroORM.Providers
         private long _stopping = 0;
 
         private object _indexLock = new object();
+
+        [ThreadStatic]
+        private BinaryFormatter _formatter = new BinaryFormatter();
+        
+        #endregion
 
         public MemoryFileSystemBacked(string rootDirUnderTemp = null, CacheStorageStrategy? storage = null, int? startMonitorInterval = null)
         {
@@ -179,6 +191,8 @@ namespace CodexMicroORM.Providers
             set;
         } = 20000 * Environment.ProcessorCount;
 
+        #region "Static methods"
+
         public static void FlushAll(string rootDir)
         {
             InternalFlush(Path.Combine(Path.GetTempPath(), rootDir));
@@ -201,173 +215,18 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        private bool IsValid(MFSEntry c)
-        {
-            if (c == null)
-            {
-                return false;
-            }
+        #endregion
 
-            // todo - risk dirty read??
-            return (c.Active && c.ExpiryDate > DateTime.Now);
-        }
-
-        private T GetSingle<T>(MFSEntry c) where T : class, new()
-        {
-            IDictionary<string, object> props = null;
-            string cfn = null;
-
-            lock (c.ObjSync)
-            {
-                props = c.Properties;
-                cfn = c.FileName;
-
-                c.ReadCount++;
-                c.LastRead = DateTime.Now;
-            }
-
-            if (props == null)
-            {
-                if (!string.IsNullOrEmpty(cfn))
-                {
-                    var fn = Path.Combine(_rootDir, cfn);
-
-                    if (File.Exists(fn))
-                    {
-                        if (c.Formatter == null)
-                        {
-                            c.Formatter = new BinaryFormatter();
-                        }
-
-                        props = GetPropertiesFromFile(c.Formatter, fn);
-
-                        lock (c.ObjSync)
-                        {
-                            c.Properties = props;
-                        }
-                    }
-                }
-            }
-
-            if (props != null)
-            {
-                return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, c.Properties, null, null) as T;
-            }
-
-            return null;
-        }
-
-        private IEnumerable<T> GetRows<T>(MFSEntry c) where T : class, new()
-        {
-            IEnumerable<IDictionary<string, object>> rows = null;
-            IEnumerable<object> list = null;
-            string cfn = null;
-
-            lock (c.ObjSync)
-            {
-                rows = c.Rows;
-                list = c.SourceList;
-                cfn = c.FileName;
-
-                c.ReadCount++;
-                c.LastRead = DateTime.Now;
-            }
-
-            if (rows == null)
-            {
-                // If the reason it's null is we're still waiting for it to be parsed, just do so now
-                if (list != null)
-                {
-                    rows = GetParsedRows(list);
-
-                    lock (c.ObjSync)
-                    {
-                        c.Rows = rows;
-                        c.SourceList = null;
-                    }
-                }
-
-                if (rows == null && !string.IsNullOrEmpty(cfn))
-                {
-                    var fn = Path.Combine(_rootDir, cfn);
-
-                    if (File.Exists(fn))
-                    {
-                        if (c.Formatter == null)
-                        {
-                            c.Formatter = new BinaryFormatter();
-                        }
-
-                        rows = GetRowsFromFile(c.Formatter, fn);
-
-                        lock (c.ObjSync)
-                        {
-                            c.Rows = rows;
-                        }
-                    }
-                }
-            }
-
-            if (rows != null)
-            {
-                foreach (var rowdata in rows)
-                {
-                    yield return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, rowdata, null, null) as T;
-                }
-            }
-        }
-
-        private IEnumerable<IDictionary<string, object>> GetParsedRows(IEnumerable<object> source)
-        {
-            foreach (var o in source)
-            {
-                yield return o.AsInfraWrapped().GetAllValues(true, true);
-            }
-        }
-
-        private void SaveProperties(BinaryFormatter bf, string fn, IDictionary<string, object> r)
-        {
-            using (var fs = File.OpenWrite(fn))
-            {
-                bf.Serialize(fs, r);
-            }
-        }
-
-        private IDictionary<string, object> GetPropertiesFromFile(BinaryFormatter bf, string fn)
-        {
-            using (var fs = File.OpenRead(fn))
-            {
-                return (IDictionary<string, object>)bf.Deserialize(fs);
-            }
-        }
-
-        private void SaveRows(BinaryFormatter bf, string fn, IEnumerable<IDictionary<string, object>> rows)
-        {
-            using (var fs = File.OpenWrite(fn))
-            {
-                foreach (var r in rows)
-                {
-                    bf.Serialize(fs, r);
-                }
-            }
-        }
-
-        private IEnumerable<IDictionary<string, object>> GetRowsFromFile(BinaryFormatter bf, string fn)
-        {
-            using (var fs = File.OpenRead(fn))
-            {
-                while (fs.Position < fs.Length)
-                {
-                    yield return (IDictionary<string, object>)bf.Deserialize(fs);
-                }
-            }
-        }
+        #region "Public operations"
 
         public bool IsCacheBusy()
         {
             return Interlocked.Read(ref _working) > 0;
         }
 
+        /// <summary>
+        /// Cache users who need to perform actions that span multiple statements should indicate they're interacting with the cache. Prevents halting the monitor and allowing shutdown until cache users are done their work.
+        /// </summary>
         public void DoingWork()
         {
             Interlocked.Increment(ref _working);
@@ -378,7 +237,11 @@ namespace CodexMicroORM.Providers
             Interlocked.Decrement(ref _working);
         }
 
-
+        /// <summary>
+        /// Invalidates zero, one or many query-based cache entries based on either a type or for all. Typically called when saving data where updates may invalidate cache contents.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <param name="typeSpecific"></param>
         public void InvalidateForByQuery(Type t, bool typeSpecific)
         {
             if (t == null)
@@ -414,6 +277,11 @@ namespace CodexMicroORM.Providers
             }
         }
 
+        /// <summary>
+        /// Invalidates zero or one identity-based cache entry based on the identity of a specific object. Typically called when saving data where updates may invalidate cache contents.
+        /// </summary>
+        /// <param name="baseType"></param>
+        /// <param name="props"></param>
         public void InvalidateIdentityEntry(Type baseType, IDictionary<string, object> props)
         {
             StringBuilder sb = new StringBuilder(128);
@@ -431,7 +299,7 @@ namespace CodexMicroORM.Providers
                 sb.Append(k);
             }
 
-            foreach (var c in  _index.GetAllByName(nameof(MFSEntry.ByIdentityComposite), sb.ToString()))
+            foreach (var c in _index.GetAllByName(nameof(MFSEntry.ByIdentityComposite), sb.ToString()))
             {
                 lock (c.ObjSync)
                 {
@@ -441,6 +309,13 @@ namespace CodexMicroORM.Providers
             }
         }
 
+        /// <summary>
+        /// Updates the identity-cached object based on its current property values.
+        /// </summary>
+        /// <param name="baseType"></param>
+        /// <param name="props"></param>
+        /// <param name="key"></param>
+        /// <param name="expirySeconds"></param>
         public void UpdateByIdentity(Type baseType, IDictionary<string, object> props, object[] key = null, int? expirySeconds = null)
         {
             StringBuilder sb = new StringBuilder(128);
@@ -482,6 +357,13 @@ namespace CodexMicroORM.Providers
             }
         }
 
+        /// <summary>
+        /// Returns one or more "rows" of data that were previously cached based on a query (text and parameters). If not in cache, returns null.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="text"></param>
+        /// <param name="parms"></param>
+        /// <returns></returns>
         public IEnumerable<T> GetByQuery<T>(string text, object[] parms) where T : class, new()
         {
             StringBuilder sb = new StringBuilder(128);
@@ -513,11 +395,17 @@ namespace CodexMicroORM.Providers
             return GetRows<T>(c);
         }
 
+        /// <summary>
+        /// Returns a single "row" of data that was previously cached based on identity (key). If not in cache, returns null.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="key"></param>
+        /// <returns></returns>
         public T GetByIdentity<T>(object[] key) where T : class, new()
         {
             StringBuilder sb = new StringBuilder(128);
             sb.Append(typeof(T).Name);
-            
+
             foreach (var k in key)
             {
                 sb.Append(k);
@@ -531,27 +419,6 @@ namespace CodexMicroORM.Providers
             }
 
             return GetSingle<T>(c);
-        }
-
-        private string BuildNewFileName(Type t)
-        {
-            string subdir = "";
-
-            switch (DefaultStorageStrategy)
-            {
-                case CacheStorageStrategy.DirPerDay:
-                    subdir = DateTime.Today.ToString("yyyyMMdd");
-                    break;
-
-                case CacheStorageStrategy.DirPerType:
-                    subdir = t.Name;
-                    break;
-
-                case CacheStorageStrategy.OnlyMemory:
-                    return null;
-            }
-
-            return Path.Combine(subdir, Regex.Replace(Guid.NewGuid().ToString(), @"\W", "") + ".dat");
         }
 
         public void AddByQuery<T>(IEnumerable<T> list, string text, object[] parms = null, int? expirySeconds = null) where T : class, new()
@@ -789,6 +656,9 @@ namespace CodexMicroORM.Providers
             return (from a in _index where a.Active select a).Count();
         }
 
+        /// <summary>
+        /// Shuts down monitor and applies clean-up rules - typically done for you when connection and/or service scopes end.
+        /// </summary>
         public void Shutdown()
         {
             _monitor.Elapsed -= _monitor_Elapsed;
@@ -806,6 +676,212 @@ namespace CodexMicroORM.Providers
             Cleanup(false);
         }
 
+        /// <summary>
+        /// On start, we use the persisted index to determine what's still valid in the cache and reconstitute it in memory. We also start our background monitor (on a timer).
+        /// </summary>
+        /// <returns></returns>
+        public string Start()
+        {
+            RestoreIndex();
+
+            _monitor = new System.Timers.Timer(MonitorTimerMillisecondInterval);
+            _monitor.AutoReset = false;
+            _monitor.Elapsed += _monitor_Elapsed;
+            _monitor.Start();
+
+            return null;
+        }
+
+        #endregion
+
+        private bool IsValid(MFSEntry c)
+        {
+            if (c == null)
+            {
+                return false;
+            }
+
+            return (c.Active && c.ExpiryDate > DateTime.Now);
+        }
+
+        /// <summary>
+        /// Returns a reconstituted object based on a cache entry.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="c"></param>
+        /// <returns></returns>
+        private T GetSingle<T>(MFSEntry c) where T : class, new()
+        {
+            IDictionary<string, object> props = null;
+            string cfn = null;
+
+            lock (c.ObjSync)
+            {
+                props = c.Properties;
+                cfn = c.FileName;
+
+                c.ReadCount++;
+                c.LastRead = DateTime.Now;
+            }
+
+            if (props == null)
+            {
+                if (!string.IsNullOrEmpty(cfn))
+                {
+                    var fn = Path.Combine(_rootDir, cfn);
+
+                    if (File.Exists(fn))
+                    {
+                        props = GetPropertiesFromFile(_formatter, fn);
+
+                        lock (c.ObjSync)
+                        {
+                            c.Properties = props;
+                        }
+                    }
+                }
+            }
+
+            if (props != null)
+            {
+                return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, c.Properties, null, null) as T;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Returns one or more reconstituted "rows" based on a cache entry.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="c"></param>
+        /// <returns></returns>
+        private IEnumerable<T> GetRows<T>(MFSEntry c) where T : class, new()
+        {
+            IEnumerable<IDictionary<string, object>> rows = null;
+            IEnumerable<object> list = null;
+            string cfn = null;
+
+            lock (c.ObjSync)
+            {
+                rows = c.Rows;
+                list = c.SourceList;
+                cfn = c.FileName;
+
+                c.ReadCount++;
+                c.LastRead = DateTime.Now;
+            }
+
+            if (rows == null)
+            {
+                // If the reason it's null is we're still waiting for it to be parsed, just do so now
+                if (list != null)
+                {
+                    rows = GetParsedRows(list);
+
+                    lock (c.ObjSync)
+                    {
+                        c.Rows = rows;
+                        c.SourceList = null;
+                    }
+                }
+
+                if (rows == null && !string.IsNullOrEmpty(cfn))
+                {
+                    var fn = Path.Combine(_rootDir, cfn);
+
+                    if (File.Exists(fn))
+                    {
+                        rows = GetRowsFromFile(_formatter, fn);
+
+                        lock (c.ObjSync)
+                        {
+                            c.Rows = rows;
+                        }
+                    }
+                }
+            }
+
+            if (rows != null)
+            {
+                foreach (var rowdata in rows)
+                {
+                    yield return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, rowdata, null, null) as T;
+                }
+            }
+        }
+
+        private IEnumerable<IDictionary<string, object>> GetParsedRows(IEnumerable<object> source)
+        {
+            foreach (var o in source)
+            {
+                yield return o.AsInfraWrapped().GetAllValues(true, true);
+            }
+        }
+
+        private void SaveProperties(BinaryFormatter bf, string fn, IDictionary<string, object> r)
+        {
+            using (var fs = File.OpenWrite(fn))
+            {
+                bf.Serialize(fs, r);
+            }
+        }
+
+        private IDictionary<string, object> GetPropertiesFromFile(BinaryFormatter bf, string fn)
+        {
+            using (var fs = File.OpenRead(fn))
+            {
+                return (IDictionary<string, object>)bf.Deserialize(fs);
+            }
+        }
+
+        private void SaveRows(BinaryFormatter bf, string fn, IEnumerable<IDictionary<string, object>> rows)
+        {
+            using (var fs = File.OpenWrite(fn))
+            {
+                foreach (var r in rows)
+                {
+                    bf.Serialize(fs, r);
+                }
+            }
+        }
+
+        private IEnumerable<IDictionary<string, object>> GetRowsFromFile(BinaryFormatter bf, string fn)
+        {
+            using (var fs = File.OpenRead(fn))
+            {
+                while (fs.Position < fs.Length)
+                {
+                    yield return (IDictionary<string, object>)bf.Deserialize(fs);
+                }
+            }
+        }
+
+        private string BuildNewFileName(Type t)
+        {
+            string subdir = "";
+
+            switch (DefaultStorageStrategy)
+            {
+                case CacheStorageStrategy.DirPerDay:
+                    subdir = DateTime.Today.ToString("yyyyMMdd");
+                    break;
+
+                case CacheStorageStrategy.DirPerType:
+                    subdir = t.Name;
+                    break;
+
+                case CacheStorageStrategy.OnlyMemory:
+                    return null;
+            }
+
+            return Path.Combine(subdir, Regex.Replace(Guid.NewGuid().ToString(), @"\W", "") + ".dat");
+        }
+
+        /// <summary>
+        /// For cases where persisting to file, ensures items that are eligible to be cached to disk actually are persisted to disk.
+        /// </summary>
+        /// <param name="honorShutdown"></param>
         private void SaveUncommitted(bool honorShutdown)
         {
             if (DefaultStorageStrategy == CacheStorageStrategy.OnlyMemory)
@@ -841,20 +917,15 @@ namespace CodexMicroORM.Providers
                         return;
                     }
 
-                    if (i.Formatter == null)
-                    {
-                        i.Formatter = new BinaryFormatter();
-                    }
-
                     if (i.Properties != null)
                     {
-                        SaveProperties(i.Formatter, Path.Combine(_rootDir, i.FileName), i.Properties);
+                        SaveProperties(_formatter, Path.Combine(_rootDir, i.FileName), i.Properties);
                     }
                     else
                     {
                         if (i.Rows != null)
                         {
-                            SaveRows(i.Formatter, Path.Combine(_rootDir, i.FileName), i.Rows);
+                            SaveRows(_formatter, Path.Combine(_rootDir, i.FileName), i.Rows);
                         }
                     }
 
@@ -870,6 +941,9 @@ namespace CodexMicroORM.Providers
             });
         }
 
+        /// <summary>
+        /// Reads any existing cache index file, building the in-memory representation, without bringing in actual item data until actually requested.
+        /// </summary>
         private void RestoreIndex()
         {
             if (DefaultStorageStrategy == CacheStorageStrategy.OnlyMemory)
@@ -991,22 +1065,6 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        /// <summary>
-        /// On start, we use the persisted index to determine what's still valid in the cache and reconstitute it in memory. We also start our background monitor (on a timer).
-        /// </summary>
-        /// <returns></returns>
-        public string Start()
-        {
-            RestoreIndex();
-
-            _monitor = new System.Timers.Timer(MonitorTimerMillisecondInterval);
-            _monitor.AutoReset = false;
-            _monitor.Elapsed += _monitor_Elapsed;
-            _monitor.Start();
-
-            return null;
-        }
-
         private IEnumerable<string> GetAllFiles(string dir)
         {
             foreach (var d in Directory.GetDirectories(dir))
@@ -1025,6 +1083,10 @@ namespace CodexMicroORM.Providers
             }
         }
 
+        /// <summary>
+        /// Performs evictions based on expiry dates, cache size, etc. then ensures the persisted cache index is updated.
+        /// </summary>
+        /// <param name="honorShutdown"></param>
         private void Cleanup(bool honorShutdown)
         {
             SaveUncommitted(honorShutdown);

@@ -38,7 +38,7 @@ namespace CodexMicroORM.Providers
     {
         private const string DEFAULT_DB_SCHEMA = "dbo";
 
-        private static ConcurrentDictionary<string, string> _csMap = new ConcurrentDictionary<string, string>();
+        private static ConcurrentDictionary<string, string> _csMap = new ConcurrentDictionary<string, string>(Globals.CurrentStringComparer);
 
         private enum CommandType
         {
@@ -266,7 +266,7 @@ namespace CodexMicroORM.Providers
 
             if (row != null)
             {
-                cmd.MapParameters(row.GetAllValues());
+                cmd.MapParameters(row.GetBaseType(), row.AsUnwrapped(), row.GetAllValues());
             }
             else
             {
@@ -279,7 +279,7 @@ namespace CodexMicroORM.Providers
             return cmd;
         }
 
-        private void InsertRowsWithBulk(ConnectionScope conn, IEnumerable<ICEFInfraWrapper> rows, string schema, string name)
+        private void InsertRowsWithBulk(ConnectionScope conn, IEnumerable<ICEFInfraWrapper> rows, string schema, string name, DBSaveSettings settings)
         {
             schema = schema ?? DefaultSchema ?? DEFAULT_DB_SCHEMA;
 
@@ -344,7 +344,21 @@ namespace CodexMicroORM.Providers
                     }
 
                     dt.Rows.Add(dr);
-                    r.AcceptChanges();
+
+                    if (!settings.NoAcceptChanges)
+                    {
+                        if (settings.DeferAcceptChanges.GetValueOrDefault(conn.IsTransactional))
+                        {
+                            lock (conn.ToAcceptList)
+                            {
+                                conn.ToAcceptList.Add(r);
+                            }
+                        }
+                        else
+                        {
+                            r.AcceptChanges();
+                        }
+                    }
                 }
 
                 dt.EndLoadData();
@@ -373,7 +387,7 @@ namespace CodexMicroORM.Providers
         /// <param name="cmdType">Nature of the command being issued.</param>
         /// <param name="settings">Database save settings for this request.</param>
         /// <returns>A compatible number of "rows" as input with per row save status.</returns>
-        private IEnumerable<(ICEFInfraWrapper row, string msg, int status)> SaveRows(ServiceScope ss, ConnectionScope conn, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows, CommandType cmdType, DBSaveSettings settings)
+        private IEnumerable<(ICEFInfraWrapper row, string msg, int status)> SaveRows(ServiceScope ss, ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, CommandType cmdType, DBSaveSettings settings)
         {
             ConcurrentBag<(ICEFInfraWrapper row, string msg, int status)> rowsOut = new ConcurrentBag<(ICEFInfraWrapper row, string msg, int status)>();
             Exception stopEx = null;
@@ -389,7 +403,11 @@ namespace CodexMicroORM.Providers
 
                     try
                     {
-                        foreach (var v in CreateProcCommand((MSSQLConnection)conn.CurrentConnection, cmdType, r.Schema, r.Name, r.Row, null).ExecuteNoResultSet().GetOutputValues())
+                        var outVals = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, cmdType, r.Schema, r.Name, r.Row, null).ExecuteNoResultSet().GetOutputValues();
+                        var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(conn.IsTransactional);
+                        List<(string name, object value)> toRB = new List<(string name, object value)>();
+
+                        foreach (var v in outVals)
                         {
                             if (string.Compare(v.name, ProcedureMessageParameter, true) == 0)
                             {
@@ -401,17 +419,37 @@ namespace CodexMicroORM.Providers
                                 {
                                     if (int.TryParse(v.value?.ToString(), out int retval))
                                     {
-                                        status = retval;
+                                        status = retval == 1 ? 0 : retval;
                                     }
                                 }
                                 else
                                 {
+                                    if (!doAccept)
+                                    {
+                                        toRB.Add((v.name, r.Row.GetValue(v.name)));
+                                    }
+
                                     r.Row.SetValue(v.name, v.value);
                                 }
                             }
                         }
 
-                        r.Row.AcceptChanges();
+                        if (!settings.NoAcceptChanges)
+                        {
+                            if (doAccept)
+                            {
+                                r.Row.AcceptChanges();
+                            }
+                            else
+                            {
+                                conn.ToRollbackList.Add((r.Row, toRB));
+
+                                lock (conn.ToAcceptList)
+                                {
+                                    conn.ToAcceptList.Add(r.Row);
+                                }
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -440,44 +478,44 @@ namespace CodexMicroORM.Providers
             return rowsOut;
         }
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.InsertRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.InsertRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
         {
             List<(ICEFInfraWrapper row, string msg, int status)> retVal = new List<(ICEFInfraWrapper row, string msg, int status)>();
 
-            // Apply sequential break by level, inserts are ascending level counts
-            foreach (var level in (from a in rows orderby a.level select a))
+            if (settings.BulkInsertRules == BulkRules.Never)
             {
-                if (settings.BulkInsertRules != BulkRules.Never)
-                {
-                    // Need to further partition by name since we judge thresholds, etc. by name
-                    foreach (var byname in (from a in rows from b in a.rows group b by new { Level = a.level, Name = b.name, Schema = b.schema } into g orderby g.Key.Level select new { g.Key.Level, g.Key.Schema, g.Key.Name, Rows = g, RowsRaw = g.Select((p) => p.row) }))
-                    {
-                        if ((settings.BulkInsertRules & BulkRules.Always) != 0 ||
-                            (
-                                ((settings.BulkInsertRules & BulkRules.Threshold) == 0 || (level.rows.Count() >= settings.BulkInsertMinimumRows))
-                                && ((settings.BulkInsertRules & BulkRules.LeafOnly) == 0 || (level.level == (from a in rows select a.level).Max()))
-                                && ((settings.BulkInsertRules & BulkRules.ByType) == 0 || (from a in settings.BulkInsertTypes where string.Compare(byname.Name, a.Name, true) == 0 select a).Any())
-                            ))
-                        {
-                            // Bulk inserts uses table names/schemas
-                            InsertRowsWithBulk(conn, byname.RowsRaw, byname.Schema, byname.Name);
-                        }
-                        else
-                        {
-                            retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, byname.Rows, CommandType.Insert, settings));
-                        }
-                    }
-                }
-                else
+                // Apply sequential break by level, inserts are ascending level counts
+                foreach (var level in (from a in rows orderby a.level select a))
                 {
                     retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, level.rows, CommandType.Insert, settings));
+                }
+            }
+            else
+            {
+                // Need to further partition by name since we judge thresholds, etc. by name
+                foreach (var byname in (from a in rows from b in a.rows group b by new { Level = a.level, Name = b.name, Schema = b.schema } into g orderby g.Key.Level select new { g.Key.Level, g.Key.Schema, g.Key.Name, Rows = g, RowsRaw = (from cr in g select cr.row) }))
+                {
+                    if ((settings.BulkInsertRules & BulkRules.Always) != 0 ||
+                        (
+                            ((settings.BulkInsertRules & BulkRules.Threshold) == 0 || (byname.RowsRaw.Count() >= settings.BulkInsertMinimumRows))
+                            && ((settings.BulkInsertRules & BulkRules.LeafOnly) == 0 || (byname.Level == (from a in rows select a.level).Max()))
+                            && ((settings.BulkInsertRules & BulkRules.ByType) == 0 || (from a in settings.BulkInsertTypes where string.Compare(byname.Name, a.Name, true) == 0 select a).Any())
+                        ))
+                    {
+                        // Bulk inserts uses table names/schemas
+                        InsertRowsWithBulk(conn, byname.RowsRaw, byname.Schema, byname.Name, settings);
+                    }
+                    else
+                    {
+                        retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, byname.Rows, CommandType.Insert, settings));
+                    }
                 }
             }
 
             return retVal;
         }
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.UpdateRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.UpdateRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
         {
             List<(ICEFInfraWrapper row, string msg, int status)> retVal = new List<(ICEFInfraWrapper row, string msg, int status)>();
 
@@ -490,7 +528,7 @@ namespace CodexMicroORM.Providers
             return retVal;
         }
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.DeleteRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.DeleteRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
         {
             List<(ICEFInfraWrapper row, string msg, int status)> retVal = new List<(ICEFInfraWrapper row, string msg, int status)>();
 
@@ -503,14 +541,16 @@ namespace CodexMicroORM.Providers
             return retVal;
         }
 
-        private IEnumerable<T> CommonRetrieveRows<T>(ConnectionScope conn, bool doWrap, string cmdText, CommandType type, IList<object> parms) where T: class, new()
+        private IEnumerable<T> CommonRetrieveRows<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, string cmdText, CommandType type, IList<object> parms) where T: class, new()
         {
+            var ss = CEF.CurrentServiceScope;
+
             // Why do this? "wo" might end up telling us an explicit (overridden) schema/name
             var no = new T();
-            var wo = WrappingHelper.CreateWrapper(WrappingSupport.PropertyBag | WrappingSupport.OriginalValues | WrappingSupport.Notifications, Globals.DefaultWrappingAction, false, no, CEF.CurrentServiceScope);
+            var wo = WrappingHelper.CreateWrapper(WrappingSupport.All, Globals.DefaultWrappingAction, false, no, ss);
 
-            string schema = wo == null ? DefaultSchema ?? DEFAULT_DB_SCHEMA : wo.GetSchemaName() ?? DEFAULT_DB_SCHEMA;
-            string name = wo == null ? no.GetBaseType().Name : wo.GetBaseType().Name;
+            var schema = wo?.GetSchemaName() ?? db.GetSchemaNameByType(no.GetBaseType()) ?? DefaultSchema ?? DEFAULT_DB_SCHEMA;
+            var name = db.GetEntityNameByType(no.GetBaseType(), wo);
 
             MSSQLCommand sqlcmd = null;
 
@@ -557,23 +597,41 @@ namespace CodexMicroORM.Providers
                     WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new ConcurrentDictionary<object, object>(), false);
                 }
 
+                // Handle property groups if they exist for this type
+                if ((ss.Settings.RetrievalPostProcessing & RetrievalPostProcessing.PropertyGroups) != 0)
+                {
+                    db.ExpandPropertyGroupValues(no);
+                }
+
+                // Handle properties that are named differently from underlying storage
+                if ((ss.Settings.RetrievalPostProcessing & RetrievalPostProcessing.PropertyNameFixups) != 0)
+                {
+                    db.FixupPropertyStorageNames(no);
+                }
+
+                // Handle populating links to parent instances where there does not exist a CLR property exposed for the key/ID of the parent
+                if ((ss.Settings.RetrievalPostProcessing & RetrievalPostProcessing.ParentInstancesWithoutCLRProperties) != 0)
+                {
+                    db.InitializeObjectsWithoutCorrespondingIDs(no);
+                }
+
                 yield return no;
             }
         }
 
-        public IEnumerable<T> RetrieveAll<T>(ConnectionScope conn, bool doWrap) where T : class, new()
+        public IEnumerable<T> RetrieveAll<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap) where T : class, new()
         {
-            return CommonRetrieveRows<T>(conn, doWrap, null, CommandType.RetrieveAll, null);
+            return CommonRetrieveRows<T>(db, conn, doWrap, null, CommandType.RetrieveAll, null);
         }
 
-        public IEnumerable<T> RetrieveByKey<T>(ConnectionScope conn, bool doWrap, object[] key) where T : class, new()
+        public IEnumerable<T> RetrieveByKey<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, object[] key) where T : class, new()
         {
-            return CommonRetrieveRows<T>(conn, doWrap, null, CommandType.RetrieveByKey, key);
+            return CommonRetrieveRows<T>(db, conn, doWrap, null, CommandType.RetrieveByKey, key);
         }
 
-        public IEnumerable<T> RetrieveByQuery<T>(ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, object[] parms) where T : class, new()
+        public IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, object[] parms) where T : class, new()
         {
-            return CommonRetrieveRows<T>(conn, doWrap, cmdText, cmdType == System.Data.CommandType.StoredProcedure ? CommandType.RetrieveByProc : CommandType.RetrieveByText, parms);
+            return CommonRetrieveRows<T>(db, conn, doWrap, cmdText, cmdType == System.Data.CommandType.StoredProcedure ? CommandType.RetrieveByProc : CommandType.RetrieveByText, parms);
         }
     }
 }

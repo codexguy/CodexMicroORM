@@ -54,13 +54,13 @@ namespace CodexMicroORM.Core
     {
         IDBProviderConnection CreateOpenConnection(string config, bool transactional, string connStringOverride);
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> DeleteRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> InsertRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> UpdateRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> DeleteRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> InsertRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
+        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> UpdateRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
 
-        IEnumerable<T> RetrieveAll<T>(ConnectionScope conn, bool doWrap) where T : class, new();
-        IEnumerable<T> RetrieveByKey<T>(ConnectionScope conn, bool doWrap, object[] key) where T : class, new();
-        IEnumerable<T> RetrieveByQuery<T>(ConnectionScope conn, bool doWrap, CommandType cmdType, string cmdText, object[] parms) where T : class, new();
+        IEnumerable<T> RetrieveAll<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap) where T : class, new();
+        IEnumerable<T> RetrieveByKey<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, object[] key) where T : class, new();
+        IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, CommandType cmdType, string cmdText, object[] parms) where T : class, new();
 
         void ExecuteRaw(ConnectionScope conn, string cmdText, bool doThrow = true, bool stopOnError = true);
         T ExecuteScalar<T>(ConnectionScope conn, string cmdText);
@@ -88,11 +88,21 @@ namespace CodexMicroORM.Core
     {
         void WaitOnCompletions();
 
+        string GetPropertyNameFromStorageName(Type baseType, string storeName);
+
         void AddCompletionTask(Task t);
 
         void AddCompletionException(Exception ex);
 
         IList<(object item, string message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings);
+
+        void CopyPropertyGroupValues(object o);
+
+        void ExpandPropertyGroupValues(object o);
+
+        void FixupPropertyStorageNames(object o);
+
+        void InitializeObjectsWithoutCorrespondingIDs(object o);
 
         void ExecuteRaw(string cmdText, bool doThrow = true, bool stopOnError = true);
 
@@ -103,6 +113,10 @@ namespace CodexMicroORM.Core
         IEnumerable<T> RetrieveByKey<T>(params object[] key) where T : class, new();
 
         IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, params object[] parms) where T : class, new();
+
+        string GetSchemaNameByType(Type bt);
+
+        string GetEntityNameByType(Type bt, ICEFWrapper w);
     }
 
     public interface ICEFKeyHost : ICEFService
@@ -115,13 +129,15 @@ namespace CodexMicroORM.Core
 
         void WireDependents(object o, object replaced, ServiceScope ss, ICEFList list, bool? objectModelOnly);
 
-        IEnumerable<object> GetChildObjects(ServiceScope ss, object o, bool all = false);
+        IEnumerable<object> GetChildObjects(ServiceScope ss, object o, RelationTypes types = RelationTypes.None);
 
-        IEnumerable<object> GetParentObjects(ServiceScope ss, object o, bool all = false);
+        IEnumerable<object> GetParentObjects(ServiceScope ss, object o, RelationTypes types = RelationTypes.None);
 
         IList<(int ordinal, string name, object value)> GetKeyValues(object o, IList<string> cols = null);
 
         int GetObjectNestLevel(object o);
+
+        IEnumerable<TypeChildRelationship> GetRelationsForChild(Type childType);
     }
 
     public interface ICEFPersistenceHost : ICEFService
@@ -163,6 +179,13 @@ namespace CodexMicroORM.Core
     public interface ICEFSerializable
     {
         string GetSerializationText(SerializationMode? mode = null);
+    }
+
+    public interface ICEFValidationHost : ICEFService
+    {
+        IEnumerable<(ValidationErrorCode error, string message)> GetObjectMessage<T>(T o) where T : class;
+
+        IEnumerable<(ValidationErrorCode error, string message)> GetPropertyMessages<T>(T o, string propName) where T : class;
     }
 
     public interface ICEFAuditHost : ICEFService
@@ -258,6 +281,10 @@ namespace CodexMicroORM.Core
         void RestoreContents(Newtonsoft.Json.JsonTextReader tr);
 
         void FinalizeObjectContents(Newtonsoft.Json.JsonTextWriter tw, SerializationMode mode);
+
+        ValidationWrapper GetValidationState();
+
+        void UpdateData();
     }
 
     /// <summary>
@@ -274,5 +301,7 @@ namespace CodexMicroORM.Core
         bool ContainsItem(object o);
 
         void RemoveItem(object o);
+
+        string GetSerializationText(SerializationMode? mode = null);
     }
 }

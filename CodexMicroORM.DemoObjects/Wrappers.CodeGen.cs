@@ -24,6 +24,14 @@ using System.ComponentModel;
 
 namespace CodexMicroORM.DemoObjects
 {
+    public enum WidgetStatusValues
+    {
+        PEND = 1,
+        RECV = 2,
+        PROC = 3,
+        SHIP = 4
+    }
+
     /// <summary>
     /// Keep in mind: the intent of this class is to be CODE GENERATED - you will not need to write this!!!
     /// Ideally it would be sourced from class metadata (Person) and the underlying database store.

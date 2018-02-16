@@ -72,6 +72,12 @@ namespace CodexMicroORM.Core.Collections
             return null;
         }
 
+        public static bool AssumeSafe
+        {
+            get;
+            set;
+        } = true;
+
         public int Count => _data.Count;
 
         public bool IsReadOnly => false;
@@ -168,7 +174,7 @@ namespace CodexMicroORM.Core.Collections
         /// <returns>Sequence of T for matches on value in the propName virtual column.</returns>
         public IEnumerable<T> GetAllByName(string propName, object propValue, Func<T, bool> preview = null)
         {
-            if (!_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
             {
                 throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
             }
@@ -192,7 +198,7 @@ namespace CodexMicroORM.Core.Collections
         /// <param name="newval"></param>
         public void UpdateFieldIndex(string propName, object oldval, object newval)
         {
-            if (!_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
             {
                 throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
             }

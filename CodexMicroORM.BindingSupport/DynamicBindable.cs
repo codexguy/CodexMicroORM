@@ -30,13 +30,17 @@ namespace CodexMicroORM.BindingSupport
     /// DynamicBindable wraps individual rows of data (similar to DataRow's). 
     /// By implementing ICustomTypeProvider, it offers a way for data binding engines (such as used by WPF) to interact with the underlying data (both CLR properties and property bag values).
     /// </summary>
-    public class DynamicBindable : ICustomTypeProvider, INotifyPropertyChanged, IDisposable
+    public class DynamicBindable : ICustomTypeProvider, INotifyPropertyChanged, IDisposable, IDataErrorInfo
     {
-        internal DynamicWithBag _infra;
+        private DynamicWithBag _infra;
         private INotifyPropertyChanged _eventSource;
+        private IDataErrorInfo _errorSource;
         private int _signalling = 0;
 
         public event PropertyChangedEventHandler PropertyChanged;
+        public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
+
+        internal DynamicWithBag Wrapped => _infra;
 
         public DynamicBindable(DynamicWithBag infra)
         {
@@ -54,6 +58,34 @@ namespace CodexMicroORM.BindingSupport
             if (_eventSource != null)
             {
                 _eventSource.PropertyChanged += eventSource_PropertyChanged;
+            }
+
+            var dst = infra as DynamicWithValuesAndBag;
+
+            if (dst != null)
+            {
+                dst.DirtyStateChange += Dst_DirtyStateChange;
+            }
+
+            _errorSource = infra as IDataErrorInfo;
+
+            if (_errorSource == null)
+            {
+                _errorSource = infra.GetWrappedObject() as IDataErrorInfo;
+            }
+        }
+
+        public ObjectState State => _infra.GetRowState();
+
+        string IDataErrorInfo.Error => _errorSource?.Error;
+
+        string IDataErrorInfo.this[string columnName] => _errorSource?[columnName];
+
+        private void Dst_DirtyStateChange(object sender, DirtyStateChangeEventArgs e)
+        {
+            if (_signalling == 0)
+            {
+                DirtyStateChange?.Invoke(this, e);
             }
         }
 
@@ -461,6 +493,13 @@ namespace CodexMicroORM.BindingSupport
                 if (disposing)
                 {
                     _eventSource.PropertyChanged -= eventSource_PropertyChanged;
+
+                    var dst = _infra as DynamicWithValuesAndBag;
+
+                    if (dst != null)
+                    {
+                        dst.DirtyStateChange -= Dst_DirtyStateChange;
+                    }
                 }
 
                 _infra = null;

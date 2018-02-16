@@ -26,7 +26,7 @@ namespace CodexMicroORM.Core.Services
     /// <summary>
     /// A fully featured wrapper that implements INotifyPropertyChanged, providing change notifications for updates on CLR properties as well as dynamic prop bag properties.
     /// </summary>
-    public class DynamicWithAll : DynamicWithValuesAndBag, INotifyPropertyChanged
+    public class DynamicWithAll : DynamicWithValuesBagErrors, INotifyPropertyChanged
     {
         internal DynamicWithAll(object o, ObjectState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, irs, props, types)
         {            
@@ -40,7 +40,7 @@ namespace CodexMicroORM.Core.Services
 
         public override WrappingSupport SupportsWrapping()
         {
-            return WrappingSupport.OriginalValues | WrappingSupport.PropertyBag | WrappingSupport.Notifications;
+            return WrappingSupport.OriginalValues | WrappingSupport.PropertyBag | WrappingSupport.Notifications | WrappingSupport.DataErrors;
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

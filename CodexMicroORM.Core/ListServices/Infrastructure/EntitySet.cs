@@ -93,6 +93,11 @@ namespace CodexMicroORM.Core.Services
             return this._contains.ContainsKey(o as T);
         }
 
+        public bool IsDirty()
+        {
+            return (from b in (from a in this let iw = a.AsInfraWrapped() where iw != null select iw.GetRowState()) where b != ObjectState.Unchanged select b).Any();
+        }
+
         public void PopulateFromSerializationText(string json)
         {
             // Must be an array...

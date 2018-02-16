@@ -17,6 +17,8 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -60,6 +62,18 @@ namespace CodexMicroORM.Core.Services
             get;
             set;
         }
+
+        internal HashSet<ICEFInfraWrapper> ToAcceptList
+        {
+            get;
+            set;
+        } = new HashSet<ICEFInfraWrapper>();
+
+        internal ConcurrentBag<(ICEFInfraWrapper row, IList<(string name, object value)> data)> ToRollbackList
+        {
+            get;
+            set;
+        } = new ConcurrentBag<(ICEFInfraWrapper row, IList<(string name, object value)> data)>();
 
         public IDBProviderConnection CurrentConnection
         {
@@ -111,6 +125,8 @@ namespace CodexMicroORM.Core.Services
         {
             if (!IsDisposed)
             {
+                Disposing?.Invoke();
+
                 IDBProviderConnection conn = null;
 
                 lock (_sync)
@@ -120,6 +136,8 @@ namespace CodexMicroORM.Core.Services
 
                 if (conn != null)
                 {
+                    bool isRB = false;
+
                     if (IsTransactional)
                     {
                         if (_canCommit)
@@ -129,6 +147,29 @@ namespace CodexMicroORM.Core.Services
                         else
                         {
                             conn.Rollback();
+                            ToAcceptList = null;
+                            isRB = true;
+                        }
+                    }
+
+                    if (ToAcceptList?.Count > 0)
+                    {
+                        foreach (var r in ToAcceptList)
+                        {
+                            r.AcceptChanges();
+                        }
+
+                        ToAcceptList = null;
+                    }
+
+                    if (isRB && ToRollbackList?.Count > 0)
+                    {
+                        foreach (var r in ToRollbackList)
+                        {
+                            foreach (var v in r.data)
+                            {
+                                r.row.SetValue(v.name, v.value);
+                            }
                         }
                     }
 
@@ -148,6 +189,12 @@ namespace CodexMicroORM.Core.Services
         }
 
         public Action Disposed
+        {
+            get;
+            set;
+        }
+
+        public Action Disposing
         {
             get;
             set;

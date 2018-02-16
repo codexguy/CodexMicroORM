@@ -17,6 +17,7 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
 using CodexMicroORM.Core.Services;
@@ -63,6 +64,12 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = null;
+
+        public RetrievalPostProcessing RetrievalPostProcessing
+        {
+            get;
+            set;
+        } = Globals.DefaultRetrievalPostProcessing;
 
         public MergeBehavior MergeBehavior
         {
@@ -123,6 +130,18 @@ namespace CodexMicroORM.Core
             Delete = 3,
             All = 7
         }
+
+        public ValidationErrorCode? ValidationChecksOnSave
+        {
+            get;
+            set;
+        } = Globals.ValidationChecksOnSave;
+
+        public bool? ValidationFailureIsException
+        {
+            get;
+            set;
+        } = Globals.ValidationFailureIsException;
 
         public bool? UseAsyncSave
         {
@@ -213,7 +232,19 @@ namespace CodexMicroORM.Core
         {
             get;
             set;
-        }
+        } = null;
+
+        public bool? DeferAcceptChanges
+        {
+            get;
+            set;
+        } = null;
+
+        internal bool NoAcceptChanges
+        {
+            get;
+            set;
+        } = false;
     }
 
 }

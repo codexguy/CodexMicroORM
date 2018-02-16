@@ -31,9 +31,14 @@ namespace CodexMicroORM.Core
     /// </summary>
     internal static class PropertyHelper
     {
-        private static ConcurrentDictionary<string, Delegate> _getterCache = new ConcurrentDictionary<string, Delegate>();
-        private static ConcurrentDictionary<string, Delegate> _setterCache = new ConcurrentDictionary<string, Delegate>();
-        private static ConcurrentDictionary<Type, Delegate> _creatorCache = new ConcurrentDictionary<Type, Delegate>();
+        private static ConcurrentDictionary<string, Delegate> _getterCache = new ConcurrentDictionary<string, Delegate>(Globals.CurrentStringComparer);
+        private static ConcurrentDictionary<string, Delegate> _setterCache = new ConcurrentDictionary<string, Delegate>(Globals.CurrentStringComparer);
+
+        public static void FlushCaches()
+        {
+            _getterCache.Clear();
+            _setterCache.Clear();
+        }
 
         public static bool FastPropertyReadable(this object o, string propName)
         {

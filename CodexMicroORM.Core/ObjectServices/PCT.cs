@@ -22,9 +22,7 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -322,7 +320,7 @@ namespace CodexMicroORM.Core.Services
 
         IList<Type> ICEFService.RequiredServices()
         {
-            return new Type[] { typeof(KeyService) };
+            return new Type[] { typeof(ICEFKeyHost) };
         }
 
         public void Disposing(ServiceScope ss)

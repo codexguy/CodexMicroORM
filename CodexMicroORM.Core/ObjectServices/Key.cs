@@ -76,6 +76,16 @@ namespace CodexMicroORM.Core.Services
             return _relations.GetAllByName(nameof(TypeChildRelationship.FullChildParentPropertyName), fn).FirstOrDefault();
         }
 
+        public IEnumerable<TypeChildRelationship> GetRelationsForChild(Type childType)
+        {
+            return _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), childType);
+        }
+
+        /// <summary>
+        /// For type T, register one or more properties that represent its primary key (unique, non-null).
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fields"></param>
         public static void RegisterKey<T>(params string[] fields)
         {
             if (fields == null || fields.Length == 0)
@@ -83,9 +93,14 @@ namespace CodexMicroORM.Core.Services
 
             _primaryKeys[typeof(T)] = fields;
 
-            CEF.Register<T>(new KeyService());
+            CEF.RegisterForType<T>(new KeyService());
         }
 
+        /// <summary>
+        /// For parent type T, register a relationship to a child entity (optional child role name and property accessor names).
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="relations"></param>
         public static void RegisterRelationship<T>(params TypeChildRelationship[] relations)
         {
             if (relations == null || relations.Length == 0)
@@ -106,7 +121,7 @@ namespace CodexMicroORM.Core.Services
                 _relations.Add(r);
             }
 
-            CEF.Register<T>(new KeyService());
+            CEF.RegisterForType<T>(new KeyService());
         }
 
         internal static IList<string> ResolveKeyDefinitionForType(Type t)
@@ -187,7 +202,7 @@ namespace CodexMicroORM.Core.Services
                         var ks = ss.GetSetter(uw, k);
 
                         // Shadow props in use, we rely on the above for the data type, but we'll be updating the shadow prop instead
-                        var kssp = (!Globals.UseShadowPropertiesForNew ? (null, null) : ss.GetSetter(uw, SHADOW_PROP_PREFIX + k));
+                        var kssp = (!Globals.UseShadowPropertiesForNew || (ks.type != null && ks.type.Equals(typeof(Guid))) ? (null, null) : ss.GetSetter(uw, SHADOW_PROP_PREFIX + k));
 
                         if ((kssp.setter ?? ks.setter) != null)
                         {
@@ -218,6 +233,31 @@ namespace CodexMicroORM.Core.Services
                             }
                         }
                     }
+                    else
+                    {
+                        if (Globals.UseShadowPropertiesForNew && props.ContainsKey(k) && props.ContainsKey(SHADOW_PROP_PREFIX + k))
+                        {
+                            var spval = props[SHADOW_PROP_PREFIX + k];
+                            var defVal = WrappingHelper.GetDefaultForType(spval?.GetType());
+
+                            if (defVal.IsSame(props[k]) && !defVal.IsSame(spval))
+                            {
+                                var sptype = spval.GetType();
+
+                                if (sptype.Equals(typeof(int)))
+                                {
+                                    while (System.Threading.Interlocked.Increment(ref _lowIntKey) < (int)spval) ;
+                                }
+                                else
+                                {
+                                    if (sptype.Equals(typeof(long)))
+                                    {
+                                        while (System.Threading.Interlocked.Increment(ref _lowLongKey) < (long)spval) ;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -232,12 +272,12 @@ namespace CodexMicroORM.Core.Services
             LinkByValuesInScope(to, ss, keystate);
         }
 
-        public IEnumerable<object> GetParentObjects(ServiceScope ss, object o, bool all = false)
+        public IEnumerable<object> GetParentObjects(ServiceScope ss, object o, RelationTypes types = RelationTypes.None)
         {
-            return InternalGetParentObjects(ss.GetServiceState<KeyServiceState>(), ss, o, all, new HashSet<object>());
+            return InternalGetParentObjects(ss.GetServiceState<KeyServiceState>(), ss, o, types, new HashSet<object>());
         }
 
-        private static IEnumerable<object> InternalGetParentObjects(KeyServiceState state, ServiceScope ss, object o, bool all, HashSet<object> visits)
+        private static IEnumerable<object> InternalGetParentObjects(KeyServiceState state, ServiceScope ss, object o, RelationTypes types, HashSet<object> visits)
         {
             var uw = o.AsUnwrapped();
 
@@ -254,25 +294,40 @@ namespace CodexMicroORM.Core.Services
 
                 foreach (var fk in state.AllParents(uw))
                 {
-                    if (all)
+                    foreach (var n in InternalGetParentObjects(state, ss, fk.Parent.GetTarget(), types, visits))
                     {
-                        foreach (var n in InternalGetParentObjects(state, ss, fk.Parent.GetTarget(), all, visits))
-                        {
-                            yield return n;
-                        }
+                        yield return n;
                     }
 
                     yield return fk.Parent.GetInfraWrapperTarget();
                 }
+
+                if ((types & RelationTypes.Children) != 0)
+                {
+                    foreach (var fk in state.AllChildren(uw))
+                    {
+                        var ch = fk.Child.GetTarget();
+
+                        if (!visits.Contains(ch))
+                        {
+                            yield return fk.Child.GetInfraWrapperTarget();
+
+                            foreach (var nc in InternalGetChildObjects(state, ss, ch, types, visits))
+                            {
+                                yield return nc;
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        public IEnumerable<object> GetChildObjects(ServiceScope ss, object o, bool all = false)
+        public IEnumerable<object> GetChildObjects(ServiceScope ss, object o, RelationTypes types = RelationTypes.None)
         {
-            return InternalGetChildObjects(ss.GetServiceState<KeyServiceState>(), ss, o, all, new HashSet<object>());
+            return InternalGetChildObjects(ss.GetServiceState<KeyServiceState>(), ss, o, types, new HashSet<object>());
         }
 
-        private static IEnumerable<object> InternalGetChildObjects(KeyServiceState state, ServiceScope ss, object o, bool all, HashSet<object> visits)
+        private static IEnumerable<object> InternalGetChildObjects(KeyServiceState state, ServiceScope ss, object o, RelationTypes types, HashSet<object> visits)
         {
             var uw = o.AsUnwrapped();
 
@@ -285,19 +340,36 @@ namespace CodexMicroORM.Core.Services
 
             if (to != null)
             {
-                visits.Add(to.GetTarget());
+                var cur = to.GetTarget();
+
+                visits.Add(cur);
 
                 foreach (var fk in state.AllChildren(uw))
                 {
-                    if (all)
+                    foreach (var n in InternalGetChildObjects(state, ss, fk.Child.GetTarget(), types, visits))
                     {
-                        foreach (var n in InternalGetChildObjects(state, ss, fk.Child.GetTarget(), all, visits))
-                        {
-                            yield return n;
-                        }
+                        yield return n;
                     }
 
                     yield return fk.Child.GetInfraWrapperTarget();
+                }
+
+                if ((types & RelationTypes.Parents) != 0)
+                {
+                    foreach (var fk in state.AllParents(uw))
+                    {
+                        var par = fk.Parent.GetTarget();
+
+                        if (!visits.Contains(par))
+                        {
+                            yield return fk.Parent.GetInfraWrapperTarget();
+
+                            foreach (var np in InternalGetParentObjects(state, ss, par, types, visits))
+                            {
+                                yield return np;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -735,7 +807,7 @@ namespace CodexMicroORM.Core.Services
 
         public int GetObjectNestLevel(object o)
         {
-            return GetParentObjects(CEF.CurrentServiceScope, o, true).Count();
+            return GetParentObjects(CEF.CurrentServiceScope, o, RelationTypes.Parents).Count();
         }
 
         public virtual void Disposing(ServiceScope ss)

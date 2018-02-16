@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+using System;
 using System.Data;
 using CodexMicroORM.Core;
 using CodexMicroORM.Core.Services;
@@ -78,6 +79,24 @@ namespace CodexMicroORM.DemoObjects
         public static EntitySet<PersonWrapped> DBAppendSummaryForParents(this EntitySet<PersonWrapped> set, int? MinimumAge)
         {
             return set.DBAppendByQuery<PersonWrapped>(CommandType.StoredProcedure, "CEFTest.up_Person_SummaryForParents", MinimumAge);
+        }
+
+        public static EntitySet<Receipt> DBRetrieveByReceiptNumber(this EntitySet<Receipt> set, string ReceiptNumber)
+        {
+            return set.DBRetrieveByQuery<Receipt>(CommandType.StoredProcedure, "WTest.up_Receipt_ByReceiptNumber", ReceiptNumber);
+        }
+        public static EntitySet<Receipt> DBAppendByReceiptNumber(this EntitySet<Receipt> set, string ReceiptNumber)
+        {
+            return set.DBAppendByQuery<Receipt>(CommandType.StoredProcedure, "WTest.up_Receipt_ByReceiptNumber", ReceiptNumber);
+        }
+
+        public static EntitySet<GroupItem> DBRetrieveByGroupNumber(this EntitySet<GroupItem> set, string GroupNumber, DateTime? ReviewsSince)
+        {
+            return set.DBRetrieveByQuery<GroupItem>(CommandType.StoredProcedure, "WTest.up_WidgetGroupItem_Items", GroupNumber, ReviewsSince);
+        }
+        public static EntitySet<GroupItem> DBAppendByGroupNumber(this EntitySet<GroupItem> set, string GroupNumber, DateTime? ReviewsSince)
+        {
+            return set.DBAppendByQuery<GroupItem>(CommandType.StoredProcedure, "WTest.up_WidgetGroupItem_Items", GroupNumber, ReviewsSince);
         }
     }
 }

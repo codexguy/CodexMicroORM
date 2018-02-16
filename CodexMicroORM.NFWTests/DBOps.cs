@@ -15,6 +15,7 @@ limitations under the License.
 
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
+02/2018    0.2.4   Addition of Widget-based tests, new features (Joel Champagne)
 ***********************************************************************/
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using CodexMicroORM.Core;
@@ -29,6 +30,7 @@ using System.Text.RegularExpressions;
 using System.IO;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.Collections.Generic;
 
 namespace CodexMicroORM.NFWTests
 {
@@ -41,6 +43,7 @@ namespace CodexMicroORM.NFWTests
         /// All tests here are self-contained and only rely on the shared demo classes.
         /// It's true: these are larger tests than we might ordinarily try for, but we're testing deep into multiple operations against our object models (I encourage the community to develop better tests and tests for more edge cases!)
         /// Many of these initial tests are here to ensure the demo is in working order - many more to follow!
+        /// Also - much of this can ultimate be code-generated based on a source model (be it actual database, ERD, etc.) - rather than use attributes on your POCO, though, we support the possibility that your POCO are in an assembly you cannot change (or choose not to, to keep them free of ORM-specific attributes).
         /// </summary>
         public SelfContainedDBOps()
         {
@@ -51,16 +54,299 @@ namespace CodexMicroORM.NFWTests
             CEF.AddGlobalService(new DBService(new MSSQLProcBasedProvider($@"Data Source={DB_SERVER};Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true", defaultSchema: "CEFTest")));
             CEF.AddGlobalService(new AuditService());
 
+            // Primary keys
             KeyService.RegisterKey<Person>(nameof(Person.PersonID));
             KeyService.RegisterKey<Phone>("PhoneID");
+            KeyService.RegisterKey<Widget>(nameof(Widget.WidgetID));
+            KeyService.RegisterKey<WidgetType>(nameof(WidgetType.SKU));
+            KeyService.RegisterKey<Customer>(nameof(Customer.CustomerID));
+            KeyService.RegisterKey<Receipt>("WidgetGroupID");
+            KeyService.RegisterKey<GroupItem>("WidgetGroupID", "WidgetID");
+            KeyService.RegisterKey<Shipment>("WidgetGroupID");
+            KeyService.RegisterKey<WidgetType>(nameof(WidgetType.SKU));
+            KeyService.RegisterKey<WidgetReview>("SKU", nameof(WidgetReview.Username));
 
+            // Schemas that differ from global default
+            DBService.RegisterSchema<Widget>("WTest");
+            DBService.RegisterSchema<Receipt>("WTest");
+            DBService.RegisterSchema<Shipment>("WTest");
+            DBService.RegisterSchema<Customer>("WTest");
+            DBService.RegisterSchema<GroupItem>("WTest");
+            DBService.RegisterSchema<WidgetType>("WTest");
+            DBService.RegisterSchema<WidgetReview>("WTest");
+
+            // Default values
+            DBService.RegisterDefault<Widget, WidgetStatusValues>(nameof(Widget.CurrentStatus), WidgetStatusValues.PEND);
+
+            // Cases where OM property names differ from storage field names
+            DBService.RegisterStorageFieldName<Widget>(nameof(Widget.CurrentStatus), "CurrentStatusID");
+
+            // Cases where DB entity name differs from object names
+            DBService.RegisterStorageEntityName<GroupItem>("WidgetGroupItem");
+
+            // Relationships between objects
             KeyService.RegisterRelationship<Person>(TypeChildRelationship.Create<Person>("ParentPersonID").MapsToChildProperty(nameof(Person.Kids)));
             KeyService.RegisterRelationship<Person>(TypeChildRelationship.Create<Phone>().MapsToParentProperty(nameof(Phone.Owner)).MapsToChildProperty(nameof(Person.Phones)));
+            KeyService.RegisterRelationship<Customer>(TypeChildRelationship.Create<Receipt>().MapsToParentProperty(nameof(Receipt.ReceiptCustomer)));
+            KeyService.RegisterRelationship<Customer>(TypeChildRelationship.Create<Shipment>().MapsToParentProperty(nameof(Shipment.ShipmentCustomer)));
+            KeyService.RegisterRelationship<Customer>(TypeChildRelationship.Create<Shipment>("BillingCustomerID").MapsToParentProperty(nameof(Shipment.BillingCustomer)));
+            KeyService.RegisterRelationship<Receipt>(TypeChildRelationship.Create<GroupItem>().MapsToChildProperty(nameof(Receipt.Widgets)));
+            KeyService.RegisterRelationship<Shipment>(TypeChildRelationship.Create<GroupItem>().MapsToChildProperty(nameof(Receipt.Widgets)));
+            KeyService.RegisterRelationship<Widget>(TypeChildRelationship.Create<GroupItem>().MapsToParentProperty(nameof(GroupItem.Widget)));
+            KeyService.RegisterRelationship<WidgetType>(TypeChildRelationship.Create<WidgetReview>().MapsToParentProperty(nameof(WidgetReview.RatingFor)));
+
+            // Required field validation
+            ValidationService.RegisterRequired<Widget, string>(nameof(Widget.SerialNumber));
+            ValidationService.RegisterRequired<Receipt, string>("FromAddressLine");
+            ValidationService.RegisterRequired<Receipt, string>("FromCity");
+
+            // Max length validation
+            ValidationService.RegisterMaxLength<Widget>(nameof(Widget.SerialNumber), 20);
+
+            // Standard numeric range validation
+            ValidationService.RegisterRangeValidation<WidgetReview>(nameof(WidgetReview.Rating), 0, 10);
+
+            // Custom domain validation - error
+            ValidationService.RegisterCustomValidation((Person p) =>
+            {
+                if (p.Age < 0 || p.Age > 120)
+                {
+                    return "Age must be between 0 and 120.";
+                }
+                return null;
+            }, nameof(Person.Age));
+
+            // Illegal update validation
+            ValidationService.RegisterIllegalUpdate<WidgetReview>(nameof(WidgetReview.Username));
+
+            // Property is object that contains 1:1 properties
+            DBService.RegisterPropertyGroup<Receipt, Address>(nameof(Receipt.FinalDest), "FinalDest");
+            DBService.RegisterPropertyGroup<Receipt, Address>(nameof(Receipt.FromAddress), "From");
+            DBService.RegisterPropertyGroup<Customer, Address>(nameof(Customer.Address));
+            DBService.RegisterPropertyGroup<Shipment, Address>(nameof(Shipment.ViaAddress), "Via");
+
+            // Optionally call CRUD for 1:1/0 parent when saving these types (insert/update before, deletes after)
+            DBService.RegisterOnSaveParentSave<Receipt>("WidgetGroup");
+            DBService.RegisterOnSaveParentSave<Shipment>("WidgetGroup");
 
             // This will construct a new test database, if needed - if the script changes, you'll need to drop the CodexMicroORMTest database before running
             using (CEF.NewConnectionScope(new ConnectionScopeSettings() { IsTransactional = false, ConnectionStringOverride = $@"Data Source={DB_SERVER};Database=master;Integrated Security=SSPI;MultipleActiveResultSets=true" }))
             {
                 CEF.CurrentDBService().ExecuteRaw(File.ReadAllText("setup.sql"), false);
+            }
+        }
+
+        #region "Widget"
+
+        [TestMethod]
+        public void NewWidgetNewReceiptNewShipment()
+        {
+            string rcpNumber;
+            string shipNumber;
+            DateTime start = DateTime.UtcNow;
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                var w1 = CEF.NewObject(new Widget() { SKU = "A001", Cost = 100 });
+
+                // Verify used default for status
+                Assert.AreEqual(WidgetStatusValues.PEND, w1.CurrentStatus);
+
+                // Identify that the serial number is missing (required field)
+                var valstate = w1.AsInfraWrapped().GetValidationState();
+                Assert.IsFalse(valstate.IsValid);
+                Assert.IsFalse(valstate.IsPropertyValid(nameof(Widget.SerialNumber)));
+                Assert.IsTrue(valstate.IsPropertyValid(nameof(Widget.Cost)));
+
+                // Set the serial number and save should work
+                w1.SerialNumber = "ABCDEF";
+                Assert.IsTrue(valstate.IsValid);
+                Assert.IsTrue(valstate.IsPropertyValid(nameof(Widget.SerialNumber)));
+                Assert.IsTrue(w1.DBSave().WidgetID > 0);
+
+                // Create another widget, also without serial number and try to save it - should get a validation message before it hits the database
+                var w2 = CEF.NewObject(new Widget() { SKU = "A002", Cost = 50 });
+
+                try
+                {
+                    w2.DBSave(new DBSaveSettings() { ValidationChecksOnSave = ValidationErrorCode.MissingRequired });
+                    Assert.Fail("Previous save request should have failed.");
+                }
+                catch (CEFValidationException)
+                {
+                    // Expected exception type (only)
+                }
+
+                var errors = w2.DBSaveWithMessage(new DBSaveSettings() { ValidationChecksOnSave = ValidationErrorCode.MissingRequired, ValidationFailureIsException = false });
+                Assert.AreEqual(ValidationErrorCode.MissingRequired, errors.error);
+                Assert.IsTrue(errors.message.Contains("Serial Number"));
+
+                // With this, too large instead
+                w2.SerialNumber = "2312319238190378687526386347236481638714672658273468265872468237462834682734618461874";
+                errors = w2.DBSaveWithMessage(new DBSaveSettings() { ValidationChecksOnSave = ValidationErrorCode.MissingRequired | ValidationErrorCode.TooLarge, ValidationFailureIsException = false });
+                Assert.AreEqual(ValidationErrorCode.TooLarge, errors.error);
+                Assert.IsTrue(errors.message.Contains("Serial Number"));
+
+                // Should resolve error condition
+                w2.SerialNumber = "123123223";
+                valstate = w2.AsInfraWrapped().GetValidationState();
+                Assert.IsTrue(valstate.IsValid);
+                Assert.IsTrue(string.IsNullOrEmpty(valstate.Error));
+
+                // Create a customer
+                var cus = CEF.NewObject(new Customer() { Name = "BobTest", Address = new Address() { AddressLine = "222 Main St.", City = "Toledo" } });
+                cus.DBSave();
+                Assert.IsFalse(cus.CustomerID.Equals(Guid.Empty));
+
+                // Create a widget receipt and save it - this spans two different tables (Receipt, WidgetGroup) despite using 1 main class and Address which maps to Receipt (twice, actually - "From" and "FinalDest" info)
+                rcpNumber = "R" + Environment.TickCount.ToString();
+                var r = CEF.NewObject(new Receipt() { FromAddress = new Address() { AddressLine = "123 Cherry Lane", City = "Martinez" }, ReceiptNumber = rcpNumber, ReceiptCustomer = cus });
+                r.DBSave();
+
+                // Removes values from FromAddress - which are required, so this should be a problem!
+                // Our object does not implement INotifyPropertyChanged - we call UpdateData to forcively push current state to infra wrapper (this is a good reason to use a generated wrapper that *does* implement INotifyPropertyChanged!)
+                r.FromAddress = null;
+                var riw = r.AsInfraWrapped();
+                riw.UpdateData();
+                valstate = riw.GetValidationState();
+                Assert.IsFalse(valstate.IsValid);
+                Assert.AreEqual("From Address Line is required. From City is required.", valstate.Error);
+
+                r.FromAddress = new Address() { AddressLine = "124 Cherry Lane", City = "Vallejo" };
+                riw.UpdateData();
+                Assert.IsTrue(valstate.IsValid);
+                Assert.IsTrue(riw.GetRowState() == ObjectState.Modified);
+
+                // Create a third widget which is not rooted to the receipt (should not save)
+                var w3 = CEF.NewObject(new Widget() { SKU = "A001", Cost = 99, SerialNumber = "G232AS23" });
+
+                // Add the 2 widgets created above to the Receipt and save - also tests compound keys
+                // We leverage the previously retrieved WidgetGroupID, next test should try to do it when everything is unsaved
+                // The default behavior saving against an object is to save all related objects, so saving this unsaved widget should include the receipt, etc. - in the proper order, etc. Only thing left unsaved is w3 which is not directly related
+                r.Widgets.Add(new GroupItem() { Widget = w1 });
+                r.Widgets.Add(new GroupItem() { Widget = w2 });
+                Assert.AreEqual(5, (from a in CEF.CurrentServiceScope.GetAllTracked() where a.GetRowState() != ObjectState.Unchanged select a).Count());
+                w2.DBSave();
+                Assert.AreEqual(1, (from a in CEF.CurrentServiceScope.GetAllTracked() where a.GetRowState() != ObjectState.Unchanged select a).Count());
+
+                // Add a widget to a new Shipment, change its type, and save entire new graph for shipment, items, etc.
+                shipNumber = "S" + Environment.TickCount.ToString();
+                var s = CEF.NewObject(new Shipment() { BillingCustomer = cus, ShipmentCustomer = cus, ShipmentNumber = shipNumber, ViaAddress = new Address() { City = "Portland" } });
+                s.Widgets.Add(new GroupItem() { Widget = w2, TrackingNumber = Guid.NewGuid().ToString() });
+                s.Widgets.Add(new GroupItem() { Widget = w3, TrackingNumber = Guid.NewGuid().ToString() });
+                s.DBSave();
+                Assert.AreEqual(0, (from a in CEF.CurrentServiceScope.GetAllTracked() where a.GetRowState() != ObjectState.Unchanged select a).Count());
+
+                // Change billing customer
+                s.BillingCustomer = CEF.NewObject(new Customer() { Name = "Bob", Address = new Address() { AddressLine = "272 Circle Drive", City = "Kyburz" } });
+                Assert.AreEqual(2, CEF.DBSave().Count());
+
+                // Create 2 reviews (compound key)
+                var w1type = new EntitySet<WidgetType>().DBRetrieveByKey(w1.SKU);
+                Assert.AreEqual(1, w1type.Count());
+                var wr1 = CEF.NewObject(new WidgetReview() { Rating = 12, RatingFor = w1type.First(), Username = $"steph{Environment.TickCount}" });
+                valstate = wr1.AsInfraWrapped().GetValidationState();
+                Assert.IsFalse(valstate.IsValid);
+                wr1.Rating = 10;
+
+                CEF.NewObject(new WidgetReview() { Rating = 6, RatingFor = w1type.First(), Username = $"lebron{Environment.TickCount}" });
+                CEF.DBSave();
+
+                // Update of username on a review is a bit tricky (part of key) - should really be delete+insert, so make in-place updates illegal
+                wr1.Username = $"kd{Environment.TickCount}";
+                valstate = wr1.AsInfraWrapped().GetValidationState();
+                Assert.IsFalse(valstate.IsValid);
+                Assert.IsTrue(valstate.Error.Contains("Cannot update"));
+            }
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                // Retrieval of a receipt needs to pull from 2 tables, plus populate address prop group
+                var rcp = new EntitySet<Receipt>().DBRetrieveByReceiptNumber(rcpNumber).First();
+                Assert.AreEqual("Toledo", rcp.ReceiptCustomer.Address.City);
+
+                // Retrieval of widgets for a receipt, including extra info (avg rating)
+                rcp.Widgets = new EntitySet<GroupItem>().DBRetrieveByGroupNumber(rcpNumber, start);
+                Assert.AreEqual(150, (from a in rcp.Widgets select a.Widget.Cost).Sum());
+                Assert.AreEqual(WidgetStatusValues.PEND, rcp.Widgets.First().Widget.CurrentStatus);
+                Assert.AreEqual(8, (from a in rcp.Widgets where a.Widget.SKU == "A001" select a.AsDynamic().AvgRating).First());
+
+                // Update/save
+                rcp.Widgets.First().Widget.CurrentStatus = WidgetStatusValues.PROC;
+                rcp.FinalDest.AddressLine = "200 Windy Lane";
+                rcp.FinalDest.City = "Groveland";
+                Assert.AreEqual(2, CEF.DBSave().Count());
+
+                rcp.Widgets.First().Widget.CurrentStatus = WidgetStatusValues.SHIP;
+                rcp.Widgets.First().TrackingNumber = "121312321";
+                Assert.AreEqual(2, CEF.DBSave().Count());
+            }
+        }
+
+        #endregion
+
+        /// <summary>
+        /// Allows us to run some tests that could manipulate global static state as part of testing. Tests run in sandbox use the settings defined in constructor for SandboxTests class, may individually customize/change per test.
+        /// </summary>
+        /// <param name="test"></param>
+        private void RunSandboxTest(Func<SandboxTests, string> test)
+        {
+            var ads = new AppDomainSetup();
+            ads.ApplicationBase = AppDomain.CurrentDomain.BaseDirectory;
+            var ad = AppDomain.CreateDomain($"test{Environment.TickCount}", AppDomain.CurrentDomain.Evidence, ads);
+            ad.Load(File.ReadAllBytes(System.Reflection.Assembly.GetExecutingAssembly().Location));
+            var ti = (SandboxTests)ad.CreateInstanceAndUnwrap(typeof(SandboxTests).Assembly.FullName, typeof(SandboxTests).FullName);
+
+            var msg = test.Invoke(ti);
+
+            if (!string.IsNullOrEmpty(msg))
+            {
+                Assert.Fail(msg);
+            }
+        }
+
+        [TestMethod]
+        public void CaseInsensitivePropAccessAndTLSGlobals()
+        {
+            try
+            {
+                using (CEF.NewServiceScope())
+                {
+                    var p = CEF.NewObject(new Person() { Name = "Test1", Age = 11, Gender = "M" });
+                    Assert.AreEqual(CEF.DBSave().Count(), 1);
+                    var ps = new EntitySet<Person>().DBRetrieveByKey(p.PersonID);
+                    var p2 = ps.First().AsInfraWrapped();
+
+                    // This should fail! - default is case sensitive
+                    var n = p2.AsDynamic().name;
+                    Assert.Fail();
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            RunSandboxTest((proxy) =>
+            {
+                return proxy.CaseInsensitivePropAccessAndTLSGlobals();
+            });
+
+            try
+            {
+                using (CEF.NewServiceScope())
+                {
+                    var p = CEF.NewObject(new Person() { Name = "Test1", Age = 11, Gender = "M" });
+                    Assert.AreEqual(CEF.DBSave().Count(), 1);
+                    var ps = new EntitySet<Person>().DBRetrieveByKey(p.PersonID);
+                    var p2 = ps.First().AsInfraWrapped();
+
+                    // This should fail! - change in setting in sandbox should not be seen outside of sandbox (testing the test!)
+                    var n = p2.AsDynamic().name;
+                    Assert.Fail();
+                }
+            }
+            catch (Exception)
+            {
             }
         }
 
@@ -201,29 +487,126 @@ namespace CodexMicroORM.NFWTests
 
             using (CEF.NewServiceScope(new ServiceScopeSettings() { UseAsyncSave = true, InitializeNullCollections = true }))
             {
-                p1 = CEF.NewObject(new Person() { Name = "STFred", Age = 44 });
-                p1.Phones.Add(new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile });
-                p2 = CEF.NewObject(new Person() { Name = "STSam", Age = 44 });
-                p2.Phones.Add(new Phone() { Number = "222-8172", PhoneTypeID = PhoneType.Mobile });
-                p3 = new Person() { Name = "STCarol", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile } } };
-                p4 = new Person() { Name = "STKylo", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile } } };
-                p5 = new Person() { Name = "STPerry", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile } } };
-                p6 = new Person() { Name = "STWilliam", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile } } };
-                p1.Kids.Add(p2);
-                p1.Kids.Add(p3);
-                p2.Kids.Add(p4);
-                p3.Kids.Add(p5);
+                using (var cs = CEF.NewConnectionScope())
+                {
+                    p1 = CEF.NewObject(new Person() { Name = "STFred", Age = 44 });
+                    p1.Phones.Add(new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile });
+                    p2 = CEF.NewObject(new Person() { Name = "STSam", Age = 44 });
+                    p2.Phones.Add(new Phone() { Number = "222-8172", PhoneTypeID = PhoneType.Mobile });
+                    p3 = new Person() { Name = "STCarol", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile } } };
+                    p4 = new Person() { Name = "STKylo", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile } } };
+                    p5 = new Person() { Name = "STPerry", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile } } };
+                    p6 = new Person() { Name = "STWilliam", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile } } };
+                    p1.Kids.Add(p2);
+                    p1.Kids.Add(p3);
+                    p2.Kids.Add(p4);
+                    p3.Kids.Add(p5);
+                    CEF.DBSave();
+                    cs.CanCommit();
+                }
+
+                Assert.IsTrue(p1.PersonID > 0);
+                Assert.IsTrue(p2.PersonID > 0);
+                Assert.IsTrue(p3.PersonID > 0);
+                Assert.IsTrue(p4.PersonID > 0);
+                Assert.IsTrue(p5.PersonID > 0);
+                Assert.IsTrue(p6.PersonID == 0);
+
+                p3.Kids.Add(p6);
                 CEF.DBSave();
             }
 
-            Assert.IsTrue(p1.PersonID > 0);
-            Assert.IsTrue(p2.PersonID > 0);
-            Assert.IsTrue(p3.PersonID > 0);
-            Assert.IsTrue(p4.PersonID > 0);
-            Assert.IsTrue(p5.PersonID > 0);
-            Assert.IsTrue(p6.PersonID == 0);
+            Assert.IsTrue(p6.PersonID > 0);
         }
 
+        [TestMethod]
+        public void FailedTxDoesNotAcceptChangesCanRetry()
+        {
+            // There are some cases where it might make sense to preserve the entire service scope state since a rollback could imply more than CEF actually does - however, we leave this to the f/w user to decide how/when to use (should be more an edge case)
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                EntitySet<Person> vals = new EntitySet<Person>();
+                vals.Add(new Person() { Name = "Joe Jr.", Age = 20, Gender = "Z" });
+                vals.Add(new Person() { Name = "Unrelated", Age = 25, Gender = "F" });
+                vals.Add(new Person() { Name = "Joe Sr.", Age = 40, Gender = "M" });
+                vals.Last().Kids.Add(vals.First());
+
+                // This fails since it violates a CHECK constraint we have in the database, on Gender - being in a transaction, it should not "accept changes" to support an effective "retry"
+                try
+                {
+                    using (var tx = CEF.NewTransactionScope())
+                    {
+                        vals.DBSave();
+                        tx.CanCommit();
+                        Assert.Fail("Should not get here, save request should have failed due to CHECK constraint violation.");
+                    }
+                }
+                catch
+                {
+                }
+
+                Assert.IsTrue(vals.First().AsInfraWrapped().IsDirty());
+                Assert.IsTrue(vals.Last().AsInfraWrapped().IsDirty());
+                vals.First().Gender = "M";
+
+                using (var tx = CEF.NewTransactionScope())
+                {
+                    Assert.AreEqual(3, vals.DBSave().Count());
+                    tx.CanCommit();
+                }
+
+                Assert.IsTrue(vals[0].PersonID > 0);
+                Assert.IsTrue(vals[1].PersonID > 0);
+                Assert.IsTrue(vals[2].PersonID > 0);
+                Assert.IsTrue(vals[0].AsDynamic().ParentPersonID == vals[2].PersonID);
+                Assert.IsFalse(vals.IsDirty());
+            }
+        }
+
+        [TestMethod]
+        public void DeserializeFromFileAndAdd()
+        {
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                var ws = CEF.CurrentServiceScope.DeserializeSet<Widget>(File.ReadAllText("testdata1.json"));
+                Assert.AreEqual(999, ws.Count);
+
+                CEF.NewObject(new Widget() { SKU = "A002", BilledAmount = 20, CurrentStatus = WidgetStatusValues.PROC, SerialNumber = "27812323" });
+                CEF.NewObject(new Widget() { SKU = "A002", BilledAmount = 20, CurrentStatus = WidgetStatusValues.PROC, SerialNumber = "27812324" });
+                CEF.NewObject(new Widget() { SKU = "A002", BilledAmount = 20, CurrentStatus = WidgetStatusValues.PROC, SerialNumber = "27812325" });
+                CEF.NewObject(new Widget() { SKU = "A002", BilledAmount = 20, CurrentStatus = WidgetStatusValues.PROC, SerialNumber = "27812326" });
+
+                // This should work - but if we'd added something prior to deserialization, it might not and that's ok - we consider it an edge case currently if you have preexisting added objects in scope and try to deserialize more added objects
+                Assert.AreEqual(1003, CEF.DBSave().Count());
+            }
+        }
+
+        [TestMethod]
+        public void SerializeDeserializeSets()
+        {
+            string text;
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                EntitySet<Person> vals = new EntitySet<Person>();
+                vals.Add(new Person() { Name = "Joe Jr.", Age = 20, Gender = "M" });
+                vals.Add(new Person() { Name = "Joe Sr.", Age = 40, Gender = "M" });
+                vals.Last().Kids.Add(vals.First());
+                Assert.AreEqual(2, CEF.GetAllTracked().Count());
+                text = vals.AsJSON();
+            }
+
+            using (CEF.NewServiceScope())
+            {
+                var vals = CEF.DeserializeSet<Person>(text);
+                Assert.AreEqual(2, vals.Count);
+                Assert.AreEqual(2, CEF.GetAllTracked().Count());
+                var sr = (from a in vals where a.Age == 40 select a).FirstOrDefault();
+                var jr = (from a in vals where a.Age == 40 select a).FirstOrDefault();
+                Assert.IsTrue(sr.Kids.First().PersonID == jr.PersonID);
+            }
+        }
 
         [TestMethod]
         public void SerializeDeserializeSave()
@@ -343,7 +726,7 @@ namespace CodexMicroORM.NFWTests
                 CEF.CurrentCacheService().AddByIdentity(p1b);
             }
 
-            using (CEF.NewServiceScope(new ServiceScopeSettings() { CacheBehavior = CacheBehavior.MaximumDefault }, new MemoryFileSystemBacked("CEF_Testing", MemoryFileSystemBacked.CacheStorageStrategy.SingleDirectory)))
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { RetrievalPostProcessing = RetrievalPostProcessing.None, CacheBehavior = CacheBehavior.MaximumDefault }, new MemoryFileSystemBacked("CEF_Testing", MemoryFileSystemBacked.CacheStorageStrategy.SingleDirectory)))
             {
                 // Having gone out of scope, the previous object no longer exists, right? Wrong - it does in the file-backed cache. Verify it exists by attempting to retrieve the object as if from the database - instead, we get it from the cache since we've initialized it at the scope level.
                 // How can I be sure it came from the cache and not DB? I cached something that should be mismatched from DB (the age)
@@ -367,7 +750,7 @@ namespace CodexMicroORM.NFWTests
                 Assert.AreEqual("222-3334", ph2.Number);
             }
 
-            using (CEF.NewServiceScope(new ServiceScopeSettings() { CacheBehavior = CacheBehavior.MaximumDefault }, new MemoryFileSystemBacked("CEF_Testing", MemoryFileSystemBacked.CacheStorageStrategy.SingleDirectory)))
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { RetrievalPostProcessing = RetrievalPostProcessing.None, CacheBehavior = CacheBehavior.MaximumDefault }, new MemoryFileSystemBacked("CEF_Testing", MemoryFileSystemBacked.CacheStorageStrategy.SingleDirectory)))
             {
                 // Doing a retrieve now for a specific phone should be fast (direct from disk - slower than memory but faster than a database where the call has to go through a bunch of sql parsing/processing)
                 var sw = new Stopwatch();
@@ -469,6 +852,7 @@ namespace CodexMicroORM.NFWTests
                     Assert.AreEqual(0, CEF.DBSave().Count());
                 }
 
+                // Global UseTransactionsForNewScopes default is true, so this would initiate a new tx
                 using (var cs = CEF.NewConnectionScope())
                 {
                     // Do not call CanCommit - should not have saved anything!

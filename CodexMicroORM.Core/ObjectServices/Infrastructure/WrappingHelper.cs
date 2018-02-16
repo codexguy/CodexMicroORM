@@ -40,6 +40,29 @@ namespace CodexMicroORM.Core.Services
     {
         private static ConcurrentDictionary<Type, Type> _directTypeMap = new ConcurrentDictionary<Type, Type>();
         private static ConcurrentDictionary<Type, string> _cachedTypeMap = new ConcurrentDictionary<Type, string>();
+        private static ConcurrentDictionary<Type, object> _defValMap = new ConcurrentDictionary<Type, object>();
+
+        public static object GetDefaultForType(Type t)
+        {
+            if (t == null)
+                return null;
+
+            if (_defValMap.TryGetValue(t, out object val))
+            {
+                return val;
+            }
+
+            MethodInfo mi = typeof(WrappingHelper).GetMethod("InternalGetDefaultForType", BindingFlags.NonPublic | BindingFlags.InvokeMethod | BindingFlags.Static);
+            mi = mi.MakeGenericMethod(t);
+            var val2 = mi.Invoke(null, new object[] { });
+            _defValMap[t] = val2;
+            return val2;
+        }
+
+        private static object InternalGetDefaultForType<T>()
+        {
+            return default(T);
+        }
 
         private static string GetFullyQualifiedWrapperName(object o)
         {
@@ -311,13 +334,20 @@ namespace CodexMicroORM.Core.Services
             {
                 if ((o is INotifyPropertyChanged) || (need & WrappingSupport.Notifications) == 0)
                 {
-                    if ((need & WrappingSupport.OriginalValues) != 0)
+                    if ((need & WrappingSupport.DataErrors) != 0)
                     {
-                        infrawrap = new DynamicWithValuesAndBag(o, initState.GetValueOrDefault(isNew ? ObjectState.Added : ObjectState.Unchanged), props, types);
+                        infrawrap = new DynamicWithValuesBagErrors(o, initState.GetValueOrDefault(isNew ? ObjectState.Added : ObjectState.Unchanged), props, types);
                     }
                     else
                     {
-                        infrawrap = new DynamicWithBag(o, props, types);
+                        if ((need & WrappingSupport.OriginalValues) != 0)
+                        {
+                            infrawrap = new DynamicWithValuesAndBag(o, initState.GetValueOrDefault(isNew ? ObjectState.Added : ObjectState.Unchanged), props, types);
+                        }
+                        else
+                        {
+                            infrawrap = new DynamicWithBag(o, props, types);
+                        }
                     }
                 }
                 else

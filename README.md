@@ -1,26 +1,27 @@
 # CodexMicroORM
 An alternative to ORM's such as Entity Framework, offers database mapping for your existing CLR objects with minimal effort. CodexMicroORM excels at performance and flexibility as we explain further below.
 
+Product not a fit for you? Feel free to [visit](https://www.xskrape.com/Home/Articles?SearchCategory=CodexMicroORM) and learn about data integration and ORM concepts through our blog and product updates.
+
 ## Background
-Why build a new ORM framework? After all, Entity Framework, nHibernate and plenty of others exist and are mature. Speaking of "mature," I built CodeXFramework V1.0 several years ago and it shares some of the complaints I've seen some people make about many mainstream ORM's: they can be "heavy," "bloated" and as much as we'd like them to be "unobtrusive" - sometimes they *are*.
+Why build a new ORM framework? After all, Entity Framework, nHibernate and plenty of others exist and are mature. I have seen complaints expressed by many, though: they can be "heavy," "bloated" and as much as we'd like them to be "unobtrusive" - sometimes they *are*.
 
 Wouldn't it be nice if we could simply use our existing POCO (plain-old C# objects) and have them become *ORM-aware*? That's the ultimate design goal of CodexMicroORM: to give a similar vibe to what we got with "LINQ to Objects" several years ago. (Recall: that turned anything that was IEnumerable&lt;T&gt; into a fully LINQ-enabled list source - which opened up a whole new world of possibility!)
 
-CodexMicroORM isn't necessarily going to do everything that other, larger ORM frameworks can do - that's the "micro" aspect. We'll leave some work to the framework user, favoring performance much of the time. That said, we do aim for *simplicity* as I hope the demo application illustrates. As one example, we can create a sample Person record in *one line of code*:
+CodexMicroORM (aka "CEF" or "Codex Entity Framework") isn't necessarily going to do everything that other, larger ORM frameworks can do - that's the "micro" aspect. We'll leave some work to the framework user, favoring performance much of the time. That said, we do aim for *simplicity* as I hope the demo application illustrates. As one example, we can create a sample Person record in *one line of code*:
 
 ```c#
 CEF.NewObject(new Person() { Name = "Bobby Tables", Age = 7, Gender = "M" }).DBSave();
 ```
 
-The demo project shows several other non-trivial use cases - and more will follow. This initial 0.2 release of CodexMicroORM (aka "CEF" or "Codex Entity Framework") is young enough that most core interfaces should stay the same, but we could be making some breaking changes as refactoring dictates.
+The demo project and tests show several other non-trivial use cases.
 
-I've added a section below that compares some popular ORM frameworks. It's evident that performance was high on my mind - not to give away the punch-line, but CodexMicroORM soundly *beats* Entity Framework on some comparable sample operations (with very similar syntax).
+The work done with CodexMicroORM leads naturally into some related tool work, including a *HybirdSQL* database add-on, where the goal is to *remove* the need to worry about object-relational mapping: as an object-oriented database, it will offer excellent in-memory performance with greater simplicity than many other alternatives. Follow this project to stay on top of [details](https://www.xskrape.com)!
 
 ## Design Goals
-Diving more deeply, what does CodexMicroORM try to do *better* than other frameworks? What are the guiding principles that have influenced it to date?
+Diving more deeply, what does CodexMicroORM try to do *better* than other frameworks? What are the guiding principles that have influenced it to date? (Too much detail if you're skimming? Feel free to skip forward, but check back here from time to time as this list will be updated to reflect any new base concepts that CEF will address.)
 
-* Support .NET Standard 2.0 as much as possible. (ICustomTypeProvider as one example isn't there, so for WPF we have the CodexMicroORM.BindingSupport project which is net461.)
-* Entities can be *any* POCO object, period.
+* Entities can be *any* POCO object, period. Why is this important? Going database-first can sometimes lead to bad object models. Similarly, going model-first can lead to bad database (storage) design. Why not express the *best* format in both worlds and explain how they relate using "simple one-liners" (configuration). In CEF's case, the configuration is expressed through simple registration statements.
 * Entities do not need to have any special "database-centric" properties (if they don't want - many will want them). In our example model, note that Phone doesn't have a PhoneID as one example.
 * Entities should be able to carry "extra" details that come from the database (aka "extended properties") - but these should be "non-obtrusive" against the bare POCO objects being used.
 * Entities can be nested in what would be considered a normal object model (e.g. "IList&lt;Person&gt; Children" as a property on Person vs. a nullable ParentID which is a database/storage concept - but the DB way should be supported too!).
@@ -37,8 +38,9 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 * Not every object needs every service, support the minimum overhead solution as much as possible.
 * Some services might need to target .NET Framework, not .NET Standard, where the support does not exist: but this should be "ok" - if you want to use a service that relies on .NET Framework, you simply need to implement your solution there (or in a client-server scenario, you can implement a different set of services in each tier, if you like!)
 * A "collection container of entities" should exist and provide an observable, concrete common generic framework collection; it's EntitySet&lt;T&gt; and implements IEnumerable&lt;T&gt;, ICollection&lt;T&gt; and IList&lt;T&gt;.
+* Support .NET Standard 2.0 as much as possible - run *everywhere*. (ICustomTypeProvider as one example isn't there, so for WPF we have the CodexMicroORM.BindingSupport project which is net461.)
 * Services can include:
-	* UI data-binding support (e.g. implements INotifyPropertyChanged, etc.) for entities and collections of entities.
+	* UI data-binding support (e.g. implements INotifyPropertyChanged, IDataErrorInfo, etc.) for entities and collections of entities.
 	* Caching (ability to plug in to really *any* kind of caching scheme - I like my existing DB-backed in-memory object cache but plenty of others) - again, caching is a *service*, how you cache can be based on a *provider* model. Also, caching needs can vary by object (e.g. static tables you might cache for much longer than others).
 	* Key management (manages concept of identity, uniqueness, key generation (SEQUENCE / IDENTITY / Guids), surrogate keys, cascading operations, etc.).
 	* In-memory indexing, sorting, filtering (LINQ to Objects is a given, but this is a way to make that more efficient especially when dealing with large objects).
@@ -47,15 +49,16 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 	* Persistence and change tracking (PCT) - can identify "original values", "row states", and enough detail to serialize "differences" across process boundaries. (*Update* - as of 0.2.2, serialization support has been added, including the ability to send only changes over the wire.)
 	* Audit - manages "last updated" fields, logical deletion, etc. Things like Last Updated fields should have framework support so we don't have to worry about managing these beyond high level settings.
 	* Database Persistence:
-		* Supports stored procedure mapping such that can leverage existing SQL audit templates that do a good job of building a CRUD layer, optimistic concurrency and temporal tables "done right" (i.e. determine *who* deleted a record!! - not something you can do natively with SQL2016 temporal tables).
+		* Supports stored procedure mapping such that can leverage existing SQL audit templates that do a good job of building a CRUD layer, optimistic concurrency and temporal tables "done right" (i.e. determine *who* deleted a record!! - not something you can do natively with SQL2014 temporal tables).
 		* Supports parameter mapping such that can still read and write from objects that are strictly "proc-based", where needed. (I.e. having tables behind it is not necessary).
 		* Understands connection management / transaction participation, etc. - see below.
 		* The full .Save() type of functionality for single records, isolated collections and complete object graphs.
 		* Support some of the nice features of CodeXFramework V1.0 including the option to bulk insert added rows, etc.
 * Should be able to work with "generic data". A fair example is a DataTable - but we can offer lighter options (both in code simplicity and with performance).
 * The service architecture should be "pluggable" so others can create services that plug in easily. (Core services vs. non-core.)
+* Entities could come from third-parties or external libraries. This means you have no way to change modifiers, decorate them with ORM attributes, change inheritance, etc. - we should be able to leverage services like persistence, even with these.
 * The life-time of services may not be a simple "using block" - e.g. UI services could last for the life of a form - give control to the developer with options. Plus, connection management should be split into a different service since sometimes this needs to be managed independently (i.e. multiple connections in a single service scope, or crossing service scopes).
-* Detection of changes should be easy and allow UI's to be informed about dirty state changes.
+* Detection of changes should be easy and allow UI's to be informed about dirty state changes. Building on this concept, we can create sophisticated framework layers that offer services not offered by many other frameworks.
 * Supports proper round-tripping of values (keys assigned in DB on save show up in memory, audit dates/names assigned show up as well, etc.)
 * Database access: focus is on using stored procedures. Why? Reasons:
 	* The "extra layer" is something I've exploited very successfully in the past - it's an interception layer that's at least "there".
@@ -64,16 +67,18 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 	* There are some interesting optimization opportunities: native compiled procs, for example. Combine that with in-memory tables where it makes sense, and - just wow.
 	* The layer can support non-tabular entities - e.g. flattened procedures that interact with multiple tables, or cross-db situations, etc.
 	* This is just one flavor of database access - the provider interface means it'd be possible to integrate other ways, perhaps even a LINQ to SQL layer (a roadmap item). As of 0.2, CEF only supports MS SQL.
-* Databases - need to support the possibility of different objects being sourced/saved to different databases and/or servers and/or schemas. (Needs control type-by-type in registration process.)
-* Use parallelism where possible, and make it as thread-safe as possible for framework users.
+* Databases - need to support the possibility of different objects being sourced/saved to different databases and/or servers and/or schemas. Use of schemas is a useful organizational (and security) tool. (Needs control type-by-type in registration process.)
+* Use parallelism where possible, and make it as thread-safe as possible for framework users. (See the benchmarks below to see how profoundly bad many existing popular ORM's are in this regard!)
 * As a rule, the framework will trade higher memory use for better performance. We do have some data structures that can appear to hog memory, but I've taken the time to ensure that when service scopes are disposed, memory is released as expected. Benchmarking also shows a *linear* performance characteristic, whereas EF is *non-linear*.
 * Expect fewer "sanity checks" than you might get out of some ORM's - again, favoring performance heavily. As one example, we're going to trust you to do things like enable MultipleActiveResultSets on your connections when doing parallel operations (although in this example, we do check for this for some internal parallel operations). Again, the "micro" means light-weight, within reason.
 * Registration process should support multiple code gens - for example you could generate 3 different registration methods for 3 different databases.
 * All of the setup code we see should be generated from models: be it a database, or even an ERD. The end goal is you identify some logical model you want to work with, map it (visually, ideally), and then plumbing is created for you - start using objects and away you go.
 * Sensitive to your preferences: for example, if your standard is to use integer primary keys versus longs, we should let you do that easily. The same is true with your naming conventions (although name mapping is more of a vnext feature).
 
+I'll dive deeper on the various design goals in [blog postings](https://www.xskrape.com/Home/Articles?SearchCategory=CodexMicroORM).
+
 ## General Architecture
-The general approach of CodexMicroORM is to *wrap* objects - typically your POCO. Why? We make no assumptions about what services your POCO may provide. In order to have an effective framework, one handy interface we want to leverage is INotifyPropertyChanged. If your POCO do not implement this, we use a wrapper that *does* and use *containment* with your POCO - wrapping it.
+The general approach of CodexMicroORM is to *wrap* objects - typically your POCO. Why? We make no assumptions about what services your POCO may provide. In order to have an effective framework, one handy interface we want to leverage is INotifyPropertyChanged. If your POCO do not implement this, we use a wrapper that *does* and use *containment* with your POCO - wrapping it. (Update 0.2.4: in this release we add support for IDataErrorInfo as an interface exposed by CEF wrappers - see below for an example of its usage in WPF.)
 
 The concept of a *context* isn't unfamiliar to many ORM frameworks. CodexMicroORM also uses the idea of a context, but is called the *service scope*. A service scope is unobtrusive: it doesn't need to be generated or shaped in a particular way - it can have *any* object added to it, becoming "tracked."
 
@@ -85,7 +90,56 @@ The key is flexibility: you can mix-and-match approaches even within a single ap
 
 In release 0.2, the main way to interact with the database is using stored procedures. As mentioned in the design goals, this is largely intentional, but it *is* just one way to implement data access, which is done using a provider model.
 
-Use of stored procedures as the "data layer" is by convention: you would typically name your procedures up\_[ClassName]\_i (for insert), up\_[ClassName]\_u (for update), up\_[ClassName]\_d (for delete), up\_[ClassName]\_ByKey (retrieve by primary key). (The naming structure can be overridden based on your preferences.) Beyond CRUD, you can craft your own retrieval procedures that may map to existing class layouts - or identify completely new formats. The sample app is a good place to start in understanding what's possible!
+Use of stored procedures as the "data layer" is by convention: you would typically name your procedures up\_[ClassName]\_i (for insert), up\_[ClassName]\_u (for update), up\_[ClassName]\_d (for delete), up\_[ClassName]\_ByKey (retrieve by primary key). (The naming structure can be overridden based on your preferences.) Beyond CRUD, you can craft your own retrieval procedures that may map to existing class layouts - or identify completely new formats. The *sample app* and *test cases* are good places to start in understanding what's possible!
+
+In fact, the sample WPF app demonstrates some functionality you won't find in the automated tests. For example, UI data binding is illustrated here:
+
+![Editable Grid](http://www.xskrape.com/images/cef_boundgrid.png)
+
+Once you've clicked on "Start Tests" and some data has been created in the database, you're able to maintain these "people" records showing in the grid: try updating a name or age and click Save. You should see the Last Updated Date column change values, and the save button itself should be enabled/disabled based on the "dirty state" (and registered validations) of the form - something that CEF makes easy using this type of pattern:
+
+```c#
+	// A database retrieval using a stored procedure of arbitrary complexity, returning fundamentally "Person" data
+	//  (some elements are computed, not stored) - which can be bound to a grid, edited, and saved...
+	var families = new EntitySet<Person>().DBRetrieveSummaryForParents(20);
+
+	_bindableFamilies = families.AsDynamicBindable();			// a WPF-friendly wrapper
+	_bindableFamilies.RowPropertyChanged += BindableFamilies_RowPropertyChanged;		// Get notified about dirty state changes
+	Data1.ItemsSource = _bindableFamilies;
+...
+
+private void BindableFamilies_RowPropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+{
+	Save.IsEnabled = _bindableFamilies.IsValid;					// Leverage IDataErrorInfo on all items in grid
+}
+
+private void Save_Click(object sender, RoutedEventArgs e)
+{
+	try
+	{
+		CEF.DBSave(new DBSaveSettings() { MaxDegreeOfParallelism = 1 });
+		Save.IsEnabled = false;
+...
+```
+
+It's important to acknowledge what's going on here: your existing POCO may not implement INotifyPropertyChanged or IDataErrorInfo, but CEF offers it silently in a way that makes data binding *easy* - something *not* overly easy in many other frameworks. Furthermore, as of 0.2.4 we've included data validation which WPF is aware of through IDataErrorInfo. For example, the demo app has added a static validation for a person's Age:
+
+```c#
+ValidationService.RegisterCustomValidation((Person p) =>
+{
+	if (p.Age < 0 || p.Age > 120)
+	{
+		return "Age must be between 0 and 120.";
+	}
+	return null;
+}, nameof(Person.Age));
+```
+
+Now if we enter an invalid age, the grid can easily be made to present the situation as an error:
+
+![IDataErrorInfo in Bound Grid](http://www.xskrape.com/images/cef_idataerrorinfo_demo.png)
+
+Also - keep an eye out for *CodexMicroORM.OODB*. This will be a NoSQL offering (in reality, more *HybirdSQL*) that plays nicely with CEF, offering an ultra-optimized in-memory object-oriented database with variable levels of ACID support. The idea here would be to *eliminate the need for ORM altogether* - there's no "relational" model to map your object model *to*! We'd be cutting down on architectural layers (including the entire TCP/IP stack for talking to your database - this is envisioned as an in-process database where you simply add a NETStandard2 NuGet package and voila: you've got persistence for your objects virtually *anywhere*!). (If you're watching our caching module, you're seeing some clues on our direction.)
 
 ## Sample / Testing App
 I've included both a sample app (WPF) and a test project. The sample app illustrates UI data binding with framework support, along with a series of scenarios that both exercise and illustrate. We can see for example with this class:
@@ -126,7 +180,7 @@ In terms of the SQL to support these examples: a .sql script is included in both
 
 The SQL that's included is a combination of hand-written stored procedures and code generated objects, including procedures (CRUD) and triggers. The code generator I've used is [SQL-Hero](http://www.codexframework.com/About/SQLHero), but you can use whatever tool you like. The generated SQL is based on declarative settings that identify: a) what type of optimistic concurrency you need (if any), b) what kind of audit history you need (if any).
 
-Of note, the audit history template used here has an advantage over temporal tables found in SQL 2016: you can identify *who* deleted records, which (unfortunately) can be quite useful! CodexMicroORM plays well with the data layer, providing support for LastUpdatedBy, LastUpdatedDate, and IsDeleted (logical delete) fields in the database.
+Of note, the audit history template used here has an advantage over temporal tables found in SQL 2014: you can identify *who* deleted records, which (unfortunately) can be quite useful! CodexMicroORM plays well with the data layer, providing support for LastUpdatedBy, LastUpdatedDate, and IsDeleted (logical delete) fields in the database.
 
 Is SQL-Hero the primary means by which I plan to offer "value add" for the framework (such as code generation)? Maybe, maybe not. I do have a SQL-Hero template enhancement that will be released in Q1 2018 that offers a *40% CRUD performance improvement* for SQL audit (history queries are slower but also used much less often in practice). However, keep watch for new tool support as a Visual Studio extension which can merge metadata from both database and existing CLR objects to create effective wrappers and all of your initialization logic.
 
@@ -169,6 +223,8 @@ I'm willing to be told "but you could have done things differently with framewor
 Generally speaking, EF is not thread-safe and trying to introduce Parallel operations resulted in various errors such as "The underlying provider failed on Open" and "Object reference not set to an instance of an object", deep within the framework. There was also an example of needing some "black box knowledge" where I had to apply a .ToList() on an enumerator, otherwise it would result in an obscure error. I'm not a fan of this "it *doesn't* just work," although we could argue it's a minor inconvenience and most frameworks have some level of "black magic" required.
 
 We might give extra marks to EF6 in its ability to properly interpret our LINQ expression in Benchmark 2 and thereby avoid use of the general-purpose stored procedure, up_Person_SummaryForParents. However, we might not always be so lucky: using procedures will make sense in situations where we need to use temp tables or use other SQL coding constructs to squeeze out good performance.
+
+It might surprise you that I'm not opposed to using EF to get nice advantages such as lazy loading. CEF is light-weight and can interop with really *any* other framework since it's simply about wrappers and services for existing objects. So imagine being able to helicopter-drop it in (as easy as adding a NuGet package!) to solve problems where other frameworks start to feel pain: that's supported today.
 
 ### nHibernate Results
 Let's face it: nHibernate must deal in *stylized* objects, not necessarily true POCO that might pre-exist in your apps. The clearest evidence is the fact all properties must be *virtual* - you may or may not have implemented your existing POCO's with that trait. The counter-argument could be "but you're requiring CEF objects expose collections using interfaces such as ICollection instead of concrete types." My counter-counter argument would be, "there's no strict requirement here - but you do lose some framework 'goodness' and may need to do more 'work' to get your desired results," and "it's a common and generally good design pattern to expose things like collections using interfaces so you can *hide the implementation details*."
@@ -243,11 +299,25 @@ The nature of this new benchmark is to work with a pre-populated set of database
 
 Doing the Execute() with in-line use of parent.ParentPersonID and parent.Gender results in run-time errors, and the simplest, most desirable approach of simply using "parent" as the second parameter does not work, either.
 
-The final performance result is that Dapper's per-database-call timing averages 0.47 milliseconds, whereas CEF is 0.26 milliseconds - nearly half the time of Dapper. In terms of code size, CEF's implementation is 1618 characters compared to Dapper's 2629 characters - meaning CEF in this example offers a 40+% performance gain with nearly 40% less code to write and maintain! Now, there are ways to achieve similar results using Dapper - by writing even *more* code.
+The final performance result is that Dapper's per-database-call timing averages 0.47 milliseconds, whereas CEF is 0.34 milliseconds - nearly 30% faster than Dapper. In terms of code size, CEF's implementation is 1618 characters compared to Dapper's 2629 characters - meaning CEF in this example offers a 30% performance gain with nearly 40% less code to write and maintain! Now, there are ways to achieve similar results using Dapper - by writing even *more* code.
 
-CEF's implementation of async saving leverages a combination of in-memory caching and parallel operations that we can synchronize on as needed. (In fact, leaving your service scope ensures all outstanding async operations will be complete.) The use of the new MemoryFileSystemBacked caching service is something I'll cover in a future blog post, but in this particular benchmark, async saving was the clear way to "win" against Dapper.
+CEF's implementation of async saving leverages a combination of in-memory caching and parallel operations that we can synchronize on as needed. (In fact, leaving your current connection or service scope ensures all outstanding async operations will be complete.) The use of the new MemoryFileSystemBacked caching service is something I'll cover in a future [blog](https://www.xskrape.com/Home/Articles?SearchCategory=CodexMicroORM) post, but in this particular benchmark, async saving was the clear way to "win" against Dapper.
 
-It's also worth noting that with 0.2.3, we've invalidated some of the CEF performance figures reported above: we've squeezed out performance gains in re-running the first suite ranging from 10% to 40%! I'm not going to redo that study - I didn't do a perfect job with the other frameworks, too, giving them a pass in some respects (e.g. did not round-trip all values, which would have increased the code size in cases). Suffice it to say the goal of offering great performance and advanced services is being met and look for more goodies in up-coming releases!
+It's also worth noting that with 0.2.3, some of the performance figures were lowered due to performance tweaks - but in 0.2.4, we gave back some performance with the addition of important new features. These types of changes will happen natually and I'm not going to redo performance comparisons after every release. (I didn't do a perfect job when evaluating the other frameworks, too, giving them a pass in some respects - e.g. did not round-trip all values, which would have increased the code size in cases).
+
+Some may say, "benchmarks can be made to prove anything you want" - which is *true*, but quantitative analysis offers at least something objective, where measuring things like "features and style" is much more personal. Suffice it to say that offering great performance and advanced services is a goal and look for more goodies in up-coming releases!
+
+## Where Do I Start?
+I suggest doing a clone to grab the full code base. The test project has a number of important use cases, illustrating capability. The WPF demo project includes performance benchmarking, but also shows general concepts, contrasts patterns with other frameworks, and illustrates live WPF data binding.
+
+You can include CEF in your own projects using NuGet: [NuGet - Core](https://www.nuget.org/packages/CodexMicroORM.Core/), [Nuget - Bindings](https://www.nuget.org/packages/CodexMicroORM.BindingSupport/).
+
+I'll be providing further updates both here and on my [site](https://www.xskrape.com). Registering on xskrape.com has the added benefit of getting you email notifications when I release new blog articles that provide deep dives into the concepts you see here.
+
+## Documentation
+On-line documentation will become available, with your [feedback](https://www.xskrape.com/Home/Contact) and encouragement. In the meantime, many of the concepts will be covered through [blog](https://www.xskrape.com/Home/Articles) articles. Also, click "Watch" above to keep track of updates made here on GitHub.
+
+Want to see even more? Share, watch, clone, blog, post links to this project - and mention it to your friends! Contribution and development is proportional to community interest! This framework will be a drop-in replacement for my "old" framework in many projects (templates to come), so will receive increasing production attention.
 
 ## Release Notes
 * 0.2.0 - December 2017 - Initial Release (binaries available on [NuGet - Core](https://www.nuget.org/packages/CodexMicroORM.Core/), [Nuget - Bindings](https://www.nuget.org/packages/CodexMicroORM.BindingSupport/))
@@ -260,21 +330,29 @@ It's also worth noting that with 0.2.3, we've invalidated some of the CEF perfor
 	* other minor adjustments
 * 0.2.2 - January 2018
 	* Serialization - supports multiple serialization modes including serialization of "just changes" (has importance for over-the-wire scenarios); new test added to demonstrate serailization (SerializeDeserializeSave); watch for a blog I'll be using to cover more details about serialization and other topics
-	* Added support for "Shadow property values" - this is more of an advanced topic where we can leverage these to avoid updating your POCO objects with "system-assigned temporary keys" yet still retain identity like we do in earlier releases. In short, you might not care about this a lot but there could be some interesting "other applications" that I'll discuss in future blog posts.
+	* Added support for "Shadow property values" - this is more of an advanced topic where we can leverage these to avoid updating your POCO objects with "system-assigned temporary keys" yet still retain identity like we do in earlier releases. In short, you might not care about this a lot but there could be some interesting "other applications."
 * 0.2.3 - January 2018
 	* Async saving - easily enabled for situations that do not require immediate round-tripping of values assigned by the database, offers significant performance benefits (see above for some tangible benchmarks).
 	* Caching - default caching service is MemoryFileSystemBacked; offers performance benefits in a number of scenarios including mitigating slow connections. New illustrative test: MemFileCacheRetrieves. More examples will be made available in future articles.
 	* internal refactoring - removal of many static methods used in services in favor of interfaces that enable full "pluggability" for anyone wanting to write their own replacement service.
+* 0.2.4 - February 2018
+	* 1:1, 1:0 mapping support, including sample database updates to illustrate ("Widget" tables) - search for RegisterPropertyGroup, RegisterOnSaveParentSave - significantly more complex object models supported as illustrated in new test (NewWidgetNewReceiptNewShipment)
+	* Validation service - support for required field, length validations, illegal updates, custom validations, exposure of IDataErrorInfo (showing how works with WPF data binding in demo app as well) - search for RegisterRequired, RegisterMaxLength, RegisterIllegalUpdate, RegisterCustomValidation
+	* Field mapper service - supports differences of OM names and storage names - search for RegisterStorageFieldName, RegisterStorageEntityName
+	* Defaults, schema support - search for RegisterDefault, RegisterSchema
+	* "Case insensitive" option for properties
+	* Fixes related to serialization, async save, etc.
+	* Testing enhancements (sandboxes, more coverage)
 
 ## Roadmap / Plans
-Release 0.2 covers some basic scenarios. For 0.3 I'd like to add:
+Release 0.2 covers some basic scenarios. For 0.9 I'd like to add:
 
-* Validation services
-* Name translation services
-* Support for more types of cardinalities, object mapping (including many-to-many with payloads)
+* Support for more types of cardinalities, object mapping (including many-to-many with payloads and more complex ORM mapping concepts)
 * Some initial code-gen support
-* Add more collection types (EntityHashSet, EntityDictionary)
+* Full-on demo app that uses everything end-to-end; on-line and/or PDF documentation
 
 Clearly tool support such as for code generation could prove *very* useful - watch for that offered as "add-on" products and likely offered initially through [SQL-Hero](http://www.codexframework.com/About/SQLHero) given that some existing templates can likely be tweaked to get a quick win for CodexMicroORM.
+
+Come and subscribe to [blog updates](https://www.xskrape.com/Home/Articles).
 
 Have opinions about what you'd like to see? Drop me a line @ joelc@codexframework.com.

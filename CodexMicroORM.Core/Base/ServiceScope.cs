@@ -282,11 +282,14 @@ namespace CodexMicroORM.Core
 
                 var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), forObject);
 
-                service = (from a in to?.Services where a is T select a).FirstOrDefault();
-
-                if (service != null)
+                if (to != null && to.Services != null)
                 {
-                    return (T)service;
+                    service = (from a in to.Services where a is T select a).FirstOrDefault();
+
+                    if (service != null)
+                    {
+                        return (T)service;
+                    }
                 }
             }
 
@@ -353,6 +356,8 @@ namespace CodexMicroORM.Core
             // We leverage infra if present (should be!)
             var db = GetService<ICEFDataHost>(settings.RootObject) ?? throw new CEFInvalidOperationException("Could not find an available DBService to save with.");
 
+            var useAsync = settings.UseAsyncSave.GetValueOrDefault(this.Settings.UseAsyncSave.GetValueOrDefault(Globals.UseAsyncSave));
+
             Action<object> act = (state) =>
             {
                 var parm = ((DBSaveSettings settings, ServiceScope ss))state;
@@ -368,22 +373,64 @@ namespace CodexMicroORM.Core
 
                         var saveList = GetSaveables(filterRows, parm.settings);
 
-                        while (saveList.Any())
+                        if (saveList.Any())
                         {
-                            retVal.AddRange(db.Save(saveList, this, parm.settings));
+                            var valsvc = CEF.CurrentValidationService();
+                            var vcheck = settings.ValidationChecksOnSave.GetValueOrDefault(Globals.ValidationChecksOnSave);
 
-                            // There's a chance that updates performed during save (e.g. key assignment) could affect underlying data and require a "second pass"
-                            saveList = GetSaveables(filterRows, parm.settings);
+                            // Perform validations - we use whatever list is requested (can be "none")
+                            if (vcheck != ValidationErrorCode.None && valsvc != null)
+                            {
+                                List<(int error, string message, ICEFInfraWrapper row)> fails = new List<(int error, string message, ICEFInfraWrapper row)>();
+
+                                foreach (var row in saveList)
+                                {
+                                    var valstate = valsvc.GetObjectMessage(row.AsUnwrapped()).AsString(vcheck);
+
+                                    if (valstate.code != 0)
+                                    {
+                                        fails.Add((valstate.code, valstate.message, row));
+                                    }
+                                }
+
+                                if (fails.Any())
+                                {
+                                    if (settings.ValidationFailureIsException.GetValueOrDefault(Globals.ValidationFailureIsException))
+                                    {
+                                        throw new CEFValidationException(fails.Count() > 1 ? "Multiple validation failures." : "Validation failure.", (from a in fails select ((ValidationErrorCode)(-a.error), a.message)));
+                                    }
+                                    else
+                                    {
+                                        foreach (var f in fails)
+                                        {
+                                            retVal.Add(((object)f.row, f.message, f.error));
+                                            saveList.Remove(f.row);
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (saveList.Any())
+                            {
+                                retVal.AddRange(db.Save(saveList, this, parm.settings));
+                            }
                         }
                     }
                     catch (Exception ex)
                     {
-                        db.AddCompletionException(ex);
+                        if (useAsync)
+                        {
+                            db.AddCompletionException(ex);
+                        }
+                        else
+                        {
+                            throw;
+                        }
                     }
                 }
             };
 
-            if (settings.UseAsyncSave.GetValueOrDefault(this.Settings.UseAsyncSave.GetValueOrDefault(Globals.UseAsyncSave)))
+            if (useAsync)
             {
                 db.AddCompletionTask(Task.Factory.StartNew(act, (settings, ss)));
             }
@@ -834,39 +881,78 @@ namespace CodexMicroORM.Core
             if (o == null)
                 throw new ArgumentNullException("o");
 
+            var bt = o.GetBaseType();
+
             (bool resolved, IList<ICEFService> list) svcTypes;
-            CEF._defaultServicesByType.TryGetValue(o.GetType(), out svcTypes);
+            CEF.DefaultServicesByType.TryGetValue(bt, out svcTypes);
 
             if (svcTypes.list != null && svcTypes.resolved)
             {
                 return svcTypes.list.Concat(_localServices);
             }
 
-            svcTypes.list = new List<ICEFService>();
+            var vl = new List<ICEFService>();
 
             // Append any "missing" global services
-            foreach (var gs in CEF.GlobalServices)
+            if (svcTypes.list?.Count > 0)
             {
-                if (!(from a in svcTypes.list where a.GetType().Equals(gs.GetType()) select a).Any())
-                {
-                    svcTypes.list.Add(gs);
-                }
+                vl.AddRange(svcTypes.list.Union(CEF.GlobalServices));
+            }
+            else
+            {
+                vl.AddRange(CEF.GlobalServices);
             }
 
             // Look for dependent services that are not yet included - add them as needed
-            foreach (var s in (from a in svcTypes.list
+            foreach (var s in (from a in vl
                                where a.RequiredServices()?.Count > 0
                                from b in a.RequiredServices()
                                select b).Distinct().ToArray())
             {
-                if (!(from a in svcTypes.list where a.GetType().Equals(s) select a).Any())
+                if (!(from a in vl where a.GetType().Equals(s) select a).Any())
                 {
                     ICEFService sta = null;
 
                     try
                     {
-                        // Assumes a parameterless constructor exists - most of these should be internal
-                        sta = Activator.CreateInstance(s) as ICEFService;
+                        // An interface was likely returned from RequiredServices - go look up based on interface first
+                        if (s == typeof(ICEFDataHost))
+                        {
+                            sta = CEF.CurrentDBService(o);
+                        }
+                        else
+                        {
+                            if (s == typeof(ICEFAuditHost))
+                            {
+                                sta = CEF.CurrentAuditService(o);
+                            }
+                            else
+                            {
+                                if (s == typeof(ICEFKeyHost))
+                                {
+                                    sta = CEF.CurrentKeyService(o);
+                                }
+                                else
+                                {
+                                    if (s == typeof(ICEFPersistenceHost))
+                                    {
+                                        sta = CEF.CurrentPCTService(o);
+                                    }
+                                    else
+                                    {
+                                        if (s == typeof(ICEFCachingHost))
+                                        {
+                                            sta = CEF.CurrentCacheService(o);
+                                        }
+                                        else
+                                        {
+                                            // Assumes a parameterless constructor exists - most of these should be internal
+                                            sta = Activator.CreateInstance(s) as ICEFService;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     catch
                     {
@@ -877,13 +963,13 @@ namespace CodexMicroORM.Core
                         throw new CEFInvalidOperationException($"Service {s.Name} should be initialized with details, cannot create it automatically.");
                     }
 
-                    svcTypes.list.Add(sta);
+                    vl.Add(sta);
                 }
             }
 
-            CEF._defaultServicesByType[o.GetType()] = (true, svcTypes.list);
+            CEF.DefaultServicesByType[bt] = (true, vl);
 
-            return svcTypes.list.Concat(_localServices);
+            return vl.Concat(_localServices);
         }
 
         private HashSet<object> GetFilterRows(DBSaveSettings settings)
@@ -901,7 +987,7 @@ namespace CodexMicroORM.Core
 
                 if (settings.IncludeRootChildren)
                 {
-                    foreach (var o in CEF.CurrentKeyService()?.GetChildObjects(CEF.CurrentServiceScope, settings.RootObject, true))
+                    foreach (var o in CEF.CurrentKeyService()?.GetChildObjects(CEF.CurrentServiceScope, settings.RootObject, settings.IncludeRootParents ? RelationTypes.Both : RelationTypes.Children))
                     {
                         var uw = o.AsUnwrapped();
 
@@ -914,7 +1000,7 @@ namespace CodexMicroORM.Core
 
                 if (settings.IncludeRootParents)
                 {
-                    foreach (var o in CEF.CurrentKeyService()?.GetParentObjects(CEF.CurrentServiceScope, settings.RootObject, true))
+                    foreach (var o in CEF.CurrentKeyService()?.GetParentObjects(CEF.CurrentServiceScope, settings.RootObject, settings.IncludeRootChildren ? RelationTypes.Both : RelationTypes.Parents))
                     {
                         var uw = o.AsUnwrapped();
 
@@ -981,6 +1067,7 @@ namespace CodexMicroORM.Core
         internal int ReconcileModifiedState(HashSet<object> filterRows)
         {
             int count = 0;
+            var db = CEF.CurrentDBService();
 
             IEnumerable<TrackedObject> list = null;
 
@@ -995,6 +1082,9 @@ namespace CodexMicroORM.Core
 
             foreach (var to in list)
             {
+                // If type includes property groups, copy values here (as well as on notifications - which may or may not have done it already)
+                db?.CopyPropertyGroupValues(to.GetWrapperTarget());
+
                 if (!(to.GetTarget() is INotifyPropertyChanged))
                 {
                     var dyn = to.GetInfra() as DynamicWithValuesAndBag;
@@ -1095,7 +1185,12 @@ namespace CodexMicroORM.Core
 
                     if (pkcol.Any())
                     {
-                        var pkval = (from a in pkcol where props.ContainsKey(a) select props[a]);
+                        var pkval = (from a in pkcol let scn = KeyService.SHADOW_PROP_PREFIX + a where props.ContainsKey(scn) && (props[scn] ?? "").ToString() != "" select props[scn]);
+
+                        if (!pkval.Any())
+                        {
+                            pkval = (from a in pkcol where props.ContainsKey(a) && (props[a] ?? "").ToString() != "" select props[a]);
+                        }
 
                         if (pkval.Count() == pkcol.Count)
                         {
@@ -1180,6 +1275,9 @@ namespace CodexMicroORM.Core
             foreach (var svc in objServices)
             {
                 wrapneed |= svc.IdentifyInfraNeeds(o, null, this, isNew);
+
+                if (wrapneed == WrappingSupport.All)
+                    break;
             }
 
             ICEFInfraWrapper infra = null;
@@ -1198,8 +1296,10 @@ namespace CodexMicroORM.Core
 
                         foreach (var svc in objServices)
                         {
-                            var svcCopy = svc;
                             wrapneed |= svc.IdentifyInfraNeeds(o, repl, this, isNew);
+
+                            if (wrapneed == WrappingSupport.All)
+                                break;
                         }
                     }
                 }
@@ -1229,6 +1329,7 @@ namespace CodexMicroORM.Core
                 Services = objServices
             };
 
+            // This is the big moment! "to" is our "tracked object" container
             _scopeObjects.Add(to);
 
             foreach (var svc in objServices)

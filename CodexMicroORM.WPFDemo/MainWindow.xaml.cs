@@ -75,6 +75,16 @@ namespace CodexMicroORM.WPFDemo
             KeyService.RegisterRelationship<Person>(TypeChildRelationship.Create<Person>("ParentPersonID").MapsToChildProperty(nameof(Person.Kids)));
             KeyService.RegisterRelationship<Person>(TypeChildRelationship.Create<Phone>().MapsToParentProperty(nameof(Phone.Owner)).MapsToChildProperty(nameof(Person.Phones)));
 
+            // Restrict person age to a range
+            ValidationService.RegisterCustomValidation((Person p) =>
+            {
+                if (p.Age < 0 || p.Age > 120)
+                {
+                    return "Age must be between 0 and 120.";
+                }
+                return null;
+            }, nameof(Person.Age));
+
             // This will construct a new test database, if needed - if the script changes, you'll need to drop the CodexMicroORMTest database before running
             using (CEF.NewConnectionScope(new ConnectionScopeSettings() { IsTransactional = false, ConnectionStringOverride = $@"Data Source={DB_SERVER};Database=master;Integrated Security=SSPI;MultipleActiveResultSets=true" }))
             {
@@ -163,7 +173,7 @@ namespace CodexMicroORM.WPFDemo
                 // Note: our POCO here does not implement INotifyPropertyChanged, so this change in row state is not reflected until we do something meaningful (e.g. save)
                 var phone = billy.Phones.First();
                 phone.Owner = zella;
-                ConsoleWriteLine($"Row state for phone in question: {phone.AsInfraWrapped().GetRowState()}");
+                ConsoleWriteLine($"Row state for phone in question (unchanged): {phone.AsInfraWrapped().GetRowState()}");
                 CEF.DBSave();
 
                 // Ok, we're done..? If not, the local scope will be rebuilt next time it's used. In this case, all our prior work is wiped out, we're "starting fresh"
@@ -183,9 +193,9 @@ namespace CodexMicroORM.WPFDemo
                 var sallysFamilyPhones = new EntitySet<Phone>().DBRetrieveAllForFamily(sally.PersonID);
                 var newSally = (from a in sallysFamily where a.Kids != null && a.Kids.Any() select a).First();
                 var newTristan = (from a in sallysFamily where a.PersonID == tristan.PersonID select a).First();
-                ConsoleWriteLine($"Row state for Tristan: {newTristan.AsInfraWrapped().GetRowState()}");
+                ConsoleWriteLine($"Row state for Tristan (unchanged): {newTristan.AsInfraWrapped().GetRowState()}");
                 CEF.DeleteObject(newSally);
-                ConsoleWriteLine($"Row state for Tristan: {newTristan.AsInfraWrapped().GetRowState()}");
+                ConsoleWriteLine($"Row state for Tristan (deleted): {newTristan.AsInfraWrapped().GetRowState()}");
                 ConsoleWriteLine($"Saved rows: {CEF.DBSave().Count()}");
 
                 ConsoleWriteLine("Please wait, starting background process.");
@@ -233,9 +243,9 @@ namespace CodexMicroORM.WPFDemo
                                 using (var cs = CEF.NewConnectionScope())
                                 {
                                     // We could also use CEF.DBSave() since current scope will be "ss" now
-                                    ss.DBSave();
+                                    ConsoleWriteLine($"Should be 3: {ss.DBSave().Count()}");
 
-                                    // This should do nothing - nothing is dirty!
+                                    // This should do nothing - nothing is actually dirty!
                                     ConsoleWriteLine($"Should be 0: {CEF.DBSave().Count()}");
 
                                     // Updates 2 records (parent, child), delete other record, saves
@@ -246,8 +256,8 @@ namespace CodexMicroORM.WPFDemo
                                     CEF.DeleteObject(worknum);
                                     CEF.DBSave();
 
-                                    // This *does* reflect a change in the row state prior to saving since the wrapper class implements INotifyPropertyChanged
-                                    ((PersonWrapped)joel).Age += 1;
+                                    // This *does* reflect a change in the row state prior to saving since the wrapper class implements INotifyPropertyChanged... HOWEVER, we are in a transaction, and the initial row state of "added" remains
+                                    joel.AsDynamic().Age += 1;
                                     ConsoleWriteLine($"Row state for Joel: {joel.AsInfraWrapped().GetRowState()}");
                                     CEF.DBSave();
 
@@ -257,8 +267,8 @@ namespace CodexMicroORM.WPFDemo
 
                                 using (var cs = CEF.NewConnectionScope())
                                 {
-                                    // Finally, we can use this as a dynamic object as well and expect the same results...
-                                    joel.AsDynamic().Age += 1;
+                                    // Finally, we can use this as a dynamic object as well and expect the same results... notice here, using our INotifyPropertyChanged wrapper does automatically change the row state...
+                                    ((PersonWrapped)joel).Age += 1;
                                     ConsoleWriteLine($"Row state for Joel: {joel.AsInfraWrapped().GetRowState()}");
 
                                     ConsoleWriteLine($"Initial saves, time: {watch.ElapsedMilliseconds} ms");
@@ -343,8 +353,8 @@ namespace CodexMicroORM.WPFDemo
                         // This is handy for binding to our WPF data grid: we not only get simple live two-way binding but can detect dirty state changes as well from this collection type (GenericBindableSet)
                         // The dirty state change event is useful to enable/disable the save button (only enabled when there is something pending to save)
                         _bindableFamilies = families.AsDynamicBindable();
-                        _bindableFamilies.DirtyStateChange -= BindableFamilies_DirtyStateChange;
-                        _bindableFamilies.DirtyStateChange += BindableFamilies_DirtyStateChange;
+                        _bindableFamilies.RowPropertyChanged -= BindableFamilies_RowPropertyChanged;
+                        _bindableFamilies.RowPropertyChanged += BindableFamilies_RowPropertyChanged;
                         Data1.ItemsSource = _bindableFamilies;
 
                         watch.Stop();
@@ -371,9 +381,9 @@ namespace CodexMicroORM.WPFDemo
             }
         }
 
-        private void BindableFamilies_DirtyStateChange(object sender, GenericBindableSet.DirtyStateChangeEventArgs e)
+        private void BindableFamilies_RowPropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            Save.IsEnabled = e.IsDirty;
+            Save.IsEnabled = _bindableFamilies.IsValid;
         }
 
         private void Save_Click(object sender, RoutedEventArgs e)
@@ -382,8 +392,9 @@ namespace CodexMicroORM.WPFDemo
             {
                 // Notice we can easily save changes made directly in the grid back to the database.
                 // The ambient service scope is on the UI thread. A better pattern might be a scope instance per form since multiple open forms would be sharing scope in this approach.
-                CEF.DBSave();
-                _bindableFamilies.ResetClean();
+                // Use of MaxDegreeOfParallelism removes the need to use Dispatcher in RowPropertyChanged - DBSave can do work on background threads otherwise
+                CEF.DBSave(new DBSaveSettings() { MaxDegreeOfParallelism = 1 });
+                Save.IsEnabled = false;
             }
             catch (Exception ex)
             {

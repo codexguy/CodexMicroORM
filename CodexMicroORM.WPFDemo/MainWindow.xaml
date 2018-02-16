@@ -19,7 +19,7 @@
         <DataGrid Grid.Row="1" x:Name="Data1" Margin="4" AutoGenerateColumns="false" CanUserAddRows="false" CanUserDeleteRows="false">
             <DataGrid.Columns>
                 <DataGridTextColumn Binding="{Binding Path=Name}" IsReadOnly="false" Header="Name" MinWidth="100"></DataGridTextColumn>
-                <DataGridTextColumn Binding="{Binding Path=Age}" IsReadOnly="false" Header="Age" MinWidth="50"></DataGridTextColumn>
+                <DataGridTextColumn Binding="{Binding Path=Age, ValidatesOnDataErrors=True}" IsReadOnly="false" Header="Age" MinWidth="50"></DataGridTextColumn>
                 <DataGridTextColumn Binding="{Binding Path=Gender}" IsReadOnly="true" Header="Gender">
                     <DataGridTextColumn.CellStyle>
                         <Style TargetType="DataGridCell">
