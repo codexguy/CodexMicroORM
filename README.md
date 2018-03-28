@@ -343,14 +343,14 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* "Case insensitive" option for properties
 	* Fixes related to serialization, async save, etc.
 	* Testing enhancements (sandboxes, more coverage)
-* 0.9.0 - April 2018
+* 0.5.0 - April 2018
     * Minor changes (e.g. access modifiers) to support the soon-to-be-released version 0.9 of ZableDB
     * Internal refactoring to improve memory footprint and performance - SIGNIFICANT! - [What's new in 0.5?](https://www.xskrape.com/home/article/What-s-New-in-CodexMicroORM-0-5)
 
 ## Roadmap / Plans
-Release 0.2 covers some basic scenarios. For 0.9 I'd like to add:
+Look for in coming releases:
 
-* Support for more types of cardinalities, object mapping (including many-to-many with payloads and more complex ORM mapping concepts)
+* Support for more complex types of object mapping
 * Some initial code-gen support
 * Full-on demo app that uses everything end-to-end; on-line and/or PDF documentation
 
