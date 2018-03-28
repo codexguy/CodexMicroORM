@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,46 +26,31 @@ namespace CodexMicroORM.Providers
     /// </summary>
     public class MSSQLConnection : IDBProviderConnection
     {
-        private SqlConnection _conn;
-        private SqlTransaction _tx;
-
         internal MSSQLConnection(SqlConnection conn, SqlTransaction tx)
         {
-            _conn = conn;
-            _tx = tx;
+            CurrentConnection = conn;
+            CurrentTransaction = tx;
         }
 
-        public SqlConnection CurrentConnection
-        {
-            get
-            {
-                return _conn;
-            }
-        }
+        public SqlConnection CurrentConnection { get; private set; }
 
-        public SqlTransaction CurrentTransaction
-        {
-            get
-            {
-                return _tx;
-            }
-        }
+        public SqlTransaction CurrentTransaction { get; private set; }
 
         public void Commit()
         {
-            if (_tx != null)
+            if (CurrentTransaction != null)
             {
-                _tx.Commit();
-                _tx = null;
+                CurrentTransaction.Commit();
+                CurrentTransaction = null;
             }
         }
 
         public void Rollback()
         {
-            if (_tx != null)
+            if (CurrentTransaction != null)
             {
-                _tx.Rollback();
-                _tx = null;
+                CurrentTransaction.Rollback();
+                CurrentTransaction = null;
             }
         }
 
@@ -76,19 +61,19 @@ namespace CodexMicroORM.Providers
         {
             if (!_disposedValue)
             {
-                if (_tx != null)
+                if (CurrentTransaction != null)
                 {
-                    _tx.Dispose();
-                    _tx = null;
+                    CurrentTransaction.Dispose();
+                    CurrentTransaction = null;
                 }
 
-                if (_conn != null)
+                if (CurrentConnection != null)
                 {
                     // todo - review if can avoid this somehow (does appear helpful currently)
                     //SqlConnection.ClearPool(_conn);
 
-                    _conn.Dispose();
-                    _conn = null;
+                    CurrentConnection.Dispose();
+                    CurrentConnection = null;
                 }
 
                 _disposedValue = true;

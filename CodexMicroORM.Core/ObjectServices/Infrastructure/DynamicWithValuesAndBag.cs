@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using Newtonsoft.Json;
+using CodexMicroORM.Core.Helper;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -30,7 +31,7 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithValuesAndBag : DynamicWithBag, IDisposable
     {
-        protected ConcurrentDictionary<string, object> _originalValues = new ConcurrentDictionary<string, object>(Globals.CurrentStringComparer);
+        protected Dictionary<string, object> _originalValues = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY, Globals.CurrentStringComparer);
         protected ObjectState _rowState;
 
         public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
@@ -42,8 +43,11 @@ namespace CodexMicroORM.Core.Services
                 ((INotifyPropertyChanged)o).PropertyChanged += CEFValueTrackingWrapper_PropertyChanged;
             }
 
-            AcceptChanges();
-            SetRowState(irs);
+            using (new WriterLock(_lock))
+            {
+                AcceptChanges();
+                SetRowState(irs);
+            }
         }
 
         public override ObjectState GetRowState()
@@ -53,14 +57,17 @@ namespace CodexMicroORM.Core.Services
 
         public override void SetRowState(ObjectState rs)
         {
-            if (_rowState != rs)
+            using (new WriterLock(_lock))
             {
-                CEFDebug.WriteInfo($"RowState={rs}, {_source?.GetBaseType().Name}", _source);
-                _rowState = rs;
-
-                if (rs == ObjectState.Unchanged)
+                if (_rowState != rs)
                 {
-                    _isBagChanged = false;
+                    CEFDebug.WriteInfo($"RowState={rs}, {_source?.GetBaseType().Name}", _source);
+                    _rowState = rs;
+
+                    if (rs == ObjectState.Unchanged)
+                    {
+                        _isBagChanged = false;
+                    }
                 }
             }
         }
@@ -69,12 +76,15 @@ namespace CodexMicroORM.Core.Services
         {
             get
             {
-                if (_isBagChanged && _rowState == ObjectState.Unchanged)
+                using (new ReaderLock(_lock))
                 {
-                    return ObjectState.Modified;
-                }
+                    if (_isBagChanged && _rowState == ObjectState.Unchanged)
+                    {
+                        return ObjectState.Modified;
+                    }
 
-                return _rowState;
+                    return _rowState;
+                }
             }
         }
 
@@ -104,9 +114,17 @@ namespace CodexMicroORM.Core.Services
             return WrappingSupport.OriginalValues | WrappingSupport.PropertyBag;
         }
 
+        private ObjectState SafeGetState()
+        {
+            using (new ReaderLock(_lock))
+            {
+                return _rowState;
+            }
+        }
+
         public void Delete()
         {
-            if (_rowState == ObjectState.Added)
+            if (SafeGetState() == ObjectState.Added)
             {
                 SetRowState(ObjectState.Unlinked);
             }
@@ -118,62 +136,68 @@ namespace CodexMicroORM.Core.Services
 
         protected override void OnPropertyChanged(string propName, object oldVal, object newVal, bool isBag)
         {
-            base.OnPropertyChanged(propName, oldVal, newVal, isBag);
-
-            if (_rowState == ObjectState.Unchanged)
+            if (!propName.StartsWith("~"))
             {
-                SetRowState(ObjectState.Modified);
-            }
+                base.OnPropertyChanged(propName, oldVal, newVal, isBag);
 
-            DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(ObjectState.Modified));
+                if (SafeGetState() == ObjectState.Unchanged)
+                {
+                    SetRowState(ObjectState.Modified);
+                    DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(ObjectState.Modified));
+                }
+            }
         }
 
+        // todo
         private void CEFValueTrackingWrapper_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            if (_source.FastPropertyReadable(e.PropertyName))
+            var r = _source.FastPropertyReadableWithValue(e.PropertyName);
+
+            if (r.readable)
             {
                 var oldval = _originalValues[e.PropertyName];
-                var newval = _source.FastGetValue(e.PropertyName);
 
-                if (!oldval.IsSame(newval))
+                if (!oldval.IsSame(r.value))
                 {
-                    OnPropertyChanged(e.PropertyName, oldval, newval, _valueBag.ContainsKey(e.PropertyName));
+                    OnPropertyChanged(e.PropertyName, oldval, r.value, _valueBag.ContainsKey(e.PropertyName));
                 }
             }
         }
 
         public override void AcceptChanges()
         {
-            if (_rowState == ObjectState.Deleted)
-            {
-                SetRowState(ObjectState.Unlinked);
-                return;
-            }
+            bool changed = false;
 
-            if (_originalValues != null)
+            using (new WriterLock(_lock))
             {
-                if (_source != null)
+                if (_rowState == ObjectState.Deleted)
                 {
-                    // Handle CLR properties that are R/W
-                    foreach (var pi in _source.GetType().GetProperties())
+                    SetRowState(ObjectState.Unlinked);
+                    return;
+                }
+
+                if (_originalValues != null)
+                {
+                    if (_source != null)
                     {
-                        if (_source.FastPropertyReadable(pi.Name) && _source.FastPropertyWriteable(pi.Name))
+                        // Handle CLR properties that are R/W
+                        foreach (var pi in _source.FastGetAllProperties(true, true))
                         {
-                            _originalValues[pi.Name] = _source.FastGetValue(pi.Name);
+                            _originalValues[pi.name] = _source.FastGetValue(pi.name);
                         }
+                    }
+
+                    foreach (var kvp in _valueBag)
+                    {
+                        _originalValues[kvp.Key] = kvp.Value;
                     }
                 }
 
-                foreach (var kvp in _valueBag)
-                {
-                    _originalValues[kvp.Key] = kvp.Value;
-                }
+                changed = (_rowState != ObjectState.Unchanged);
+
+                SetRowState(ObjectState.Unchanged);
+                _isBagChanged = false;
             }
-
-            bool changed = (_rowState != ObjectState.Unchanged);
-
-            SetRowState(ObjectState.Unchanged);
-            _isBagChanged = false;
 
             if (changed)
             {
@@ -183,36 +207,42 @@ namespace CodexMicroORM.Core.Services
 
         public override void FinalizeObjectContents(JsonTextWriter tw, SerializationMode mode)
         {
-            base.FinalizeObjectContents(tw, mode);
-
-            if ((mode & SerializationMode.ObjectState) != 0)
+            using (new ReaderLock(_lock))
             {
-                tw.WritePropertyName(Globals.SerializationStatePropertyName);
+                base.FinalizeObjectContents(tw, mode);
 
-                if (Globals.SerializationStateAsInteger)
+                if ((mode & SerializationMode.ObjectState) != 0)
                 {
-                    tw.WriteValue((int)State);
-                }
-                else
-                {
-                    tw.WriteValue(State.ToString());
+                    tw.WritePropertyName(Globals.SerializationStatePropertyName);
+
+                    if (Globals.SerializationStateAsInteger)
+                    {
+                        tw.WriteValue((int)State);
+                    }
+                    else
+                    {
+                        tw.WriteValue(State.ToString());
+                    }
                 }
             }
         }
 
         public override object GetOriginalValue(string propName, bool throwIfNotSet)
         {
-            if (!_originalValues.ContainsKey(propName))
+            using (new ReaderLock(_lock))
             {
-                if (throwIfNotSet)
+                if (!_originalValues.ContainsKey(propName))
                 {
-                    throw new CEFInvalidOperationException($"Property {propName} does not exist on this wrapper.");
+                    if (throwIfNotSet)
+                    {
+                        throw new CEFInvalidOperationException($"Property {propName} does not exist on this wrapper.");
+                    }
+
+                    return null;
                 }
 
-                return null;
+                return _originalValues[propName];
             }
-
-            return _originalValues[propName];
         }
 
         #region IDisposable Support

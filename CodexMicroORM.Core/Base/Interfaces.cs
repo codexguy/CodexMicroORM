@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -133,7 +133,7 @@ namespace CodexMicroORM.Core
 
         IEnumerable<object> GetParentObjects(ServiceScope ss, object o, RelationTypes types = RelationTypes.None);
 
-        IList<(int ordinal, string name, object value)> GetKeyValues(object o, IList<string> cols = null);
+        List<(int ordinal, string name, object value)> GetKeyValues(object o, IEnumerable<string> cols = null);
 
         int GetObjectNestLevel(object o);
 
@@ -299,6 +299,8 @@ namespace CodexMicroORM.Core
         void SuspendNotifications(bool stop);
 
         bool ContainsItem(object o);
+
+        bool ContainsItemByKey(object o);
 
         void RemoveItem(object o);
 

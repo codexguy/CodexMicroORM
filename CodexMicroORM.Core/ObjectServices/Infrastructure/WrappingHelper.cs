@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,6 +25,9 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections;
+using CodexMicroORM.Core.Helper;
+using System.Threading;
+using System.Diagnostics;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -118,141 +121,210 @@ namespace CodexMicroORM.Core.Services
             return fullName;
         }
 
+        private static ConcurrentDictionary<Type, bool> _isWrapListCache = new ConcurrentDictionary<Type, bool>();
+
         internal static bool IsWrappableListType(Type sourceType, object sourceVal)
         {
+            if (_isWrapListCache.TryGetValue(sourceType, out bool v))
+            {
+                return v;
+            }
+
             if (sourceType.IsValueType || !sourceType.IsConstructedGenericType || sourceType.GenericTypeArguments?.Length != 1 || sourceType.GenericTypeArguments[0].IsValueType)
             {
+                _isWrapListCache[sourceType] = false;
                 return false;
             }
 
-            if (sourceVal != null && sourceVal.GetType().Name.StartsWith("EntitySet`"))
+            if (sourceVal != null && sourceVal.GetType().Name.StartsWith(Globals.PreferredEntitySetType.Name))
             {
                 // Should already be wrapped when added to an EntitySet
+                _isWrapListCache[sourceType] = false;
                 return false;
             }
 
-            return (sourceType.Name.StartsWith("IList`") || sourceType.Name.StartsWith("ICollection`") || sourceType.Name.StartsWith("IEnumerable`"));
+            var v2 = (sourceType.Name.StartsWith("IList`") || sourceType.Name.StartsWith("ICollection`") || sourceType.Name.StartsWith("IEnumerable`"));
+            _isWrapListCache[sourceType] = v2;
+            return v2;
         }
 
         internal static ICEFList CreateWrappingList(ServiceScope ss, Type sourceType, object host, string propName)
         {
-            string setWrapType = $"CodexMicroORM.Core.Services.EntitySet`1[[{sourceType.GenericTypeArguments[0].AssemblyQualifiedName}]], {Assembly.GetExecutingAssembly().GetName().FullName}";
-            var wrappedCol = Activator.CreateInstance(Type.GetType(setWrapType)) as ICEFList;
+            var setWrapType = Globals.PreferredEntitySetType.MakeGenericType(sourceType.GenericTypeArguments[0]);
+            var wrappedCol = Activator.CreateInstance(setWrapType) as ICEFList;
 
             ((ISupportInitializeNotification)wrappedCol).BeginInit();
             ((ICEFList)wrappedCol).Initialize(ss, host, host.GetBaseType().Name, propName);
             return wrappedCol;
         }
 
+        private static ConcurrentDictionary<Type, IDictionary<string, Type>> _propCache = new ConcurrentDictionary<Type, IDictionary<string, Type>>();
+        private static ConcurrentDictionary<Type, bool> _sourceValTypeOk = new ConcurrentDictionary<Type, bool>();
+        private static long _copyNesting = 0;
+
         internal static void CopyParsePropertyValues(IDictionary<string, object> sourceProps, object source, object target, bool isNew, ServiceScope ss, IDictionary<object, object> visits, bool justTraverse)
         {
             // Recursively parse property values for an object graph. This not only adjusts collection types to be trackable concrete types, but registers child objects into the current service scope.
 
-            var iter = sourceProps == null ? (from t in target.GetType().GetProperties() where t.CanWrite select new { PropName = t.Name, SourceVal = target.FastGetValue(t.Name), Target = t, TargPropType = t.PropertyType }) 
-                : (from s in sourceProps from t in target.GetType().GetProperties() where s.Key == t.Name && t.CanWrite select new { PropName = s.Key, SourceVal = s.Value, Target = t, TargPropType = t.PropertyType });
+            _propCache.TryGetValue(target.GetType(), out var dic);
 
-            var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 2 && iter.Count() > Environment.ProcessorCount >> 1 ? Environment.ProcessorCount >> 1 : 1;
-
-            Parallel.ForEach(iter, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (info) =>
+            if (dic == null)
             {
-                object wrapped = null;
+                dic = (from a in target.FastGetAllProperties(true, true) select new { Name = a.name, PropertyType = a.type }).ToDictionary((p) => p.Name, (p) => p.PropertyType);
+                _propCache[target.GetType()] = dic;
+            }
 
-                if (ss != null && IsWrappableListType(info.TargPropType, info.SourceVal))
+            var iter = sourceProps == null ? 
+                (from t in dic select (t.Key, target.FastGetValue(t.Key), t.Value)) 
+                : (from s in sourceProps from t in dic where s.Key == t.Key select (s.Key, s.Value, t.Value ));
+
+            var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 4 && iter.Count() >= Environment.ProcessorCount ? Environment.ProcessorCount >> 2 : 1;
+
+            Interlocked.Add(ref _copyNesting, maxdop);
+
+            try
+            {
+                Action<(string PropName, object SourceVal, Type TargPropType)> a = ((string PropName, object SourceVal, Type TargPropType) info) =>
                 {
-                    ICEFList wrappedCol = null;
+                    object wrapped = null;
 
-                    if (ss.Settings.InitializeNullCollections || info.SourceVal != null)
+                    if (ss != null && IsWrappableListType(info.TargPropType, info.SourceVal))
                     {
-                        // This by definition represents CHILDREN
-                        // Use an observable collection we control - namely EntitySet
-                        wrappedCol = CreateWrappingList(ss, info.TargPropType, target, info.PropName);
-                        target.FastSetValue(info.PropName, wrappedCol);
+                        ICEFList wrappedCol = null;
+
+                        if (ss.Settings.InitializeNullCollections || info.SourceVal != null)
+                        {
+                            // This by definition represents CHILDREN
+                            // Use an observable collection we control - namely EntitySet
+                            wrappedCol = CreateWrappingList(ss, info.TargPropType, target, info.PropName);
+                            target.FastSetValue(info.PropName, wrappedCol);
+                        }
+                        else
+                        {
+                            wrappedCol = info.SourceVal as ICEFList;
+                        }
+
+                        // Merge any existing data into the collection - as we do this, recursively construct wrappers!
+                        if (info.SourceVal != null && wrappedCol != null)
+                        {
+                            // Based on the above type checks, we know this thing supports IEnumerable
+                            var sValEnum = ((System.Collections.IEnumerable)info.SourceVal).GetEnumerator();
+
+                            while (sValEnum.MoveNext())
+                            {
+                                if (visits.ContainsKey(sValEnum.Current))
+                                {
+                                    wrapped = visits[sValEnum.Current] ?? sValEnum.Current;
+                                }
+                                else
+                                {
+                                    wrapped = ss.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, visits);
+                                }
+
+                                wrappedCol.AddWrappedItem(wrapped);
+                            }
+                        }
+
+                        if (ss.Settings.InitializeNullCollections || info.SourceVal != null)
+                        {
+                            ((ISupportInitializeNotification)wrappedCol).EndInit();
+                        }
                     }
                     else
                     {
-                        wrappedCol = info.SourceVal as ICEFList;
-                    }
-
-                    // Merge any existing data into the collection - as we do this, recursively construct wrappers!
-                    if (info.SourceVal != null && wrappedCol != null)
-                    {
-                        // Based on the above type checks, we know this thing supports IEnumerable
-                        var sValEnum = ((System.Collections.IEnumerable)info.SourceVal).GetEnumerator();
-
-                        while (sValEnum.MoveNext())
+                        // If the type is a ref type that we manage, then this property represents a PARENT and we should replace/track it (only if we have a PK for it: without one, can't be tracked)
+                        if (ss != null && info.SourceVal != null)
                         {
-                            if (visits.ContainsKey(sValEnum.Current))
+                            var svt = info.SourceVal.GetType();
+                            bool svtok;
+
+                            if (!_sourceValTypeOk.TryGetValue(svt, out svtok))
                             {
-                                wrapped = visits[sValEnum.Current] ?? sValEnum.Current;
+                                svtok = !svt.IsValueType && svt != typeof(string) && KeyService.ResolveKeyDefinitionForType(svt).Any();
+                                _sourceValTypeOk[svt] = svtok;
+                            }
+
+                            if (svtok)
+                            {
+                                if (visits.ContainsKey(info.SourceVal))
+                                {
+                                    wrapped = visits[info.SourceVal] ?? info.SourceVal;
+                                }
+                                else
+                                {
+                                    wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, null, visits);
+                                }
+
+                                if (wrapped != null)
+                                {
+                                    target.FastSetValue(info.PropName, wrapped);
+                                }
                             }
                             else
                             {
-                                wrapped = ss.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, visits);
+                                if (!justTraverse)
+                                {
+                                    target.FastSetValue(info.PropName, info.SourceVal);
+                                }
                             }
-
-                            wrappedCol.AddWrappedItem(wrapped);
+                        }
+                        else
+                        {
+                            if (!justTraverse)
+                            {
+                                target.FastSetValue(info.PropName, info.SourceVal);
+                            }
                         }
                     }
+                };
 
-                    if (ss.Settings.InitializeNullCollections || info.SourceVal != null)
+                int resdop = Interlocked.Read(ref _copyNesting) > 12 ? 1 : maxdop;
+
+                if (resdop == 1)
+                {
+                    foreach (var info in iter)
                     {
-                        ((ISupportInitializeNotification)wrappedCol).EndInit();
+                        a.Invoke(info);
                     }
                 }
                 else
                 {
-                    // If the type is a ref type that we manage, then this property represents a PARENT and we should replace/track it (only if we have a PK for it: without one, can't be tracked)
-                    if (ss != null && info.SourceVal != null && !info.SourceVal.GetType().IsValueType && info.SourceVal.GetType() != typeof(string) && KeyService.ResolveKeyDefinitionForType(info.SourceVal.GetType()).Any())
+                    Parallel.ForEach(iter, new ParallelOptions() { MaxDegreeOfParallelism = resdop }, (info) =>
                     {
-                        if (visits.ContainsKey(info.SourceVal))
+                        using (CEF.UseServiceScope(ss))
                         {
-                            wrapped = visits[info.SourceVal] ?? info.SourceVal;
+                            a.Invoke(info);
                         }
-                        else
-                        {
-                            wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, null, visits);
-                        }
-
-                        if (wrapped != null)
-                        {
-                            target.FastSetValue(info.PropName, wrapped);
-                        }
-                    }
-                    else
-                    {
-                        if (!justTraverse)
-                        {
-                            target.FastSetValue(info.PropName, info.SourceVal);
-                        }
-                    }
+                    });
                 }
-            });
+            }
+            finally
+            {
+                Interlocked.Add(ref _copyNesting, -maxdop);
+            }
         }
 
         internal static void CopyPropertyValuesObject(object source, object target, bool isNew, ServiceScope ss, IDictionary<string, object> removeIfSet, IDictionary<object, object> visits)
         {
-            Dictionary<string, object> props = new Dictionary<string, object>();
+            Dictionary<string, object> props = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY);
 
             var pkFields = KeyService.ResolveKeyDefinitionForType(source.GetBaseType());
 
-            foreach (var pi in source.GetType().GetProperties())
+            foreach (var pi in source.FastGetAllProperties(true, true))
             {
                 // For new rows, ignore the PK since it should be assigned by key service
-                if (pi.CanRead && (!isNew || !pkFields.Contains(pi.Name)))
+                if ((!isNew || !pkFields.Contains(pi.name)))
                 {
-                    props[pi.Name] = source.FastGetValue(pi.Name);
+                    props[pi.name] = source.FastGetValue(pi.name);
+
+                    if (removeIfSet != null && removeIfSet.ContainsKey(pi.name))
+                    {
+                        removeIfSet.Remove(pi.name);
+                    }
                 }
             }
 
             CopyParsePropertyValues(props, source, target, isNew, ss, visits, false);
-
-            if (removeIfSet != null)
-            {
-                foreach (var k in (from a in removeIfSet join b in props on a.Key equals b.Key select a.Key))
-                {
-                    removeIfSet.Remove(k);
-                }
-            }
         }
 
         private static ICEFWrapper InternalCreateWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, bool missingAllowed, ServiceScope ss, IDictionary<object, ICEFWrapper> wrappers, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits)
@@ -322,7 +394,7 @@ namespace CodexMicroORM.Core.Services
 
         public static ICEFWrapper CreateWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ServiceScope ss, IDictionary<string, object> props = null, IDictionary<string, Type> types = null, IDictionary<object, object> visits = null)
         {
-            return InternalCreateWrapper(need, action, isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(), props, types, visits ?? new ConcurrentDictionary<object, object>());
+            return InternalCreateWrapper(need, action, isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(Globals.DEFAULT_DICT_CAPACITY), props, types, visits ?? new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY));
         }
 
         public static ICEFInfraWrapper CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types)
@@ -379,7 +451,7 @@ namespace CodexMicroORM.Core.Services
             visits[iw] = true;
 
             var av = (from a in iw.GetAllValues() where a.Value != null && !a.Value.GetType().IsValueType && !a.Value.GetType().FullName.StartsWith("System.") select a).ToList();
-            var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 2 && av.Count() > Environment.ProcessorCount >> 1 ? Environment.ProcessorCount >> 1 : 1;
+            var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 4 && av.Count() > Environment.ProcessorCount ? Environment.ProcessorCount >> 2 : 1;
 
             Parallel.ForEach(av, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (kvp) =>
             {

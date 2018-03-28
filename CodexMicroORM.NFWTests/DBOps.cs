@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -669,7 +669,7 @@ namespace CodexMicroORM.NFWTests
                 phone.Number = "222-8173";
                 Assert.AreEqual(1, CEF.DBSave().Count());
                 var end = phone.LastUpdatedDate;
-                Assert.IsTrue(end > start);
+                Assert.IsTrue(end >= start);
 
                 // Service scope serialization is a bit different than it was for the person: we're only expecting 4 objects in the scope (not doing as an object graph, doing everything as a list, effectively)
                 Assert.AreEqual(4, CEF.GetAllTracked().Count());

@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ using System.ComponentModel;
 using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
+using CodexMicroORM.Core.Helper;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -375,17 +376,55 @@ namespace CodexMicroORM.Core.Services
             // Different order #'s require sequential processing, so we group by order # - within an order group/table, we should be able to issue parallel requests
             // We also offer a way to "preview" what will be saved and adjust if needed
             // By grouping by provider type, we support hybrid data sources, by type
+            List<(ICEFInfraWrapper row, Type basetype, string schema, string name, int level, ObjectState rs, IDBProvider prov)> tempList = new List<(ICEFInfraWrapper row, Type basetype, string schema, string name, int level, ObjectState rs, IDBProvider prov)>();
+
+            Parallel.ForEach(rows, (a) =>
+            {
+                using (CEF.UseServiceScope(ss))
+                {
+                    var uw = a.AsUnwrapped();
+                    var bt = uw.GetBaseType();
+
+                    if (uw != null && (settings.LimitToSingleType == null || settings.LimitToSingleType.Equals(bt)))
+                    {
+                        var sp = (settings.RowSavePreview == null ? (true, null) : settings.RowSavePreview.Invoke(a));
+                        var rs = sp.treatas.GetValueOrDefault(a.GetRowState());
+
+                        if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && sp.cansave && (cs.ToAcceptList?.Count == 0 || !cs.ToAcceptList.Contains(a)))
+                        {
+                            var w = a.GetWrappedObject() as ICEFWrapper;
+                            var prov = GetProviderForType(bt);
+                            var level = settings.LimitToSingleType != null ? 1 : ks.GetObjectNestLevel(uw);
+                            var schema = w?.GetSchemaName() ?? GetSchemaNameByType(bt);
+                            var name = GetEntityNameByType(bt, w);
+                            var row = (aud == null ? a : aud.SavePreview(ss, a, rs));
+
+                            lock (tempList)
+                            {
+                                tempList.Add((row, bt, schema, name, level, rs, prov));
+                            }
+                        }
+                    }
+                }
+            });
+
+            var ordRows = from a in tempList
+                          group a by new { Level = a.level, RowState = a.rs, Provider = a.prov }
+                          into g
+                          select new { g.Key.Provider, g.Key.Level, g.Key.RowState, Rows = (from asp in g select (asp.schema, asp.name, asp.basetype, asp.row)) };
+
+            /*
             var ordRows = (from a in rows
                            let uw = a.AsUnwrapped()
-                           where uw != null
-                           let level = ks.GetObjectNestLevel(uw)
+                           let bt = uw?.GetBaseType()
+                           where uw != null && (settings.LimitToSingleType == null || settings.LimitToSingleType.Equals(bt))
                            let sp = (settings.RowSavePreview == null ? (true, null) : settings.RowSavePreview.Invoke(a))
                            let rs = sp.treatas.GetValueOrDefault(a.GetRowState())
                            where (rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && sp.cansave && (cs.ToAcceptList?.Count == 0 || !cs.ToAcceptList.Contains(a))
                            let w = a.GetWrappedObject() as ICEFWrapper
-                           let bt = uw.GetBaseType()
                            let rd = new { Row = a, BaseType = bt, Schema = w?.GetSchemaName() ?? GetSchemaNameByType(bt), Name = GetEntityNameByType(bt, w) }
                            let prov = GetProviderForType(bt)
+                           let level = settings.LimitToSingleType != null ? 1 : ks.GetObjectNestLevel(uw)
                            group rd by new
                            {
                                Level = level,
@@ -394,6 +433,7 @@ namespace CodexMicroORM.Core.Services
                            }
                            into g
                            select new { g.Key.Provider, g.Key.Level, g.Key.RowState, Rows = (from asp in g select (asp.Schema, asp.Name, asp.BaseType, Row: (aud == null ? asp.Row : aud.SavePreview(ss, asp.Row, g.Key.RowState)))) });
+            */
 
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Delete) != 0)
             {
@@ -405,9 +445,9 @@ namespace CodexMicroORM.Core.Services
                     var parentRows = (from a in ordRows
                                       where a.Provider == prov && a.RowState == ObjectState.Deleted
                                       from r in a.Rows
-                                      where _typeParentSave.ContainsKey(r.BaseType)
+                                      where _typeParentSave.ContainsKey(r.basetype)
                                       group r by a.Level into g
-                                      select (g.Key, (from b in g let pn = _typeParentSave[b.BaseType] select (pn.schema ?? b.Schema, pn.name, b.BaseType, b.Row))));
+                                      select (g.Key, (from b in g let pn = _typeParentSave[b.basetype] select (pn.schema ?? b.schema, pn.name, b.basetype, b.row))));
 
                     if (parentRows.Any())
                     {
@@ -432,9 +472,9 @@ namespace CodexMicroORM.Core.Services
                     var parentRows = (from a in ordRows
                                       where a.Provider == prov && a.RowState == ObjectState.Added
                                       from r in a.Rows
-                                      where _typeParentSave.ContainsKey(r.BaseType)
+                                      where _typeParentSave.ContainsKey(r.basetype)
                                       group r by a.Level into g
-                                      select (g.Key, (from b in g let pn = _typeParentSave[b.BaseType] select (pn.schema ?? b.Schema, pn.name, b.BaseType, b.Row))));
+                                      select (g.Key, (from b in g let pn = _typeParentSave[b.basetype] select (pn.schema ?? b.schema, pn.name, b.basetype, b.row))));
 
                     if (parentRows.Any())
                     {
@@ -461,9 +501,9 @@ namespace CodexMicroORM.Core.Services
                     var parentRows = (from a in ordRows
                                       where a.Provider == prov && a.RowState == ObjectState.Modified
                                       from r in a.Rows
-                                      where _typeParentSave.ContainsKey(r.BaseType)
+                                      where _typeParentSave.ContainsKey(r.basetype)
                                       group r by a.Level into g
-                                      select (g.Key, (from b in g let pn = _typeParentSave[b.BaseType] select (pn.schema ?? b.Schema, pn.name, b.BaseType, b.Row))));
+                                      select (g.Key, (from b in g let pn = _typeParentSave[b.basetype] select (pn.schema ?? b.schema, pn.name, b.basetype, b.row))));
 
                     if (parentRows.Any())
                     {

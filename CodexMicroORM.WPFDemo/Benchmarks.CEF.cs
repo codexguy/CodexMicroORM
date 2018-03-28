@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using CodexMicroORM.Core;
 using CodexMicroORM.Core.Services;
 using CodexMicroORM.DemoObjects;
@@ -200,7 +201,7 @@ namespace CodexMicroORM.WPFDemo
 
             var people = new EntitySet<PersonWrapped>();
 
-            Parallel.For(1, total_parents + 1, (parentcnt) =>
+            Parallel.For(1, total_parents + 1, new ParallelOptions() { MaxDegreeOfParallelism = 8 }, (parentcnt) =>
             {
                 using (CEF.NewServiceScope())
                 {
@@ -237,10 +238,7 @@ namespace CodexMicroORM.WPFDemo
 
                     CEF.DBSave();
 
-                    lock (people)
-                    {
-                        people.Add(parent);
-                    }
+                    people.Add(parent);
                 }
             });
 
@@ -251,18 +249,16 @@ namespace CodexMicroORM.WPFDemo
 
             // For purposes of benchmarking, treat this as a completely separate operation
             // For everyone who's a parent of at least 30 yo, if at least 2 children of same sex, remove work phone, increment age
-            EntitySet<Person> people2;
 
-            using (CEF.NewServiceScope())
+            using (var ss = CEF.NewServiceScope())
             {
-                people2 = new EntitySet<Person>().DBRetrieveSummaryForParents(30);
+                var people2 = new EntitySet<Person>().DBRetrieveSummaryForParents(30);
 
                 Parallel.ForEach((from a in people2 let d = a.AsDynamic() where d.MaleChildren > 1 || d.FemaleChildren > 1 select a).ToList(), (p) =>
                 {
-                    using (CEF.NewServiceScope())
+                    using (CEF.UseServiceScope(ss))
                     {
-                        CEF.IncludeObject(p);
-                        p.Age += 1;
+                        p.AsInfraWrapped().SetValue(nameof(Person.Age), p.Age + 1);
 
                         var ph2 = new EntitySet<Phone>().DBRetrieveByOwner(p.PersonID, PhoneType.Work).FirstOrDefault();
 
@@ -271,13 +267,117 @@ namespace CodexMicroORM.WPFDemo
                             CEF.DeleteObject(ph2);
                         }
 
-                        Interlocked.Add(ref cnt2, CEF.DBSave().Count());
+                        p.DBSave();
+                        Interlocked.Add(ref cnt2, 2);
                     }
                 });
             }
 
             rowcount2 += (int)cnt2;
             watch.Stop();
+
+            testTimes2.Add(watch.ElapsedMilliseconds);
+        }
+
+        public static void Benchmark3SavePer(int total_parents, List<long> testTimes, List<long> testTimes2, ref int rowcount, ref int rowcount2)
+        {
+            var watch = new System.Diagnostics.Stopwatch();
+            watch.Start();
+            long cnt1 = 0;
+
+            var people = new EntitySet<PersonWrapped>();
+
+            Parallel.For(1, total_parents + 1, (parentcnt) =>
+            {
+                using (CEF.NewServiceScope())
+                {
+                    var parent = CEF.NewObject(new PersonWrapped() { Name = $"NP{parentcnt}", Age = (parentcnt % 60) + 20, Gender = (parentcnt % 2) == 0 ? "F" : "M" });
+
+                    parent.Phones.Add(new Phone() { Number = "888-7777", PhoneTypeID = PhoneType.Mobile });
+                    parent.Phones.Add(new Phone() { Number = "777-6666", PhoneTypeID = PhoneType.Work });
+
+                    if ((parentcnt % 12) == 0)
+                    {
+                        CEF.NewObject(new Phone() { Number = "666-5555", PhoneTypeID = PhoneType.Home });
+                    }
+                    else
+                    {
+                        parent.Phones.Add(new Phone() { Number = "777-6666", PhoneTypeID = PhoneType.Home });
+                    }
+
+                    Interlocked.Add(ref cnt1, 4);
+
+                    for (int childcnt = 1; childcnt <= (parentcnt % 4); ++childcnt)
+                    {
+                        var child = CEF.NewObject(new PersonWrapped()
+                        {
+                            Name = $"NC{parentcnt}{childcnt}",
+                            Age = parent.Age - 20,
+                            Gender = (parentcnt % 2) == 0 ? "F" : "M"
+                            ,
+                            Phones = new Phone[] { new Phone() { Number = "999-8888", PhoneTypeID = PhoneType.Mobile } }
+                        });
+
+                        parent.Kids.Add(child);
+                        Interlocked.Add(ref cnt1, 2);
+                    }
+
+                    CEF.DBSave();
+                }
+            });
+
+            rowcount += (int)cnt1;
+            testTimes.Add(watch.ElapsedMilliseconds);
+            watch.Restart();
+            long cnt2 = 0;
+
+            // For purposes of benchmarking, treat this as a completely separate operation
+            // For everyone who's a parent of at least 30 yo, if at least 2 children of same sex, remove work phone, increment age
+
+            int? id = null;
+
+            using (var ss = CEF.NewServiceScope())
+            {
+                var people2 = new EntitySet<Person>().DBRetrieveSummaryForParents(30);
+
+                Parallel.ForEach((from a in people2 let d = a.AsDynamic() where d.MaleChildren > 1 || d.FemaleChildren > 1 select a).ToList(), (p) =>
+                {
+                    using (CEF.UseServiceScope(ss))
+                    {
+                        if (!id.HasValue)
+                        {
+                            id = p.PersonID;
+                        }
+
+                        p.AsInfraWrapped().SetValue(nameof(Person.Age), p.Age + 1);
+
+                        var ph2 = new EntitySet<Phone>().DBRetrieveByOwner(p.PersonID, PhoneType.Work).FirstOrDefault();
+
+                        if (ph2 != null)
+                        {
+                            CEF.DeleteObject(ph2);
+                        }
+
+                        p.DBSave();
+                        Interlocked.Add(ref cnt2, 2);
+                    }
+                });
+
+                // Simulate "later heavy read access"...
+                for (int c = 0; c < 50000; ++c)
+                {
+                    var work = new EntitySet<Phone>().DBRetrieveByOwner(c + id.GetValueOrDefault(), PhoneType.Work).FirstOrDefault();
+
+                    if (work != null && work.Number == "123")
+                    {
+                        MessageBox.Show("Found (should never!)");
+                    }
+                }
+            }
+
+            rowcount2 += (int)cnt2 + 50000;
+            watch.Stop();
+
             testTimes2.Add(watch.ElapsedMilliseconds);
         }
 

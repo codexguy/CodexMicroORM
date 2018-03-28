@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -37,36 +37,110 @@ namespace CodexMicroORM.Core.Collections
     /// It is also thread-safe and can get used in plenty of situations outside of the "ORM" of CodexMicroORM.
     /// </summary>
     /// <typeparam name="T">Must implement ICEFIndexedListItem which affords a way to customize values returned by each item instance, such as unwrapping of WeakReference's.</typeparam>
-    public class ConcurrentIndexedList<T> : IEnumerable<T>, IEnumerable, ICollection<T>, ICollection  where T : class, ICEFIndexedListItem
+    public sealed class ConcurrentIndexedList<T> : IEnumerable<T>, IEnumerable, ICollection<T>, ICollection  where T : class, ICEFIndexedListItem
     {
         #region "Private state"
 
+        private static int _baseCapacity = Environment.ProcessorCount * 7;
         private static object _asNull = new object();
 
         private long _dataID = long.MinValue;
+        private RWLockInfo _lock = new RWLockInfo();
+        private int _initCapacity = _baseCapacity;
 
-        ConcurrentDictionary<long, T> _data = new ConcurrentDictionary<long, T>();
-        HashSet<string> _isUnique = new HashSet<string>();
-        ConcurrentDictionary<T, long> _contains = new ConcurrentDictionary<T, long>();
-        ConcurrentDictionary<string, ConcurrentDictionary<object, ImmutableList<long>>> _masterIndex = new ConcurrentDictionary<string, ConcurrentDictionary<object, ImmutableList<long>>>();
+        private Dictionary<long, T> _data;
+        private HashSet<string> _isUnique = new HashSet<string>();
+        private HashSet<string> _neverNull = new HashSet<string>();
+        private Dictionary<T, long> _contains;
+        private Dictionary<string, Dictionary<object, List<long>>> _masterIndex = new Dictionary<string, Dictionary<object, List<long>>>();
 
         #endregion
 
         public static object NullValue => _asNull;
 
+        public ConcurrentIndexedList(int lockTimeout, int initCapacity, params string[] propsToIndex)
+        {
+            _initCapacity = initCapacity;
+            _lock.Timeout = lockTimeout;
+            Init(propsToIndex);
+        }
+
+        public ConcurrentIndexedList(int initCapacity, params string[] propsToIndex)
+        {
+            _initCapacity = initCapacity;
+            Init(propsToIndex);
+        }
+
         public ConcurrentIndexedList(params string[] propsToIndex)
         {
-            foreach (var props in propsToIndex)
+            Init(propsToIndex);
+        }
+
+        /// <summary>
+        /// Allows control over lock timeout specific to this collection.
+        /// </summary>
+        public int LockTimeout
+        {
+            get
             {
-                _masterIndex[props] = new ConcurrentDictionary<object, ImmutableList<long>>();
+                return _lock.Timeout;
+            }
+            set
+            {
+                _lock.Timeout = value;
             }
         }
 
+        /// <summary>
+        /// If you know a general maximum capacity for the collection, there are benefits to setting it early.
+        /// </summary>
+        public int InitialCapacity
+        {
+            get
+            {
+                return _initCapacity;
+            }
+            set
+            {
+                if (_initCapacity != value)
+                {
+                    _initCapacity = value;
+                    Init((from a in _masterIndex select a.Key).ToArray());
+                }
+            }
+        }
+
+        private void Init(string[] propsToIndex)
+        {
+            foreach (var props in propsToIndex)
+            {
+                int cap = _baseCapacity;
+
+                if (_isUnique.Contains(props) && !_neverNull.Contains(props))
+                {
+                    cap = _initCapacity;
+                }
+
+                _masterIndex[props] = new Dictionary<object, List<long>>(cap);
+            }
+
+            _data = new Dictionary<long, T>(_initCapacity);
+            _contains = new Dictionary<T, long>(_initCapacity);
+        }
+
+        /// <summary>
+        /// Locate a specific record, if it exists in the collection.
+        /// </summary>
+        /// <param name="source"></param>
+        /// <returns></returns>
         public T Find(T source)
         {
-            if (_contains.TryGetValue(source, out long id))
+            using (new ReaderLock(_lock))
             {
-                return _data[id];
+                if (_contains.TryGetValue(source, out long id))
+                {
+                    return _data[id];
+                }
             }
 
             return null;
@@ -78,7 +152,16 @@ namespace CodexMicroORM.Core.Collections
             set;
         } = true;
 
-        public int Count => _data.Count;
+        public int Count
+        {
+            get
+            {
+                using (new ReaderLock(_lock))
+                {
+                    return _data.Count;
+                }
+            }
+        }
 
         public bool IsReadOnly => false;
 
@@ -86,71 +169,99 @@ namespace CodexMicroORM.Core.Collections
 
         public object SyncRoot => this;
 
+        /// <summary>
+        /// Causes collection to throw an error if try to add a duplicate value for the given property. (Affords some optimizations as well.)
+        /// </summary>
+        /// <param name="propName"></param>
+        /// <returns></returns>
         public ConcurrentIndexedList<T> AddUniqueConstraint(string propName)
         {
             _isUnique.Add(propName);
             return this;
         }
 
+        /// <summary>
+        /// If you know you will never access the collection for this property using a null value, affords a way for the collection to consume less memory.
+        /// </summary>
+        /// <param name="propName"></param>
+        /// <returns></returns>
+        public ConcurrentIndexedList<T> AddNeverTrackNull(string propName)
+        {
+            _neverNull.Add(propName);
+            return this;
+        }
+
+        /// <summary>
+        /// Add an item to the collection. (If it already exists, no operation.)
+        /// </summary>
+        /// <param name="item"></param>
         public void Add(T item)
         {
-            if (_contains.ContainsKey(item ?? throw new ArgumentNullException("item")))
+            using (new ReaderLock(_lock))
             {
-                return;
+                if (_contains.ContainsKey(item ?? throw new ArgumentNullException("item")))
+                {
+                    return;
+                }
             }
 
             var id = Interlocked.Increment(ref _dataID);
 
-            try
+            using (new WriterLock(_lock))
             {
-            }
-            finally
-            {
-                lock (this)
+                foreach (var dic in _masterIndex)
                 {
-                    foreach (var dic in _masterIndex)
+                    var record = true;
+
+                    if (_neverNull.Contains(dic.Key))
+                    {
+                        if (item.GetValue(dic.Key, true) == null)
+                        {
+                            record = false;
+                        }                        
+                    }
+
+                    if (record)
                     {
                         var propVal = item.GetValue(dic.Key, false);
 
-                        if (dic.Value.TryGetValue(propVal ?? _asNull, out ImmutableList<long> bag))
+                        if (dic.Value.TryGetValue(propVal ?? _asNull, out List<long> bag))
                         {
                             if (bag.Count > 0 && _isUnique.Contains(dic.Key))
                             {
                                 throw new CEFInvalidOperationException($"Collection already contains an entry for '{propVal}'.");
                             }
 
-                            dic.Value[propVal ?? _asNull] = bag.Add(id);
+                            bag.Add(id);
                         }
                         else
                         {
-                            var newBag = ImmutableList.Create(id);
+                            List<long> newBag = new List<long>();
+                            newBag.Add(id);
                             dic.Value[propVal ?? _asNull] = newBag;
                         }
                     }
-
-                    _data[id] = item;
-                    _contains[item] = id;
                 }
+
+                _data[id] = item;
+                _contains[item] = id;
             }
         }
 
+        /// <summary>
+        /// Remove all items from the collection.
+        /// </summary>
         public void Clear()
         {
-            try
+            using (new WriterLock(_lock))
             {
-            }
-            finally
-            {
-                lock (this)
+                foreach (var dic in _masterIndex)
                 {
-                    foreach (var dic in _masterIndex)
-                    {
-                        dic.Value.Clear();
-                    }
-
-                    _data.Clear();
-                    _contains.Clear();
+                    dic.Value.Clear();
                 }
+
+                _data.Clear();
+                _contains.Clear();
             }
         }
 
@@ -162,7 +273,21 @@ namespace CodexMicroORM.Core.Collections
         /// <returns></returns>
         public T GetFirstByName(string propName, object propValue, Func<T, bool> preview = null)
         {
-            return GetAllByName(propName, propValue).FirstOrDefault();
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            {
+                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+            }
+
+            using (new ReaderLock(_lock))
+            {
+                if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
+                {
+                    T val = null;
+                    return (from a in bag where _data.TryGetValue(a, out val) where preview == null || preview(val) select val).FirstOrDefault();
+                }
+            }
+
+            return default;
         }
 
         /// <summary>
@@ -179,15 +304,16 @@ namespace CodexMicroORM.Core.Collections
                 throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
             }
 
-            if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out ImmutableList<long> bag))
+            using (new ReaderLock(_lock))
             {
-                T val = null;
-                return (from a in bag where _data.TryGetValue(a, out val) where preview == null || preview.Invoke(val) select val);
+                if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
+                {
+                    T val = null;
+                    return (from a in bag where _data.TryGetValue(a, out val) where preview == null || preview(val) select val).ToArray();
+                }
             }
-            else
-            {
-                return new T[] { };
-            }
+
+            return new T[] { };
         }
 
         /// <summary>
@@ -203,38 +329,43 @@ namespace CodexMicroORM.Core.Collections
                 throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
             }
 
-            var index = _masterIndex[propName];
-
-            if (index.TryGetValue(oldval ?? _asNull, out ImmutableList<long> oldBag))
+            using (new WriterLock(_lock))
             {
-                if (index.TryGetValue(newval ?? _asNull, out ImmutableList<long> newBag))
+                var index = _masterIndex[propName];
+
+                if (index.TryGetValue(oldval ?? _asNull, out List<long> oldBag))
                 {
-                    if (_isUnique.Contains(propName) && newBag.Count > 0)
+                    if (index.TryGetValue(newval ?? _asNull, out List<long> newBag))
                     {
-                        throw new CEFInvalidOperationException($"Collection already contains an entry for '{newval}'.");
+                        if (_isUnique.Contains(propName) && newBag.Count > 0)
+                        {
+                            throw new CEFInvalidOperationException($"Collection already contains an entry for '{newval}'.");
+                        }
+
+                        oldBag.AddRange(from a in newBag where !oldBag.Contains(a) select a);
                     }
 
-                    oldBag = oldBag.AddRange(from a in newBag where !oldBag.Contains(a) select a);
-                }
+                    index[newval ?? _asNull] = oldBag;
 
-                try
-                {
-                }
-                finally
-                {
-                    lock (this)
+                    if (index.ContainsKey(oldval ?? _asNull))
                     {
-                        index[newval ?? _asNull] = oldBag;
-
-                        index.TryRemove(oldval ?? _asNull, out ImmutableList<long> removed);
+                        index.Remove(oldval ?? _asNull);
                     }
                 }
             }
         }
 
+        /// <summary>
+        /// Returns true if the given item already exists in the collection.
+        /// </summary>
+        /// <param name="item"></param>
+        /// <returns></returns>
         public bool Contains(T item)
         {
-            return _contains.ContainsKey(item ?? throw new ArgumentNullException("item"));
+            using (new ReaderLock(_lock))
+            {
+                return _contains.ContainsKey(item ?? throw new ArgumentNullException("item"));
+            }
         }
 
         public void CopyTo(T[] array, int arrayIndex)
@@ -249,35 +380,47 @@ namespace CodexMicroORM.Core.Collections
 
         public IEnumerator<T> GetEnumerator()
         {
-            return _data.Values.GetEnumerator();
+            using (new ReaderLock(_lock))
+            {
+                // We need to take an effective snapshot during a read-lock to be certain about what's being handed back!
+                return _data.Values.ToList().GetEnumerator();
+            }
         }
 
+        /// <summary>
+        /// Removes an existing item from the collection (returns false if does not exist in the collection).
+        /// </summary>
+        /// <param name="item"></param>
+        /// <returns></returns>
         public bool Remove(T item)
         {
-            if (!_contains.ContainsKey(item ?? throw new ArgumentNullException("item")))
+            using (new WriterLock(_lock))
             {
-                return false;
-            }
-
-            var id = _contains[item];
-
-            try
-            {
-            }
-            finally
-            {
-                lock (this)
+                if (!_contains.ContainsKey(item ?? throw new ArgumentNullException("item")))
                 {
-                    foreach (var dic in _masterIndex)
-                    {
-                        foreach (var v1 in dic.Value)
-                        {
-                            dic.Value[v1.Key] = v1.Value.Remove(id);
-                        }
-                    }
+                    return false;
+                }
 
-                    _data.TryRemove(id, out T val);
-                    _contains.TryRemove(item, out id);
+                var id = _contains[item];
+
+                foreach (var dic in _masterIndex)
+                {
+                    var propVal = item.GetValue(dic.Key, false);
+
+                    if (dic.Value.TryGetValue(propVal ?? _asNull, out List<long> bag))
+                    {
+                        bag.Remove(id);
+                    }
+                }
+
+                if (_data.ContainsKey(id))
+                {
+                    _data.Remove(id);
+                }
+
+                if (_contains.ContainsKey(item))
+                {
+                    _contains.Remove(item);
                 }
             }
 
@@ -286,7 +429,10 @@ namespace CodexMicroORM.Core.Collections
 
         IEnumerator IEnumerable.GetEnumerator()
         {
-            return _data.Values.GetEnumerator();
+            using (new ReaderLock(_lock))
+            {
+                return _data.Values.ToList().GetEnumerator();
+            }
         }
     }
 }

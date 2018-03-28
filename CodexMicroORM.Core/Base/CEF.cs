@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,6 +23,8 @@ using System.Linq;
 using CodexMicroORM.Core.Services;
 using System.Data;
 using System.Collections.Immutable;
+using System.Threading.Tasks;
+using System.Threading;
 
 namespace CodexMicroORM.Core
 {
@@ -35,6 +37,8 @@ namespace CodexMicroORM.Core
 
         private static ConcurrentDictionary<Type, (bool resolved, IList<ICEFService> list)> _defaultServicesByType = new ConcurrentDictionary<Type, (bool, IList<ICEFService>)>();
         private static ImmutableArray<ICEFService> _globalServices = ImmutableArray<ICEFService>.Empty;
+
+        internal static ServiceScope _globalServiceScope = null;
 
         [ThreadStatic]
         private static Stack<ServiceScope> _allServiceScopes = new Stack<ServiceScope>();
@@ -52,9 +56,18 @@ namespace CodexMicroORM.Core
 
         internal static ConcurrentDictionary<Type, (bool resolved, IList<ICEFService> list)> DefaultServicesByType => _defaultServicesByType;
 
+        private static Action<string, long> _queryPerfInfo = null;
+
         #endregion
 
         #region "Public methods"
+
+        public static ServiceScope GlobalServiceScope => _globalServiceScope;
+
+        public static void RegisterQueryPerformanceTracking(Action<string, long> perfHandler)
+        {
+            _queryPerfInfo = perfHandler;
+        }
 
         /// <summary>
         /// Registers a global service, applicable to any object.
@@ -134,6 +147,7 @@ namespace CodexMicroORM.Core
         public static ServiceScope UseServiceScope(ServiceScope toUse)
         {
             // This is a special type of service scope - we create a shallow copy and flag it as not allowing destruction of contents when disposed
+            // The tempation to check if the toUse == current should be ignored - if we're using in a using block, we might not want destruction of the input scope, so better to push a new one even if more costly
             ServiceScopeInit(new ServiceScope(toUse ?? throw new ArgumentNullException("toUse")), null);
             return _currentServiceScope;
         }
@@ -146,9 +160,15 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewOrCurrentServiceScope(ServiceScopeSettings settings, params ICEFService[] additionalServices)
         {
+            if (_globalServiceScope != null)
+            {
+                ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
+                return _currentServiceScope;
+            }
+
             if (_currentServiceScope != null)
             {
-                ServiceScopeInit(new ServiceScope(_currentServiceScope), null);
+                ServiceScopeInit(new ServiceScope(_currentServiceScope), additionalServices);
                 return _currentServiceScope;
             }
 
@@ -163,9 +183,15 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewOrCurrentServiceScope(params ICEFService[] additionalServices)
         {
+            if (_globalServiceScope != null)
+            {
+                ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
+                return _currentServiceScope;
+            }
+
             if (_currentServiceScope != null)
             {
-                ServiceScopeInit(new ServiceScope(_currentServiceScope), null);
+                ServiceScopeInit(new ServiceScope(_currentServiceScope), additionalServices);
                 return _currentServiceScope;
             }
 
@@ -180,6 +206,12 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewOrCurrentServiceScope(ServiceScopeSettings settings = null)
         {
+            if (_globalServiceScope != null)
+            {
+                ServiceScopeInit(new ServiceScope(_globalServiceScope), null);
+                return _currentServiceScope;
+            }
+
             if (_currentServiceScope != null)
             {
                 ServiceScopeInit(new ServiceScope(_currentServiceScope), null);
@@ -191,6 +223,25 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Resets global state to have no available service scopes - typically used by infrastructure only.
+        /// </summary>
+        public static void RemoveAllServiceScopes()
+        {
+            while (_allServiceScopes?.Count > 0)
+            {
+                if (_currentServiceScope != null)
+                {
+                    _currentServiceScope.Dispose();
+                }
+                else
+                {
+                    _allServiceScopes.Pop().Dispose();
+                }
+            }
+            _currentServiceScope = null;
+        }
+
+        /// <summary>
         /// Creates a new service scope, makes it the ambient scope and returns it.
         /// </summary>
         /// <param name="settings"></param>
@@ -198,6 +249,12 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewServiceScope(ServiceScopeSettings settings, params ICEFService[] additionalServices)
         {
+            if (_globalServiceScope != null)
+            {
+                ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
+                return _currentServiceScope;
+            }
+
             ServiceScopeInit(new ServiceScope(settings), additionalServices);
             return _currentServiceScope;
         }
@@ -209,6 +266,12 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewServiceScope(params ICEFService[] additionalServices)
         {
+            if (_globalServiceScope != null)
+            {
+                ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
+                return _currentServiceScope;
+            }
+
             ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), additionalServices);
             return _currentServiceScope;
         }
@@ -220,6 +283,12 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewServiceScope(ServiceScopeSettings settings = null)
         {
+            if (_globalServiceScope != null)
+            {
+                ServiceScopeInit(new ServiceScope(_globalServiceScope), null);
+                return _currentServiceScope;
+            }
+
             ServiceScopeInit(new ServiceScope(settings ?? new ServiceScopeSettings()), null);
             return _currentServiceScope;
         }
@@ -233,6 +302,11 @@ namespace CodexMicroORM.Core
             {
                 if (_currentServiceScope == null)
                 {
+                    if (_globalServiceScope != null)
+                    {
+                        return _globalServiceScope;
+                    }
+
                     ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), null);
                 }
 
@@ -374,12 +448,29 @@ namespace CodexMicroORM.Core
         {
             if (pop.Any())
             {
-                pop.BeginInit();
                 pop.Clear();
-                pop.EndInit();
             }
 
             InternalDBAppendByQuery(pop, cmdType, cmdText, parms);
+            return pop;
+        }
+
+        /// <summary>
+        /// Retrieves zero, one or many entities, populated into an existing EntitySet collection, using a custom query. The contents of the collection are replaced.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="pop"></param>
+        /// <param name="cmdText"></param>
+        /// <param name="parms"></param>
+        /// <returns></returns>
+        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, string cmdText, params object[] parms) where T : class, new()
+        {
+            if (pop.Any())
+            {
+                pop.Clear();
+            }
+
+            InternalDBAppendByQuery(pop, CommandType.StoredProcedure, cmdText, parms);
             return pop;
         }
 
@@ -399,6 +490,20 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Retrieves zero, one or many entities, populated into an existing EntitySet collection, using a custom query. The pre-existing contents of the collection are retained.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="pop"></param>
+        /// <param name="cmdText"></param>
+        /// <param name="parms"></param>
+        /// <returns></returns>
+        public static EntitySet<T> DBAppendByQuery<T>(this EntitySet<T> pop, string cmdText, params object[] parms) where T : class, new()
+        {
+            InternalDBAppendByQuery(pop, CommandType.StoredProcedure, cmdText, parms);
+            return pop;
+        }
+
+        /// <summary>
         /// Retrieves all available entities from a specific data store (based on entity type). The contents of the collection are replaced.
         /// </summary>
         /// <typeparam name="T"></typeparam>
@@ -408,9 +513,7 @@ namespace CodexMicroORM.Core
         {
             if (pop.Any())
             {
-                pop.BeginInit();
                 pop.Clear();
-                pop.EndInit();
             }
 
             InternalDBAppendAll(pop);
@@ -440,9 +543,7 @@ namespace CodexMicroORM.Core
         {
             if (pop.Any())
             {
-                pop.BeginInit();
                 pop.Clear();
-                pop.EndInit();
             }
 
             InternalDBAppendByKey(pop, key);
@@ -487,6 +588,18 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Adds an existing entity to the ambient service scope using explicit initialization properties.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="toAdd"></param>
+        /// <param name="props"></param>
+        /// <returns></returns>
+        public static T IncludeObject<T>(T toAdd, IDictionary<string, object> props) where T : class, new()
+        {
+            return CurrentServiceScope.IncludeObject<T>(toAdd, null, props);
+        }
+
+        /// <summary>
         /// Marks a specific tracked entity as being in a deleted state. Option to cascade to children.
         /// </summary>
         /// <param name="obj"></param>
@@ -504,7 +617,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static EntitySet<T> CreateList<T>(params T[] items) where T : class, new()
         {
-            return new EntitySet<T>(items);
+            return Globals.NewEntitySet<T>(items);
         }
 
         /// <summary>
@@ -516,7 +629,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static EntitySet<T> CreateList<T>(object parent, string parentFieldName) where T : class, new()
         {
-            var rs = new EntitySet<T>();
+            var rs = Globals.NewEntitySet<T>();
             rs.ParentContainer = parent;
             rs.ParentTypeName = parent.GetBaseType().Name;
             rs.ParentFieldName = parentFieldName;
@@ -534,7 +647,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static EntitySet<T> CreateList<T>(object parent, string parentFieldName, ObjectState initialState, params T[] items) where T : class, new()
         {
-            var rs = new EntitySet<T>();
+            var rs = Globals.NewEntitySet<T>();
 
             rs.ParentContainer = parent ?? throw new ArgumentNullException("parent");
             rs.ParentTypeName = parent.GetBaseType().Name;
@@ -833,38 +946,156 @@ namespace CodexMicroORM.Core
 
         private static void InternalDBAppendAll<T>(EntitySet<T> pop) where T : class, new()
         {
-            pop.BeginInit();
+            Exception tex = null;
+            var ss = CEF.CurrentServiceScope;
 
-            foreach (var row in CurrentDBService().RetrieveAll<T>())
+            Action a = () =>
             {
-                pop.Add(row);
-            }
+                foreach (var row in CurrentDBService().RetrieveAll<T>())
+                {
+                    pop.Add(row);
+                }
+            };
 
-            pop.EndInit();
+            Action b = () =>
+            {
+                try
+                {
+                    using (CEF.UseServiceScope(ss))
+                    {
+                        a();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    tex = ex;
+                }
+            };
+
+            if (Globals.GlobalQueryTimeout.HasValue)
+            {
+                var t = new Thread(new ThreadStart(b));
+                t.Start();
+
+                if (!t.Join(Globals.GlobalQueryTimeout.Value))
+                {
+                    t.Abort();
+                    throw new CEFTimeoutException($"The query failed to complete in the allowed time ({(Globals.GlobalQueryTimeout.Value / 1000)} sec).");
+                }
+
+                if (tex != null)
+                {
+                    throw tex;
+                }
+            }
+            else
+            {
+                a();
+            }
         }
 
         private static void InternalDBAppendByKey<T>(EntitySet<T> pop, object[] key) where T : class, new()
         {
-            pop.BeginInit();
+            Exception tex = null;
+            var ss = CEF.CurrentServiceScope;
 
-            foreach (var row in CurrentDBService().RetrieveByKey<T>(key))
+            Action a = () =>
             {
-                pop.Add(row);
-            }
+                foreach (var row in CurrentDBService().RetrieveByKey<T>(key))
+                {
+                    pop.Add(row);
+                }
+            };
 
-            pop.EndInit();
+            Action b = () =>
+            {
+                try
+                {
+                    using (CEF.UseServiceScope(ss))
+                    {
+                        a();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    tex = ex;
+                }
+            };
+
+            if (Globals.GlobalQueryTimeout.HasValue)
+            {
+                var t = new Thread(new ThreadStart(b));
+                t.Start();
+
+                if (!t.Join(Globals.GlobalQueryTimeout.Value))
+                {
+                    t.Abort();
+                    throw new CEFTimeoutException($"The query failed to complete in the allowed time ({(Globals.GlobalQueryTimeout.Value / 1000)} sec).");
+                }
+
+                if (tex != null)
+                {
+                    throw tex;
+                }
+            }
+            else
+            {
+                a();
+            }
         }
 
         private static void InternalDBAppendByQuery<T>(EntitySet<T> pop, CommandType cmdType, string cmdText, object[] parms) where T : class, new()
         {
-            pop.BeginInit();
+            Exception tex = null;
+            var ss = CEF.CurrentServiceScope;
 
-            foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, parms))
+            Action a = () =>
             {
-                pop.Add(row);
-            }
+                long start = DateTime.Now.Ticks;
 
-            pop.EndInit();
+                foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, parms))
+                {
+                    pop.Add(row);
+                }
+
+                _queryPerfInfo?.Invoke(cmdText, DateTime.Now.Ticks - start);
+            };
+
+            Action b = () =>
+            {
+                try
+                {
+                    using (CEF.UseServiceScope(ss))
+                    {
+                        a();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    tex = ex;
+                }
+            };
+
+            if (Globals.GlobalQueryTimeout.HasValue)
+            {
+                var t = new Thread(new ThreadStart(b));
+                t.Start();
+
+                if (!t.Join(Globals.GlobalQueryTimeout.Value))
+                {
+                    t.Abort();
+                    throw new CEFTimeoutException($"The query failed to complete in the allowed time ({(Globals.GlobalQueryTimeout.Value / 1000)} sec).");
+                }
+
+                if (tex != null)
+                {
+                    throw tex;
+                }
+            }
+            else
+            {
+                a();
+            }
         }
 
         #endregion

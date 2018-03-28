@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,6 +29,28 @@ namespace CodexMicroORM.Core
         }
 
         public CEFInvalidOperationException(string msg, Exception inner) : base(msg, inner)
+        {
+        }
+    }
+
+    public class CEFConstraintException : Exception
+    {
+        public CEFConstraintException(string msg) : base(msg)
+        {
+        }
+
+        public CEFConstraintException(string msg, Exception inner) : base(msg, inner)
+        {
+        }
+    }
+
+    public class CEFTimeoutException : TimeoutException
+    {
+        public CEFTimeoutException(string msg) : base(msg)
+        {
+        }
+
+        public CEFTimeoutException(string msg, Exception inner) : base(msg, inner)
         {
         }
     }

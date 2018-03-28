@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ namespace CodexMicroORM.Providers
     /// <summary>
     /// Implements the functionality expected by CEF for dealing with high-level database operations, for MS SQL Server.
     /// </summary>
-    public class MSSQLProcBasedProvider : IDBProvider
+    public sealed class MSSQLProcBasedProvider : IDBProvider
     {
         private const string DEFAULT_DB_SCHEMA = "dbo";
 
@@ -156,7 +156,7 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        public class ListItem
+        public sealed class ListItem
         {
             public ListItem Next;
             public int ID;
@@ -586,7 +586,7 @@ namespace CodexMicroORM.Providers
                 }
                 else
                 {
-                    var propVals = new Dictionary<string, object>();
+                    var propVals = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY);
 
                     foreach (var kvp in row)
                     {
@@ -594,7 +594,7 @@ namespace CodexMicroORM.Providers
                     }
 
                     no = new T();
-                    WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new ConcurrentDictionary<object, object>(), false);
+                    WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY), false);
                 }
 
                 // Handle property groups if they exist for this type

@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ namespace CodexMicroORM.Core.Services
     /// <summary>
     /// A fully featured wrapper that implements INotifyPropertyChanged, providing change notifications for updates on CLR properties as well as dynamic prop bag properties.
     /// </summary>
-    public class DynamicWithAll : DynamicWithValuesBagErrors, INotifyPropertyChanged
+    public sealed class DynamicWithAll : DynamicWithValuesBagErrors, INotifyPropertyChanged
     {
         internal DynamicWithAll(object o, ObjectState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, irs, props, types)
         {            

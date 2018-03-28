@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ Major Changes:
 ***********************************************************************/
 using CodexMicroORM.Core.Services;
 using System;
+using System.Collections.Generic;
 
 namespace CodexMicroORM.Core
 {
@@ -26,30 +27,15 @@ namespace CodexMicroORM.Core
     /// </summary>
     public static class Globals
     {
+        public const int DEFAULT_DICT_CAPACITY = 11;
+        public const int DEFAULT_LARGER_DICT_CAPACITY = 31;
+
         private static WrappingAction _wrappingAction = WrappingAction.Dynamic;
         private static Type _defaultAuditServiceType = typeof(AuditService);
         private static Type _defaultDBServiceType = typeof(DBService);
         private static Type _defaultKeyServiceType = typeof(KeyService);
         private static Type _defaultPCTServiceType = typeof(PCTService);
         private static Type _defaultValidationServiceType = typeof(ValidationService);
-        //private static Type _defaultFieldMapServiceType = typeof(FieldMapService);
-
-        //public static Type DefaultFieldMapServiceType
-        //{
-        //    get
-        //    {
-        //        return _defaultFieldMapServiceType;
-        //    }
-        //    set
-        //    {
-        //        if (value.GetInterface("ICEFFieldMapHost") == null)
-        //        {
-        //            throw new ArgumentException("Type does not implement ICEFFieldMapHost.");
-        //        }
-
-        //        _defaultFieldMapServiceType = value;
-        //    }
-        //}
 
         public static Type DefaultPCTServiceType
         {
@@ -136,6 +122,65 @@ namespace CodexMicroORM.Core
             }
         }
 
+        private static Type _entitySetType = typeof(EntitySet<>);
+
+        /// <summary>
+        /// When the framework attempts to auto-constuct collections, this is the preferred type to use (must implement ICEFList). Intended to name types with even more functionality than EntitySet, if needed.
+        /// </summary>
+        public static Type PreferredEntitySetType
+        {
+            get
+            {
+                return _entitySetType;
+            }
+            set
+            {
+                if (!typeof(ICEFList).IsAssignableFrom(value))
+                {
+                    throw new ArgumentException("Value does not implement ICEFList.");
+                }
+
+                _entitySetType = value;
+            }
+        }
+
+        public static EntitySet<T> NewEntitySet<T>() where T : class, new()
+        {
+            return (EntitySet<T>) Activator.CreateInstance(_entitySetType.MakeGenericType(typeof(T)));
+        }
+
+        public static EntitySet<T> NewEntitySet<T>(IEnumerable<T> source) where T : class, new()
+        {
+            return (EntitySet<T>)Activator.CreateInstance(_entitySetType.MakeGenericType(typeof(T)), source);
+        }
+
+        public static ServiceScopeSettings GlobalServiceScopeSettings
+        {
+            get;
+            set;
+        } = null;
+
+        private static bool _useGlobalServiceScope = false;
+
+        public static bool UseGlobalServiceScope
+        {
+            get
+            {
+                return _useGlobalServiceScope;
+            }
+            set
+            {
+                if (value && !_useGlobalServiceScope)
+                {
+                    var settings = GlobalServiceScopeSettings ?? new ServiceScopeSettings();
+                    settings.CanDispose = false;
+
+                    CEF._globalServiceScope = CEF.NewServiceScope(settings);
+                    _useGlobalServiceScope = true;
+                }
+            }
+        }
+
         /// <summary>
         /// If wrapper classes are available/used, this identifies what capabilities they have (notifications? property bags? etc.)
         /// </summary>
@@ -171,6 +216,15 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = BulkRules.Threshold;
+
+        /// <summary>
+        /// When a global query timeout (milliseconds) is specified, queries are run on threads that can be aborted if the timeout period elapses before completion. By default this is "off" since we assume most DBMS offer their own timeouts.
+        /// </summary>
+        public static int? GlobalQueryTimeout
+        {
+            get;
+            set;
+        } = null;
 
         public static WrappingAction DefaultWrappingAction
         {
@@ -222,13 +276,7 @@ namespace CodexMicroORM.Core
         {
             get;
             set;
-        } = true;
-
-        public static string KeyNamingPattern
-        {
-            get;
-            set;
-        } = "{0}ID";
+        } = false;
 
         public static RetrievalPostProcessing DefaultRetrievalPostProcessing
         {
@@ -250,6 +298,14 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = true;
+
+        [ThreadStatic]
+        private static string _currentThreadUser = null;
+
+        public static string GetCurrentUser()
+        {
+            return _currentThreadUser ?? (_currentThreadUser = Environment.UserName);
+        }
 
         /// <summary>
         /// When true, null collections are initialized when found with EntitySet instances; this can impose a performance overhead with the benefit of a simpler way to populate the object graph.
@@ -318,7 +374,16 @@ namespace CodexMicroORM.Core
         {
             get;
             set;
-        } = Environment.ProcessorCount * 20;
+        } = Environment.ProcessorCount * 16;
+
+        /// <summary>
+        /// Used when an estimated scope size is provided, identifies the esimtated ratio of scope objects to foreign keys. This helps afford a way to property set the initial dictionary size for these.
+        /// </summary>
+        public static double EstimatedFKRatio
+        {
+            get;
+            set;
+        } = 2.0;
 
         public static SerializationMode DefaultSerializationMode
         {

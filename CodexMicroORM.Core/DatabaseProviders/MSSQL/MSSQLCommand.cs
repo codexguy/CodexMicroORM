@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ namespace CodexMicroORM.Providers
     /// <summary>
     /// Implements the functionality expected by CEF for dealing with database commands, for MS SQL Server.
     /// </summary>
-    public class MSSQLCommand : IDBProviderCommand
+    public sealed class MSSQLCommand : IDBProviderCommand
     {
         private static ConcurrentDictionary<string, IEnumerable<SqlParameter>> _paramCache = new ConcurrentDictionary<string, IEnumerable<SqlParameter>>(Globals.CurrentStringComparer);
         private SqlCommand _cmd;
@@ -51,7 +51,7 @@ namespace CodexMicroORM.Providers
 
         public IDictionary<string, object> GetParameterValues()
         {
-            Dictionary<string, object> parms = new Dictionary<string, object>();
+            Dictionary<string, object> parms = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY);
 
             if (_cmd.Parameters != null)
             {
@@ -238,7 +238,7 @@ namespace CodexMicroORM.Providers
                 {
                     while (r.Read())
                     {
-                        Dictionary<string, (object, Type)> values = new Dictionary<string, (object, Type)>();
+                        Dictionary<string, (object, Type)> values = new Dictionary<string, (object, Type)>(Globals.DEFAULT_LARGER_DICT_CAPACITY);
 
                         for (int i = 0; i < r.FieldCount; ++i)
                         {

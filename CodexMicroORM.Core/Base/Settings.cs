@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,6 +29,12 @@ namespace CodexMicroORM.Core
     /// </summary>
     public sealed class ServiceScopeSettings
     {
+        public bool EntitySetUsesUnwrapped
+        {
+            get;
+            set;
+        } = false;
+
         public bool InitializeNullCollections
         {
             get;
@@ -81,7 +87,13 @@ namespace CodexMicroORM.Core
         {
             get;
             set;
-        } = () => { return Environment.UserName; };
+        } = () => { return Globals.GetCurrentUser(); };
+
+        public int EstimatedScopeSize
+        {
+            get;
+            set;
+        } = Environment.ProcessorCount * 7;
 
         [ThreadStatic]
         public bool CanDispose = true;
@@ -156,6 +168,12 @@ namespace CodexMicroORM.Core
         } = null;
 
         public object RootObject
+        {
+            get;
+            set;
+        } = null;
+
+        public Type LimitToSingleType
         {
             get;
             set;

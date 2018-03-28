@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Data.SqlClient;
 using System.Collections.Generic;
+using System.IO;
 
 namespace CodexMicroORM.Core
 {
@@ -67,6 +68,7 @@ namespace CodexMicroORM.Core
             if (DebugEnabled || DebugTimeEnabled)
             {
                 Debug.WriteLine($"CEF Timer - {descriptor} - {LastElapsedTick}");
+                //File.AppendAllText(@"c:\temp\perf.txt", $"CEF Timer - {descriptor} - {LastElapsedTick}" + Environment.NewLine);
             }
 
             _sw.Restart();
@@ -154,8 +156,62 @@ namespace CodexMicroORM.Core
             Debug.WriteLine($"I: {info} {sb.ToString()}");
         }
 
+        public static string ReturnServiceScope(string typename = null)
+        {
+            StringBuilder sb2 = new StringBuilder();
+
+            var ol = CEF.CurrentServiceScope.Objects;
+
+            sb2.AppendLine("ServiceScope:");
+            int i = 1;
+
+            foreach (var d in ol)
+            {
+                if (typename == null || d.BaseName == typename)
+                {
+                    sb2.AppendLine($"{i}. {d.BaseName}, {d.IsAlive}, {d.GetInfra()?.GetRowState()}, {(d.GetTarget() == null ? "-" : "+")}{(d.GetWrapper() == null ? "-" : "+")}{(d.GetInfra() == null ? "-" : "+")}");
+
+                    StringBuilder sb = new StringBuilder();
+                    var o = d.GetWrapperTarget();
+
+                    if (o != null)
+                    {
+                        foreach (var pi in o.GetType().GetProperties())
+                        {
+                            if (sb.Length > 0)
+                            {
+                                sb.Append(", ");
+                            }
+                            sb.Append($"{pi.Name}={pi.GetValue(o)}");
+                        }
+                        sb2.AppendLine($"    {sb.ToString()}");
+                    }
+
+                    sb = new StringBuilder();
+                    var iw = d.GetInfra();
+
+                    if (iw != null)
+                    {
+                        foreach (var p in iw.GetAllValues())
+                        {
+                            if (sb.Length > 0)
+                            {
+                                sb.Append(", ");
+                            }
+                            sb.Append($"{p.Key}={p.Value}");
+                        }
+                        sb2.AppendLine($"    {sb.ToString()}");
+                    }
+                }
+
+                ++i;
+            }
+
+            return sb2.ToString();
+        }
+
         [System.Diagnostics.Conditional("DEBUG")]
-        public static void DumpServiceScope()
+        public static void DumpServiceScope(string typename = null)
         {
             if (!DebugEnabled)
                 return;
@@ -167,38 +223,41 @@ namespace CodexMicroORM.Core
 
             foreach (var d in ol)
             {
-                Debug.WriteLine($"{i}. {d.BaseName}, {d.IsAlive}, {d.GetInfra()?.GetRowState()}, {(d.GetTarget() == null ? "-" : "+")}{(d.GetWrapper() == null ? "-" : "+")}{(d.GetInfra() == null ? "-" : "+")}");
-
-                StringBuilder sb = new StringBuilder();
-                var o = d.GetWrapperTarget();
-
-                if (o != null)
+                if (typename == null || d.BaseName == typename)
                 {
-                    foreach (var pi in o.GetType().GetProperties())
-                    {
-                        if (sb.Length > 0)
-                        {
-                            sb.Append(", ");
-                        }
-                        sb.Append($"{pi.Name}={pi.GetValue(o)}");
-                    }
-                    Debug.WriteLine($"    {sb.ToString()}");
-                }
+                    Debug.WriteLine($"{i}. {d.BaseName}, {d.IsAlive}, {d.GetInfra()?.GetRowState()}, {(d.GetTarget() == null ? "-" : "+")}{(d.GetWrapper() == null ? "-" : "+")}{(d.GetInfra() == null ? "-" : "+")}");
 
-                sb = new StringBuilder();
-                var iw = d.GetInfra();
+                    StringBuilder sb = new StringBuilder();
+                    var o = d.GetWrapperTarget();
 
-                if (iw != null)
-                {
-                    foreach (var p in iw.GetAllValues())
+                    if (o != null)
                     {
-                        if (sb.Length > 0)
+                        foreach (var pi in o.GetType().GetProperties())
                         {
-                            sb.Append(", ");
+                            if (sb.Length > 0)
+                            {
+                                sb.Append(", ");
+                            }
+                            sb.Append($"{pi.Name}={pi.GetValue(o)}");
                         }
-                        sb.Append($"{p.Key}={p.Value}");
+                        Debug.WriteLine($"    {sb.ToString()}");
                     }
-                    Debug.WriteLine($"    {sb.ToString()}");
+
+                    sb = new StringBuilder();
+                    var iw = d.GetInfra();
+
+                    if (iw != null)
+                    {
+                        foreach (var p in iw.GetAllValues())
+                        {
+                            if (sb.Length > 0)
+                            {
+                                sb.Append(", ");
+                            }
+                            sb.Append($"{p.Key}={p.Value}");
+                        }
+                        Debug.WriteLine($"    {sb.ToString()}");
+                    }
                 }
 
                 ++i;

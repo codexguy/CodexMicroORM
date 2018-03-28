@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,6 +22,8 @@ using System.ComponentModel;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using System.Text;
+using CodexMicroORM.Core.Helper;
+using System.Collections.Concurrent;
 
 namespace CodexMicroORM.Core
 {
@@ -30,6 +32,59 @@ namespace CodexMicroORM.Core
     /// </summary>
     internal static class InternalExtensions
     {
+        public static bool HasProperty(this object o, string propName)
+        {
+            if (o == null)
+                return false;
+
+            if (o is ICEFInfraWrapper)
+            {
+                return ((ICEFInfraWrapper)o).HasProperty(propName);
+            }
+
+            return o.FastPropertyReadable(propName);
+        }
+
+        public static TV AssignReturn<TK, TV>(this Dictionary<TK, TV> dic, TK key, TV val)
+        {
+            dic[key] = val;
+            return val;
+        }
+
+        public static TV TestAssignReturn<TK, TV>(this Dictionary<TK, TV> dic, TK key, Func<TV> getval)
+        {
+            if (dic.ContainsKey(key))
+            {
+                return dic[key];
+            }
+
+            var val = getval();
+            dic[key] = val;
+            return val;
+        }
+    }
+
+    /// <summary>
+    /// Mostly syntactic sugar for existing methods such as for static methods on the CEF class.
+    /// </summary>
+    public static class PublicExtensions
+    {
+        public static int Min(this int i1, int i2)
+        {
+            if (i1 > i2)
+                return i1;
+
+            return i2;
+        }
+
+        public static int Max(this int i1, int i2)
+        {
+            if (i1 < i2)
+                return i1;
+
+            return i2;
+        }
+
         public static bool IsSame(this object o1, object o2, bool canCompareNull = true)
         {
             if (canCompareNull)
@@ -52,30 +107,11 @@ namespace CodexMicroORM.Core
             return o1.Equals(o2);
         }
 
-        public static bool HasProperty(this object o, string propName)
-        {
-            if (o == null)
-                return false;
-
-            if (o is ICEFInfraWrapper)
-            {
-                return ((ICEFInfraWrapper)o).HasProperty(propName);
-            }
-
-            return o.FastPropertyReadable(propName);
-        }
-    }
-
-    /// <summary>
-    /// Mostly syntactic sugar for existing methods such as for static methods on the CEF class.
-    /// </summary>
-    public static class PublicExtensions
-    {
         public static void ForAll<T>(this IEnumerable<T> items, Action<T> work)
         {
             foreach (var i in items)
             {
-                work.Invoke(i);
+                work(i);
             }
         }
 
@@ -118,7 +154,52 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ICEFInfraWrapper AsInfraWrapped(this object o, bool canCreate = true)
         {
-            return CEF.CurrentServiceScope.GetOrCreateInfra(o, canCreate);
+            ICEFInfraWrapper w = CEF.CurrentServiceScope.GetOrCreateInfra(o, canCreate);
+
+            if (w == null && canCreate)
+            {
+                throw new CEFInvalidOperationException("Failed to identify wrapper object, current scope may be invalid.");
+            }
+
+            return w;
+        }
+
+        /// <summary>
+        /// Abstracts property value access to work with virtually any type of object, accessing a named property that's a value type (returning a nullable form of it).
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="o"></param>
+        /// <param name="propName"></param>
+        /// <returns></returns>
+        public static T? PropertyNullValue<T>(this object o, string propName) where T : struct
+        {
+            var iw = o.AsInfraWrapped(true);
+
+            if (iw.HasProperty(propName))
+            {
+                return (T?)iw.GetValue(propName);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Abstracts property value access to work with virtually any type of object, accessing a named property that's a reference type.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="o"></param>
+        /// <param name="propName"></param>
+        /// <returns></returns>
+        public static T PropertyValue<T>(this object o, string propName) where T : class
+        {
+            var iw = o.AsInfraWrapped(true);
+
+            if (iw.HasProperty(propName))
+            {
+                return (T)iw.GetValue(propName);
+            }
+
+            return null;
         }
 
         public static IEnumerable<ICEFInfraWrapper> AllAsInfraWrapped<T>(this IEnumerable<T> items) where T: class, new()
@@ -164,6 +245,8 @@ namespace CodexMicroORM.Core
             return (-code, sb.ToString());
         }
 
+        private static ConcurrentDictionary<Type, Type> _typeMap = new ConcurrentDictionary<Type, Type>();
+
         /// <summary>
         /// Given a potentially wrapped object, returns the base object type that it maps to. (E.g. an instance of a derived class from a base POCO object passed in would return the base POCO Type.)
         /// </summary>
@@ -191,11 +274,20 @@ namespace CodexMicroORM.Core
                 return ((ICEFWrapper)wrapped).GetBaseType();
             }
 
+            var wt = wrapped.GetType();
+
+            if (_typeMap.ContainsKey(wt))
+            {
+                return _typeMap[wt];
+            }
+
             var uw = CEF.CurrentServiceScope.GetWrapperOrTarget(wrapped);
 
             if (uw is ICEFWrapper)
             {
-                return ((ICEFWrapper)uw).GetBaseType();
+                var rt = ((ICEFWrapper)uw).GetBaseType();
+                _typeMap[wt] = rt;
+                return rt;
             }
 
             if (uw == null)
@@ -206,9 +298,11 @@ namespace CodexMicroORM.Core
                     throw new CEFInvalidOperationException("Cannot determine base type for infrastructure wrapped object, no contained object available.");
                 }
 
-                return wrapped.GetType();
+                _typeMap[wt] = wt;
+                return wt;
             }
 
+            _typeMap[wt] = uw.GetType();
             return uw.GetType();
         }
 
@@ -352,7 +446,7 @@ namespace CodexMicroORM.Core
 
             WrappingHelper.NodeVisiter(iw, (iw2) =>
             {
-                if (check.Invoke(iw2))
+                if (check(iw2))
                 {
                     iw2.AcceptChanges();
                 }
@@ -369,18 +463,18 @@ namespace CodexMicroORM.Core
             if (o == null)
                 return;
 
-            foreach (var pi in o.GetType().GetProperties())
+            foreach (var pi in o.FastGetAllProperties(true, null))
             {
-                if (o.FastPropertyReadable(pi.Name))
+                if (o.FastPropertyReadable(pi.name))
                 {
-                    var val = o.FastGetValue(pi.Name);
+                    var val = o.FastGetValue(pi.name);
 
-                    if (WrappingHelper.IsWrappableListType(pi.PropertyType, val))
+                    if (WrappingHelper.IsWrappableListType(pi.type, val))
                     {
                         if (!(val is ICEFList))
                         {
-                            var wrappedCol = WrappingHelper.CreateWrappingList(CEF.CurrentServiceScope, pi.PropertyType, o, pi.Name);
-                            o.FastSetValue(pi.Name, wrappedCol);
+                            var wrappedCol = WrappingHelper.CreateWrappingList(CEF.CurrentServiceScope, pi.type, o, pi.name);
+                            o.FastSetValue(pi.name, wrappedCol);
 
                             if (val != null)
                             {

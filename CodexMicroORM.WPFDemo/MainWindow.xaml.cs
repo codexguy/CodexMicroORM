@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -472,6 +472,18 @@ namespace CodexMicroORM.WPFDemo
 
                                 case 9:
                                     DapperBenchmarks.Benchmark2(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 10:
+                                    CEFBenchmarks.Benchmark3SavePer(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 11:
+                                    EFBenchmarks.Benchmark3SavePer(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
+                                    break;
+
+                                case 12:
+                                    DapperBenchmarks.Benchmark3(totalParents, testTimes, testTimes2, ref rowcount, ref rowcount2);
                                     break;
                             }
                         }

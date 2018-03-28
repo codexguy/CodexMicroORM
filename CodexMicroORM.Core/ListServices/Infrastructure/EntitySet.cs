@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Data;
 using System.Linq;
 using System.Threading;
 using System.Collections;
@@ -30,7 +29,7 @@ using Newtonsoft.Json;
 using System.Text;
 using System.IO;
 using System.Text.RegularExpressions;
-using Newtonsoft.Json.Linq;
+using System.Threading.Tasks;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -44,10 +43,10 @@ namespace CodexMicroORM.Core.Services
     {
         #region "Private state"
 
-        private ConcurrentDictionary<T, bool> _contains = new ConcurrentDictionary<T, bool>();
+        private HashSet<T> _contains = new HashSet<T>();
         private long _init = 1;
         private int? _firstToWire = null;
-        private int _nestedOp = 0;
+        private RWLockInfo _lock = new RWLockInfo();
 
         #endregion
 
@@ -81,16 +80,36 @@ namespace CodexMicroORM.Core.Services
 
         #region "Public methods"
 
+        public RWLockInfo LockInfo => _lock;
+
         public bool IsInitialized => Interlocked.Read(ref _init) == 0;
 
         public event EventHandler Initialized;
+
+        public bool ContainsItemByKey(object o)
+        {
+            if (o == null)
+                return false;
+
+            var key = GetKey(o);
+
+            if (key != null)
+            {
+                return (from a in this where GetKey(a) == key select a).Any();
+            }
+
+            return false;
+        }
 
         public bool ContainsItem(object o)
         {
             if (o == null)
                 return false;
 
-            return this._contains.ContainsKey(o as T);
+            using (new ReaderLock(_lock))
+            {
+                return _contains.Contains(o as T);
+            }
         }
 
         public bool IsDirty()
@@ -130,7 +149,7 @@ namespace CodexMicroORM.Core.Services
 
                     if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
                     {
-                        CEF.CurrentPCTService()?.SaveContents(jw, i, actmode, new ConcurrentDictionary<object, bool>());
+                        CEF.CurrentPCTService()?.SaveContents(jw, i, actmode, new Dictionary<object, bool>(Globals.DEFAULT_DICT_CAPACITY));
                     }
                 }
 
@@ -140,16 +159,117 @@ namespace CodexMicroORM.Core.Services
             return sb.ToString();
         }
 
+        private string GetKey(object o)
+        {
+            var kv = CEF.CurrentKeyService().GetKeyValues(o);
+
+            if (kv?.Count > 0)
+            {
+                StringBuilder sb = new StringBuilder();
+
+                foreach (var k in kv)
+                {
+                    sb.Append(k.value?.ToString());
+                    sb.Append("~");
+                }
+
+                return sb.ToString();
+            }
+
+            return null;
+        }
+
         public void RemoveItem(object o)
         {
             var cast = o as T;
 
             if (cast != null)
             {
-                if (this._contains.ContainsKey(cast))
+                using (new WriterLock(_lock))
                 {
-                    this.Remove(cast);
+                    if (_contains.Contains(cast))
+                    {
+                        this.Remove(cast);
+                    }
                 }
+            }
+        }
+
+        private void ToAddWorker()
+        {
+            Interlocked.Increment(ref _toAddWorkers);
+
+            try
+            {
+                while (_toAdd.Count > 0)
+                {
+                    if (_toAdd.TryDequeue(out var t))
+                    {
+                        using (new WriterLock(_lock))
+                        {
+                            base.Add(t);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _toAddWorkers);
+            }
+        }
+
+        private void StartToAddWorkers()
+        {
+            if (Interlocked.Read(ref _toAddWorkers) == 0 && _toAdd.Count > 0)
+            {
+                Task.Factory.StartNew(() =>
+                {
+                    ToAddWorker();
+                });
+            }
+        }
+
+        public void WaitForQueuedAdds()
+        {
+            while (_toAdd.Count > 0)
+            {
+                StartToAddWorkers();
+                Thread.Sleep(0);
+            }
+        }
+
+        private ConcurrentQueue<T> _toAdd = new ConcurrentQueue<T>();
+        private long _toAddWorkers = 0;
+
+        public void QueuedAdd(T o)
+        {
+            using (var wl = new QuietWriterLock(_lock))
+            {
+                if (wl.IsActive)
+                {
+                    base.Add(o);
+                }
+                else
+                {
+                    _toAdd.Enqueue(o);
+                    StartToAddWorkers();
+                }
+            }
+        }
+
+        public new void Add(T o)
+        {
+            using (new WriterLock(_lock))
+            {
+                base.Add(o);
+            }
+        }
+
+        public new void Remove(T o)
+        {
+            using (new WriterLock(_lock))
+            {
+                base.Remove(o);
             }
         }
 
@@ -159,9 +279,12 @@ namespace CodexMicroORM.Core.Services
 
             if (cast != null)
             {
-                if (!this._contains.ContainsKey(cast))
+                using (new WriterLock(_lock))
                 {
-                    this.Add(cast);
+                    if (!_contains.Contains(cast))
+                    {
+                        this.Add(cast);
+                    }
                 }
             }
         }
@@ -173,6 +296,12 @@ namespace CodexMicroORM.Core.Services
             ParentTypeName = parentTypeName;
             ParentFieldName = parentFieldName;
         }
+
+        public bool EnableIntegration
+        {
+            get;
+            set;
+        } = true;
 
         public void SuspendNotifications(bool stop)
         {
@@ -252,8 +381,11 @@ namespace CodexMicroORM.Core.Services
 
         protected override void ClearItems()
         {
-            _contains = new ConcurrentDictionary<T, bool>();
-            base.ClearItems();
+            using (new WriterLock(_lock))
+            {
+                _contains = new HashSet<T>();
+                base.ClearItems();
+            }
         }
 
         private void WireDependencies(int? firstToWire, int? lastToWire)
@@ -269,66 +401,80 @@ namespace CodexMicroORM.Core.Services
         {
             if (Interlocked.Read(ref _init) == 0)
             {
-                switch (e.Action)
+                using (new WriterLock(_lock))
                 {
-                    case NotifyCollectionChangedAction.Replace:
-                        {
-                            ProcessRemove(e.OldItems);
-                            ProcessAdd(e.NewItems, e.NewStartingIndex);
-                            break;
-                        }
+                    switch (e.Action)
+                    {
+                        case NotifyCollectionChangedAction.Replace:
+                            {
+                                ProcessRemove(e.OldItems);
+                                ProcessAdd(e.NewItems, e.NewStartingIndex);
+                                break;
+                            }
 
-                    case NotifyCollectionChangedAction.Remove:
-                        {
-                            ProcessRemove(e.OldItems);
-                            break;
-                        }
+                        case NotifyCollectionChangedAction.Remove:
+                            {
+                                ProcessRemove(e.OldItems);
+                                break;
+                            }
 
-                    case NotifyCollectionChangedAction.Add:
-                        {
-                            ProcessAdd(e.NewItems, e.NewStartingIndex);
-                            break;
-                        }
+                        case NotifyCollectionChangedAction.Add:
+                            {
+                                ProcessAdd(e.NewItems, e.NewStartingIndex);
+                                break;
+                            }
+                    }
+
+                    base.OnCollectionChanged(e);
                 }
-
-                base.OnCollectionChanged(e);
             }
         }
 
-        private void ProcessRemove(IList oldItems)
+        protected virtual void ProcessRemove(IList oldItems)
         {
-            foreach (var oi in oldItems.Cast<T>())
+            using (new WriterLock(_lock))
             {
-                _contains.TryRemove(oi, out bool t);
-            }
-
-            if (ParentContainer != null)
-            {
-                var oiCopy = (from a in oldItems.Cast<Object>() select a).ToList();
-
-                foreach (var oi in oiCopy)
+                foreach (var oi in oldItems.Cast<T>())
                 {
-                    if (oi != null)
+                    _contains.Remove(oi);
+                }
+
+                if (!EnableIntegration)
+                {
+                    return;
+                }
+
+                if (ParentContainer != null)
+                {
+                    var oiCopy = (from a in oldItems.Cast<Object>() select a).ToList();
+
+                    foreach (var oi in oiCopy)
                     {
-                        // Attempt to establish a FK relationship, carry parent key down
-                        CEF.CurrentKeyService()?.UnlinkChildFromParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, oi);
+                        if (oi != null)
+                        {
+                            // Attempt to establish a FK relationship, carry parent key down
+                            CEF.CurrentKeyService()?.UnlinkChildFromParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, oi);
+                        }
                     }
                 }
             }
-        }
+        }        
 
-        private void ProcessAdd(IList newItems, int newStartingIndex)
+        protected virtual void ProcessAdd(IList newItems, int newStartingIndex)
         {
-            foreach (var ni in newItems.Cast<T>())
-            {
-                _contains[ni] = true;
-            }
-
-            Interlocked.Increment(ref _nestedOp);
-
-            try
+            using (new WriterLock(_lock))
             {
                 var niCopy = (from a in newItems.Cast<Object>() select a).ToList();
+
+                foreach (T ni in niCopy)
+                {
+                    _contains.Add(ni);
+                }
+
+                if (!EnableIntegration)
+                {
+                    return;
+                }
 
                 if (BoundScope != null)
                 {
@@ -340,40 +486,43 @@ namespace CodexMicroORM.Core.Services
                     }
 
                     // First, we inspect to see if we have a wrapped object or not - if not, we try to do so and REPLACE the current item
-                    var idx2 = 0;
-                    foreach (var ni in niCopy.ToArray())
+                    if (!BoundScope.Settings.EntitySetUsesUnwrapped)
                     {
-                        if (ni != null)
+                        var idx2 = 0;
+                        foreach (var ni in niCopy.ToArray())
                         {
-                            var w = BoundScope.InternalCreateAddBase(ni, true, null, null, null, new ConcurrentDictionary<object, object>()) as ICEFWrapper;
-
-                            if (w != null)
+                            if (ni != null)
                             {
-                                var cast = w as T;
+                                var w = BoundScope.InternalCreateAddBase(ni, true, null, null, null, new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY)) as ICEFWrapper;
 
-                                if (this[idx] != cast)
+                                if (w != null)
                                 {
-                                    try
-                                    {
-                                        this.SuspendNotifications(true);
+                                    var cast = w as T;
 
-                                        this[idx] = cast;
-
-                                        _contains[cast] = true;
-                                        _contains.TryRemove(newItems[idx2] as T, out bool t);
-                                    }
-                                    finally
+                                    if (this[idx] != cast)
                                     {
-                                        this.SuspendNotifications(false);
+                                        try
+                                        {
+                                            this.SuspendNotifications(true);
+
+                                            this[idx] = cast;
+
+                                            _contains.Add(cast);
+                                            _contains.Remove(newItems[idx2] as T);
+                                        }
+                                        finally
+                                        {
+                                            this.SuspendNotifications(false);
+                                        }
                                     }
+
+                                    niCopy[idx2] = this[idx];
                                 }
-
-                                niCopy[idx2] = this[idx];
                             }
-                        }
 
-                        idx++;
-                        idx2++;
+                            idx++;
+                            idx2++;
+                        }
                     }
                 }
 
@@ -388,10 +537,6 @@ namespace CodexMicroORM.Core.Services
                         }
                     }
                 }
-            }
-            finally
-            {
-                Interlocked.Decrement(ref _nestedOp);
             }
         }
 

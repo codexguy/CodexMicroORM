@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,6 +31,9 @@ using System.Text;
 using Newtonsoft.Json;
 using System.IO;
 using System.Threading.Tasks;
+using CodexMicroORM.Core.Helper;
+using System.Diagnostics;
+using System.Threading;
 
 namespace CodexMicroORM.Core
 {
@@ -44,7 +47,7 @@ namespace CodexMicroORM.Core
     {
         #region "Tracked Object"
 
-        public class TrackedObject : ICEFIndexedListItem
+        public sealed class TrackedObject : ICEFIndexedListItem
         {
             public string BaseName { get; set; }
             public Type BaseType { get; set; }
@@ -196,6 +199,15 @@ namespace CodexMicroORM.Core
         internal ServiceScope(ServiceScopeSettings settings)
         {
             _settings = settings;
+
+            // Normally internal locking should be very quick, for very large scopes, dictionary resizing can be slow on rare instances, so increase max timeout (TODO - investigate "flipping" storage to a new type if pass a threshold)
+            _scopeObjects.LockTimeout = 25000;
+            _scopeObjects.AddNeverTrackNull(nameof(TrackedObject.Wrapper)).AddUniqueConstraint(nameof(TrackedObject.Target));
+
+            if (settings != null &&  _scopeObjects.InitialCapacity != settings.EstimatedScopeSize)
+            {
+                _scopeObjects.InitialCapacity = settings.EstimatedScopeSize;
+            }
         }
 
         internal ServiceScope(ServiceScope template)
@@ -204,6 +216,7 @@ namespace CodexMicroORM.Core
             _serviceState = template._serviceState;
             _scopeServices = template._scopeServices;
             _localServices = template._localServices;
+            FriendlyName = template.FriendlyName;
 
             // Settings need to be deep copied
             _settings = new ServiceScopeSettings()
@@ -215,7 +228,10 @@ namespace CodexMicroORM.Core
                 SerializationMode = template.Settings.SerializationMode,
                 GetLastUpdatedBy = template.Settings.GetLastUpdatedBy,
                 UseAsyncSave = template.Settings.UseAsyncSave,
-                AsyncCacheUpdates = template.Settings.AsyncCacheUpdates
+                AsyncCacheUpdates = template.Settings.AsyncCacheUpdates,
+                EntitySetUsesUnwrapped = template.Settings.EntitySetUsesUnwrapped,
+                RetrievalPostProcessing = template.Settings.RetrievalPostProcessing,
+                EstimatedScopeSize = template.Settings.EstimatedScopeSize
             };
 
             // Special case - this as a shallow copy cannot dispose state!
@@ -236,6 +252,12 @@ namespace CodexMicroORM.Core
             _cacheDurByType[typeof(T)] = seconds;
         }
 
+        public string FriendlyName
+        {
+            get;
+            set;
+        }
+
         public ICEFWrapper GetWrapperFor(object o)
         {
             if (o == null)
@@ -254,8 +276,8 @@ namespace CodexMicroORM.Core
 
             if (props?.Count > 0)
             {
-                propVals = new Dictionary<string, object>();
-                propTypes = new Dictionary<string, Type>();
+                propVals = new Dictionary<string, object>(props.Count);
+                propTypes = new Dictionary<string, Type>(props.Count);
 
                 foreach (var kvp in props)
                 {
@@ -267,7 +289,7 @@ namespace CodexMicroORM.Core
             return InternalCreateAdd(toAdd, drs.GetValueOrDefault(ObjectState.Unchanged) == ObjectState.Added ? true : false, drs, propVals, propTypes);
         }
 
-        public T IncludeObject<T>(T toAdd, ObjectState? drs = null, Dictionary<string, object> props = null) where T : class, new()
+        public T IncludeObject<T>(T toAdd, ObjectState? drs = null, IDictionary<string, object> props = null) where T : class, new()
         {
             return InternalCreateAdd(toAdd, drs.GetValueOrDefault(ObjectState.Unchanged) == ObjectState.Added ? true : false, drs, props, null);
         }
@@ -522,7 +544,7 @@ namespace CodexMicroORM.Core
             }
 
             var setArray = JArray.Parse(json);
-            ConcurrentDictionary<object, object> visits = new ConcurrentDictionary<object, object>();
+            Dictionary<object, object> visits = new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY);
 
             foreach (var i in setArray.Children())
             {
@@ -548,16 +570,16 @@ namespace CodexMicroORM.Core
                 throw new CEFInvalidOperationException("JSON provided is not an object.");
             }
 
-            return InternalDeserialize(typeof(T), json, new ConcurrentDictionary<object, object>()) as T;
+            return InternalDeserialize(typeof(T), json, new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY)) as T;
         }
 
         private object InternalDeserialize(Type type, string json, IDictionary<object, object> visits)
         {
             var copyFrom = JObject.Parse(json);
 
-            Dictionary<string, object> props = new Dictionary<string, object>();
-            Dictionary<string, (Type type, IEnumerable<string> json)> lists = new Dictionary<string, (Type type, IEnumerable<string> json)>();
-            Dictionary<string, (Type type, string json)> objs = new Dictionary<string, (Type type, string json)>();
+            Dictionary<string, object> props = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY);
+            Dictionary<string, (Type type, IEnumerable<string> json)> lists = new Dictionary<string, (Type type, IEnumerable<string> json)>(Globals.DEFAULT_DICT_CAPACITY);
+            Dictionary<string, (Type type, string json)> objs = new Dictionary<string, (Type type, string json)>(Globals.DEFAULT_DICT_CAPACITY);
             ObjectState rs = ObjectState.Unchanged;
 
             foreach (var c in (from a in copyFrom.Children() where a.Type == JTokenType.Property select a))
@@ -701,7 +723,7 @@ namespace CodexMicroORM.Core
 
             // Construct a shadow copy that we'll traverse to build the corresponding wrapped structure
             var setArray = JArray.Parse(json);
-            var outSet = new EntitySet<T>();
+            var outSet = Globals.NewEntitySet<T>();
             outSet.BeginInit();
 
             foreach (var i in setArray.Children())
@@ -719,9 +741,9 @@ namespace CodexMicroORM.Core
 
         internal ConcurrentIndexedList<TrackedObject> Objects => _scopeObjects;
 
-        internal ServiceScopeSettings Settings => _settings;
+        public ServiceScopeSettings Settings => _settings;
 
-        internal T GetServiceState<T>() where T : class, ICEFServiceObjState
+        public T GetServiceState<T>() where T : class, ICEFServiceObjState
         {
             if (_serviceState.TryGetValue(typeof(T), out ICEFServiceObjState val))
             {
@@ -788,6 +810,19 @@ namespace CodexMicroORM.Core
             return GetWrapperOrTarget(o);
         }
 
+        public INotifyPropertyChanged GetNotifyFriendlyFor(object o)
+        {
+            if (o == null)
+                return null;
+
+            var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), o.AsUnwrapped());
+
+            if (to == null)
+                return null;
+
+            return to.GetNotifyFriendly();
+        }
+
         internal (Func<object> getter, Type type) GetGetter(object o, string propName)
         {
             if (o == null)
@@ -814,15 +849,17 @@ namespace CodexMicroORM.Core
                 }
                 else
                 {
-                    if (target.FastPropertyReadable(propName))
+                    var pi = target.FastPropertyReadableWithValue(propName);
+
+                    if (pi.readable)
                     {
-                        PropertyInfo pi = target.GetType().GetProperty(propName);
+                        var pi2 = target.FastGetAllProperties(null, null, propName).First();
 
                         return (() =>
                         {
-                            return target.FastGetValue(propName);
+                            return pi.value;
                         }
-                        , pi.PropertyType);
+                        , pi2.type);
                     }
                 }
             }
@@ -864,13 +901,18 @@ namespace CodexMicroORM.Core
             return (null, null);
         }
 
-        internal TrackedObject GetTrackedByWrapperOrTarget(object wot)
+        public TrackedObject GetTrackedByWrapperOrTarget(object wot)
         {
-            var to = _scopeObjects.GetAllByName(nameof(TrackedObject.Target), wot).FirstOrDefault();
+            if (wot == null)
+            {
+                return null;
+            }
+
+            var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), wot);
 
             if (to == null)
             {
-                to = _scopeObjects.GetAllByName(nameof(TrackedObject.Wrapper), wot).FirstOrDefault();
+                to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Wrapper), wot);
             }
 
             return to;
@@ -1032,7 +1074,7 @@ namespace CodexMicroORM.Core
         {
             ReconcileModifiedState(null);
 
-            ConcurrentDictionary<object, bool> visits = new ConcurrentDictionary<object, bool>();
+            Dictionary<object, bool> visits = new Dictionary<object, bool>(Globals.DEFAULT_DICT_CAPACITY);
             StringBuilder sb = new StringBuilder(16384);
             var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode) | SerializationMode.SingleLevel;
 
@@ -1082,22 +1124,30 @@ namespace CodexMicroORM.Core
 
             foreach (var to in list)
             {
-                // If type includes property groups, copy values here (as well as on notifications - which may or may not have done it already)
-                db?.CopyPropertyGroupValues(to.GetWrapperTarget());
-
-                if (!(to.GetTarget() is INotifyPropertyChanged))
+                // If object is unlinked, ignore and evict!
+                if (to.GetInfra()?.GetRowState() == ObjectState.Unlinked)
                 {
-                    var dyn = to.GetInfra() as DynamicWithValuesAndBag;
+                    _scopeObjects.Remove(to);
+                }
+                else
+                {
+                    // If type includes property groups, copy values here (as well as on notifications - which may or may not have done it already)
+                    db?.CopyPropertyGroupValues(to.GetWrapperTarget());
 
-                    if (dyn != null)
+                    if (!(to.GetTarget() is INotifyPropertyChanged))
                     {
-                        if (dyn.ReconcileModifiedState((field, oval, nval) =>
+                        var dyn = to.GetInfra() as DynamicWithValuesAndBag;
+
+                        if (dyn != null)
                         {
-                            // If the modification is for a tracked field, potentially change DB values as well
-                            CEF.CurrentKeyService()?.UpdateBoundKeys(to, this, field, oval, nval);
-                        }))
-                        {
-                            ++count;
+                            if (dyn.ReconcileModifiedState((field, oval, nval) =>
+                            {
+                                // If the modification is for a tracked field, potentially change DB values as well
+                                CEF.CurrentKeyService()?.UpdateBoundKeys(to, this, field, oval, nval);
+                            }))
+                            {
+                                ++count;
+                            }
                         }
                     }
                 }
@@ -1148,6 +1198,11 @@ namespace CodexMicroORM.Core
             return tosave;
         }
 
+        public object IncludeObjectNonGeneric(object initial, IDictionary<string, object> props)
+        {
+            return InternalCreateAddBase(initial, false, null, props, null, null);
+        }
+
         internal object InternalCreateAddBase(object initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits)
         {
             if (initial == null)
@@ -1161,7 +1216,7 @@ namespace CodexMicroORM.Core
             if (visits == null)
             {
                 // Would have liked to use plain Dictionary but we do support parallel object graph traversal, so...
-                visits = new ConcurrentDictionary<object, object>();
+                visits = new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY);
             }
 
             // See if already tracked - if so, return quickly
@@ -1332,6 +1387,8 @@ namespace CodexMicroORM.Core
             // This is the big moment! "to" is our "tracked object" container
             _scopeObjects.Add(to);
 
+            Interlocked.Increment(ref _c);
+
             foreach (var svc in objServices)
             {
                 ICEFServiceObjState state = null;
@@ -1353,6 +1410,8 @@ namespace CodexMicroORM.Core
             return repl ?? o;
         }
 
+        private static long _c = 0;
+
         private void InternalDelete(object root, HashSet<object> visits, DeleteCascadeAction action)
         {
             if (visits.Contains(root))
@@ -1369,6 +1428,19 @@ namespace CodexMicroORM.Core
                 throw new CEFInvalidOperationException("You require the persistence and change tracking service in order to mark objects for deletion.");
             }
 
+            if (action == DeleteCascadeAction.Fail)
+            {
+                foreach (var co in CEF.CurrentKeyService()?.GetChildObjects(this, root))
+                {
+                    var rs = (co.AsInfraWrapped(false)?.GetRowState()).GetValueOrDefault(ObjectState.Unlinked);
+
+                    if (rs != ObjectState.Deleted && rs != ObjectState.Unlinked)
+                    {
+                        throw new CEFConstraintException($"Failed to delete object - child objects exist and must be deleted first.");
+                    }
+                }
+            }
+
             infra.SetRowState(ObjectState.Deleted);
 
             if (action == DeleteCascadeAction.Cascade)
@@ -1380,9 +1452,10 @@ namespace CodexMicroORM.Core
             }
         }
 
-        internal T InternalCreateAdd<T>(T initial, bool isNew, ObjectState? initState, Dictionary<string, object> props, Dictionary<string, Type> types) where T : class, new()
+        internal T InternalCreateAdd<T>(T initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types) where T : class, new()
         {
-            return InternalCreateAddBase(initial ?? new T(), isNew, initState, props, types, new ConcurrentDictionary<object, object>()) as T;
+            var v = InternalCreateAddBase(initial ?? new T(), isNew, initState, props, types, new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY));
+            return v as T;
         }
 
         #endregion

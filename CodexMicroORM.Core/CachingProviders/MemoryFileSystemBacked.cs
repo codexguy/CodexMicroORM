@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2017 CodeX Enterprises LLC
+Copyright 2018 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ using System.Security.Cryptography;
 using CodexMicroORM.Core;
 using CodexMicroORM.Core.Collections;
 using CodexMicroORM.Core.Services;
+using CodexMicroORM.Core.Helper;
 using Newtonsoft.Json;
 using System.Runtime.Serialization.Formatters.Binary;
 
@@ -59,7 +60,7 @@ namespace CodexMicroORM.Providers
         /// <summary>
         /// Cache entries contain some persistent properties, some that are only in-memory.
         /// </summary>
-        private class MFSEntry : ICEFIndexedListItem
+        private sealed class MFSEntry : ICEFIndexedListItem
         {
             public object GetValue(string propName, bool unwrap)
             {
