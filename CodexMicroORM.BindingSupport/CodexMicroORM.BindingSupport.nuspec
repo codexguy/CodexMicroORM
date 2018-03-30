@@ -2,9 +2,9 @@
 <package >
   <metadata>
     <id>CodexMicroORM.BindingSupport</id>
-    <version>0.2.4</version>
+    <version>0.5.2</version>
     <title>CodexMicroORM UI Binding Support</title>
-    <authors>Joel Champagne</authors>
+    <authors>CodeX Enterprises LLC</authors>
     <owners>CodeX Enterprises LLC</owners>
     <licenseUrl>http://www.apache.org/licenses/LICENSE-2.0</licenseUrl>
     <projectUrl>https://github.com/codexguy/CodexMicroORM</projectUrl>
