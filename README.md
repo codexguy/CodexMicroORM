@@ -3,6 +3,8 @@ An alternative to ORM's such as Entity Framework, offers database mapping for yo
 
 Product not a fit for you? Feel free to [visit](https://www.xskrape.com/Home/Articles?SearchCategory=CodexMicroORM) and learn about data integration and ORM concepts through our blog and product updates.
 
+Refer to our recent [article](https://www.xskrape.com/home/article/What-s-New-in-CodexMicroORM-0-5) that covers recent updates in the 0.5 release.
+
 ## Background
 Why build a new ORM framework? After all, Entity Framework, nHibernate and plenty of others exist and are mature. I have seen complaints expressed by many, though: they can be "heavy," "bloated" and as much as we'd like them to be "unobtrusive" - sometimes they *are*.
 
