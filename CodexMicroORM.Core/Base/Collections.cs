@@ -58,6 +58,8 @@ namespace CodexMicroORM.Core.Collections
 
         public static object NullValue => _asNull;
 
+        public RWLockInfo LockInfo => _lock;
+
         public ConcurrentIndexedList(int lockTimeout, int initCapacity, params string[] propsToIndex)
         {
             _initCapacity = initCapacity;
@@ -271,7 +273,7 @@ namespace CodexMicroORM.Core.Collections
         /// <param name="propName">Property name of T, as returned by T's ICEFIndexListItem's GetValue().</param>
         /// <param name="propValue">Value to match for in the virtual column.</param>
         /// <returns></returns>
-        public T GetFirstByName(string propName, object propValue, Func<T, bool> preview = null)
+        public T GetFirstByName(string propName, object propValue, Func<T, bool> preview)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
             {
@@ -283,14 +285,32 @@ namespace CodexMicroORM.Core.Collections
                 if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
                 {
                     T val = null;
-                    return (from a in bag where _data.TryGetValue(a, out val) where preview == null || preview(val) select val).FirstOrDefault();
+                    return (from a in bag where _data.TryGetValue(a, out val) where preview(val) select val).FirstOrDefault();
                 }
             }
 
             return default;
         }
 
-        public T GetFirstByNameNoLock(string propName, object propValue, Func<T, bool> preview = null)
+        public T GetFirstByName(string propName, object propValue)
+        {
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            {
+                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+            }
+
+            using (new ReaderLock(_lock))
+            {
+                if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
+                {
+                    return (from a in bag select _data[a]).FirstOrDefault();
+                }
+            }
+
+            return default;
+        }
+
+        public T GetFirstByNameNoLock(string propName, object propValue, Func<T, bool> preview)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
             {
@@ -300,7 +320,22 @@ namespace CodexMicroORM.Core.Collections
             if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
             {
                 T val = null;
-                return (from a in bag where _data.TryGetValue(a, out val) where preview == null || preview(val) select val).FirstOrDefault();
+                return (from a in bag where _data.TryGetValue(a, out val) where preview(val) select val).FirstOrDefault();
+            }
+
+            return default;
+        }
+
+        public T GetFirstByNameNoLock(string propName, object propValue)
+        {
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            {
+                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+            }
+
+            if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
+            {
+                return (from a in bag select _data[a]).FirstOrDefault();
             }
 
             return default;
@@ -313,7 +348,7 @@ namespace CodexMicroORM.Core.Collections
         /// <param name="propName">Property name of T, as returned by T's ICEFIndexListItem's GetValue().</param>
         /// <param name="propValue">Value to match for in the virtual column.</param>
         /// <returns>Sequence of T for matches on value in the propName virtual column.</returns>
-        public IEnumerable<T> GetAllByName(string propName, object propValue, Func<T, bool> preview = null)
+        public IEnumerable<T> GetAllByName(string propName, object propValue, Func<T, bool> preview)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
             {
@@ -325,14 +360,32 @@ namespace CodexMicroORM.Core.Collections
                 if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
                 {
                     T val = null;
-                    return (from a in bag where _data.TryGetValue(a, out val) where preview == null || preview(val) select val).ToArray();
+                    return (from a in bag where _data.TryGetValue(a, out val) where preview(val) select val).ToArray();
                 }
             }
 
             return new T[] { };
         }
 
-        public IEnumerable<T> GetAllByNameNoLock(string propName, object propValue, Func<T, bool> preview = null)
+        public IEnumerable<T> GetAllByName(string propName, object propValue)
+        {
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            {
+                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+            }
+
+            using (new ReaderLock(_lock))
+            {
+                if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
+                {
+                    return (from a in bag select _data[a]).ToArray();
+                }
+            }
+
+            return new T[] { };
+        }
+
+        public IEnumerable<T> GetAllByNameNoLock(string propName, object propValue, Func<T, bool> preview)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
             {
@@ -342,7 +395,22 @@ namespace CodexMicroORM.Core.Collections
             if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
             {
                 T val = null;
-                return (from a in bag where _data.TryGetValue(a, out val) where preview == null || preview(val) select val).ToArray();
+                return (from a in bag where _data.TryGetValue(a, out val) where preview(val) select val);
+            }
+
+            return new T[] { };
+        }
+
+        public IEnumerable<T> GetAllByNameNoLock(string propName, object propValue)
+        {
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            {
+                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+            }
+
+            if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out List<long> bag))
+            {
+                return (from a in bag select _data[a]);
             }
 
             return new T[] { };

@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
 	<AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
 	<PackageId>CodexMicroORM.Core</PackageId>
-	<Version>0.5.1</Version>
+	<Version>0.5.2</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Product>CodexMicroORM.Core</Product>
@@ -18,8 +18,8 @@
 	<PackageIconUrl>http://www.xskrape.com/images/cef64.png</PackageIconUrl>
 	<ApplicationIcon>xSkrape.ico</ApplicationIcon>
 	<PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
-	<AssemblyVersion>0.5.1.0</AssemblyVersion>
-	<FileVersion>0.5.1.0</FileVersion>
+	<AssemblyVersion>0.5.2.0</AssemblyVersion>
+	<FileVersion>0.5.2.0</FileVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard2.0|AnyCPU'">
