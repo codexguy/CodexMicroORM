@@ -51,11 +51,11 @@ namespace CodexMicroORM.Core
 
         public bool IsActive => _active;
 
-        public ReaderLock(RWLockInfo info, bool active = true)
+        public ReaderLock(RWLockInfo info, bool? active = null)
         {            
             _info = info;
 
-            if (active)
+            if (active.GetValueOrDefault(Globals.UseReaderWriterLocks))
             {
                 if (!_info.Lock.TryEnterReadLock(_info.Timeout))
                 {
@@ -96,11 +96,11 @@ namespace CodexMicroORM.Core
         public bool IsActive => _active;
 
         // Writers block both readers and writers - wait for all other readers and writers to finish
-        public QuietWriterLock(RWLockInfo info, bool active = true)
+        public QuietWriterLock(RWLockInfo info, bool? active = null)
         {
             _info = info;
 
-            if (active)
+            if (active.GetValueOrDefault(Globals.UseReaderWriterLocks))
             {
                 if (info.Lock.TryEnterWriteLock(0))
                 {
@@ -143,11 +143,11 @@ namespace CodexMicroORM.Core
         public bool IsActive => _active;
 
         // Writers block both readers and writers - wait for all other readers and writers to finish
-        public WriterLock(RWLockInfo info, bool active = true)
+        public WriterLock(RWLockInfo info, bool? active = null)
         {
             _info = info;
 
-            if (active)
+            if (active.GetValueOrDefault(Globals.UseReaderWriterLocks))
             {
                 if (!_info.Lock.TryEnterWriteLock(info.Timeout))
                 {

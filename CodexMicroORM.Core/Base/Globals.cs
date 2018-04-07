@@ -439,6 +439,12 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
+        public static bool UseReaderWriterLocks
+        {
+            get;
+            set;
+        } = true;
+
         public static StringComparer CurrentStringComparer
         {
             get

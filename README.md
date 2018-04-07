@@ -345,9 +345,11 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* "Case insensitive" option for properties
 	* Fixes related to serialization, async save, etc.
 	* Testing enhancements (sandboxes, more coverage)
-* 0.5.0 - April 2018
+* 0.5.0 - March 2018
     * Minor changes (e.g. access modifiers) to support the soon-to-be-released version 0.9 of ZableDB
     * Internal refactoring to improve memory footprint and performance - SIGNIFICANT! - [What's new in 0.5?](https://www.xskrape.com/home/article/What-s-New-in-CodexMicroORM-0-5)
+* 0.5.5 - April 2018
+	* Performance improvements, documented in a C# Corner article (link TBD)
 
 ## Roadmap / Plans
 Look for in coming releases:
