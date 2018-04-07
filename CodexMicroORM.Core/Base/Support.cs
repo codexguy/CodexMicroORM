@@ -27,64 +27,18 @@ namespace CodexMicroORM.Core
     /// </summary>
     public sealed class RWLockInfo
     {
+        public ReaderWriterLockSlim Lock = new ReaderWriterLockSlim();
+
         public static int GlobalTimeout
         {
             get;
             set;
         } = 15000;
 
-        public ReaderWriterLockSlim Lock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
         public int Timeout = GlobalTimeout;
 
         // Mainly for debugging purposes, but leaving in release too
         public int LastWriter;
-    }
-
-    /// <summary>
-    /// Creates/destroys an upgradeable reader lock (use using pattern).
-    /// </summary>
-    public sealed class UpgradeableReaderLock : IDisposable
-    {
-        RWLockInfo _info;
-        bool _active = false;
-
-        public bool IsActive => _active;
-
-        public UpgradeableReaderLock(RWLockInfo info, bool active = true)
-        {
-            _info = info;
-
-            if (active)
-            {
-                if (!info.Lock.TryEnterUpgradeableReadLock(info.Timeout))
-                {
-                    if (!info.Lock.TryEnterUpgradeableReadLock(100))
-                    {
-                        throw new TimeoutException("Failed to obtain a read lock in timeout interval.");
-                    }
-                }
-
-                _active = true;
-            }
-        }
-
-        public void Release()
-        {
-            if (_active)
-            {
-                _info.Lock.ExitUpgradeableReadLock();
-                _active = false;
-            }
-        }
-
-        public void Dispose()
-        {
-            if (_active)
-            {
-                _info.Lock.ExitUpgradeableReadLock();
-                _active = false;
-            }
-        }
     }
 
     /// <summary>
@@ -103,13 +57,9 @@ namespace CodexMicroORM.Core
 
             if (active)
             {
-                if (!info.Lock.TryEnterReadLock(info.Timeout))
+                if (!_info.Lock.TryEnterReadLock(_info.Timeout))
                 {
-                    // We give it one more try, this seems to be necessary sometimes
-                    if (!info.Lock.TryEnterReadLock(100))
-                    {
-                        throw new TimeoutException("Failed to obtain a read lock in timeout interval.");
-                    }
+                    throw new TimeoutException("Failed to obtain a read lock in timeout interval.");
                 }
 
                 _active = true;
@@ -155,7 +105,6 @@ namespace CodexMicroORM.Core
                 if (info.Lock.TryEnterWriteLock(0))
                 {
                     _active = true;
-                    _info.LastWriter = Environment.CurrentManagedThreadId;
                 }
             }
         }
@@ -196,13 +145,12 @@ namespace CodexMicroORM.Core
 
             if (active)
             {
-                if (!info.Lock.TryEnterWriteLock(info.Timeout))
+                if (!_info.Lock.TryEnterWriteLock(info.Timeout))
                 {
                     throw new TimeoutException("Failed to obtain a write lock in timeout interval.");
                 }
 
                 _active = true;
-                _info.LastWriter = Environment.CurrentManagedThreadId;
             }
         }
 

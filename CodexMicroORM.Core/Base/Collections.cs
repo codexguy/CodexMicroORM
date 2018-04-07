@@ -169,7 +169,7 @@ namespace CodexMicroORM.Core.Collections
 
         public bool IsSynchronized => true;
 
-        public object SyncRoot => this;
+        public object SyncRoot => _lock;
 
         /// <summary>
         /// Causes collection to throw an error if try to add a duplicate value for the given property. (Affords some optimizations as well.)
@@ -292,6 +292,12 @@ namespace CodexMicroORM.Core.Collections
             return default;
         }
 
+        /// <summary>
+        /// Wrapper for GetAllByName(..).FirstOrDefault().
+        /// </summary>
+        /// <param name="propName"></param>
+        /// <param name="propValue"></param>
+        /// <returns></returns>
         public T GetFirstByName(string propName, object propValue)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
@@ -310,6 +316,13 @@ namespace CodexMicroORM.Core.Collections
             return default;
         }
 
+        /// <summary>
+        /// Wrapper for GetAllByName(..).FirstOrDefault().
+        /// </summary>
+        /// <param name="propName"></param>
+        /// <param name="propValue"></param>
+        /// <param name="preview"></param>
+        /// <returns></returns>
         public T GetFirstByNameNoLock(string propName, object propValue, Func<T, bool> preview)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
@@ -326,6 +339,12 @@ namespace CodexMicroORM.Core.Collections
             return default;
         }
 
+        /// <summary>
+        /// Wrapper for GetAllByName(..).FirstOrDefault().
+        /// </summary>
+        /// <param name="propName"></param>
+        /// <param name="propValue"></param>
+        /// <returns></returns>
         public T GetFirstByNameNoLock(string propName, object propValue)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
@@ -342,8 +361,7 @@ namespace CodexMicroORM.Core.Collections
         }
 
         /// <summary>
-        /// Retrieves zero, one or many elements that match the input propValue for column propName.
-        /// Always returns a sequence, never null (may be empty).
+        /// Retrieves zero, one or many elements that match the input propValue for column propName. Always returns a sequence, never null (may be empty).
         /// </summary>
         /// <param name="propName">Property name of T, as returned by T's ICEFIndexListItem's GetValue().</param>
         /// <param name="propValue">Value to match for in the virtual column.</param>
@@ -367,6 +385,12 @@ namespace CodexMicroORM.Core.Collections
             return new T[] { };
         }
 
+        /// <summary>
+        /// Retrieves zero, one or many elements that match the input propValue for column propName. Always returns a sequence, never null (may be empty).
+        /// </summary>
+        /// <param name="propName"></param>
+        /// <param name="propValue"></param>
+        /// <returns></returns>
         public IEnumerable<T> GetAllByName(string propName, object propValue)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
@@ -385,6 +409,13 @@ namespace CodexMicroORM.Core.Collections
             return new T[] { };
         }
 
+        /// <summary>
+        /// Retrieves zero, one or many elements that match the input propValue for column propName. Always returns a sequence, never null (may be empty).
+        /// </summary>
+        /// <param name="propName"></param>
+        /// <param name="propValue"></param>
+        /// <param name="preview"></param>
+        /// <returns></returns>
         public IEnumerable<T> GetAllByNameNoLock(string propName, object propValue, Func<T, bool> preview)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
@@ -401,6 +432,12 @@ namespace CodexMicroORM.Core.Collections
             return new T[] { };
         }
 
+        /// <summary>
+        /// Retrieves zero, one or many elements that match the input propValue for column propName. Always returns a sequence, never null (may be empty).
+        /// </summary>
+        /// <param name="propName"></param>
+        /// <param name="propValue"></param>
+        /// <returns></returns>
         public IEnumerable<T> GetAllByNameNoLock(string propName, object propValue)
         {
             if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
@@ -531,8 +568,14 @@ namespace CodexMicroORM.Core.Collections
         {
             using (new ReaderLock(_lock))
             {
+                // To honor read lock, ToList takes an effective snapshot - if locking is a non-issue, consider using the NoLock derivative.
                 return _data.Values.ToList().GetEnumerator();
             }
+        }
+
+        public IEnumerator GetEnumeratorNoLock()
+        {
+            return _data.Values.GetEnumerator();
         }
     }
 }
