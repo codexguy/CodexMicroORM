@@ -27,7 +27,7 @@ namespace CodexMicroORM.Core
     /// </summary>
     public sealed class RWLockInfo
     {
-        public ReaderWriterLockSlim Lock = new ReaderWriterLockSlim();
+        public ReaderWriterLockSlim Lock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
 
         public static int GlobalTimeout
         {
@@ -105,6 +105,10 @@ namespace CodexMicroORM.Core
                 if (info.Lock.TryEnterWriteLock(0))
                 {
                     _active = true;
+
+#if DEBUG
+                    _info.LastWriter = Environment.CurrentManagedThreadId;
+#endif
                 }
             }
         }
@@ -151,6 +155,10 @@ namespace CodexMicroORM.Core
                 }
 
                 _active = true;
+
+#if DEBUG
+                    _info.LastWriter = Environment.CurrentManagedThreadId;
+#endif
             }
         }
 

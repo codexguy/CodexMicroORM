@@ -13,8 +13,11 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
+Note: some concepts here were covered in the following article: https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
+
 Major Changes:
 12/2017    0.2.1   Initial release (Joel Champagne)
+4/2018     0.5.3   Performance mods
 ***********************************************************************/
 using System;
 using System.Collections.Concurrent;
@@ -36,7 +39,15 @@ namespace CodexMicroORM.Core.Helper
         {
             _type = type;
             _prop = prop;
-            _prophash = prop.GetHashCode();
+
+            if (Globals.CaseSensitiveDictionaries)
+            {
+                _prophash = prop.GetHashCode();
+            }
+            else
+            {
+                _prophash = prop.ToLower().GetHashCode();
+            }
         }
 
         public override bool Equals(object obj)
@@ -61,7 +72,7 @@ namespace CodexMicroORM.Core.Helper
 
     /// <summary>
     /// Internal class offers extension functions that can improve performance of what would noramlly be Reflection operations.
-    /// In testing, it looks like probably a 50% improvement!
+    /// In testing, it looks like probably a 35% improvement!
     /// </summary>
     public static class PropertyHelper
     {
@@ -72,9 +83,12 @@ namespace CodexMicroORM.Core.Helper
 
         public static void FlushCaches()
         {
-            _getterCache.Clear();
-            _setterCache.Clear();
-            _allProps.Clear();
+            using (new WriterLock(_lock))
+            {
+                _getterCache.Clear();
+                _setterCache.Clear();
+                _allProps.Clear();
+            }
         }
 
         public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this object o, bool? canRead = null, bool? canWrite = null, string name = null)
@@ -273,6 +287,8 @@ namespace CodexMicroORM.Core.Helper
             }
         }
 
+        /* This was only intended for demo purposes...
+         * 
         private static Dictionary<DelegateCacheKey, MethodInfo> _reflGetMethodInfos = new Dictionary<DelegateCacheKey, MethodInfo>();
 
         public static object GetValueReflection(this object o, string propName)
@@ -296,6 +312,7 @@ namespace CodexMicroORM.Core.Helper
 
             return mi.Invoke(o, new object[] { });
         }
+        */
 
         public static object FastGetValue(this object o, string propName)
         {
