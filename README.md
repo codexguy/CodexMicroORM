@@ -349,7 +349,7 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
     * Minor changes (e.g. access modifiers) to support the soon-to-be-released version 0.9 of ZableDB
     * Internal refactoring to improve memory footprint and performance - SIGNIFICANT! - [What's new in 0.5?](https://www.xskrape.com/home/article/What-s-New-in-CodexMicroORM-0-5)
 * 0.5.5 - April 2018
-	* Performance improvements, documented in a C# Corner article (link TBD)
+	* Performance improvements, documented in a C# Corner [article](https://www.c-sharpcorner.com/article/dynamic-objects-and-alternatives-to-reflection/)
 
 ## Roadmap / Plans
 Look for in coming releases:
@@ -362,4 +362,4 @@ Clearly tool support such as for code generation could prove *very* useful - wat
 
 Come and subscribe to [blog updates](https://www.xskrape.com/Home/Articles).
 
-Have opinions about what you'd like to see? Drop me a line @ joelc@codexframework.com.
+Have opinions about what you'd like to see? Drop me a line @ joelc@codexframework.com. Pull requests are welcome, too.

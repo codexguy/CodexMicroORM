@@ -29,7 +29,7 @@ using System.Linq;
 
 namespace CodexMicroORM.Core.Helper
 {
-    internal class DelegateCacheKey
+    internal struct DelegateCacheKey
     {
         private Type _type;
         private string _prop;
