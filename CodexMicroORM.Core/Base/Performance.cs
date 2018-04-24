@@ -56,7 +56,7 @@ namespace CodexMicroORM.Core.Helper
 
             if (Globals.CaseSensitiveDictionaries)
             {
-                return _type.Equals(other._type) && _prophash == other._prophash && _prop.Equals(other._prop);
+                return _prophash == other._prophash && _type.Equals(other._type) && _prop.Equals(other._prop);
             }
             else
             {
@@ -74,12 +74,14 @@ namespace CodexMicroORM.Core.Helper
     /// Internal class offers extension functions that can improve performance of what would noramlly be Reflection operations.
     /// In testing, it looks like probably a 35% improvement!
     /// </summary>
-    public static class PropertyHelper
+    public static class CEFHelper
     {
         private static RWLockInfo _lock = new RWLockInfo();
-        private static Dictionary<DelegateCacheKey, Func<object, object>> _getterCache = new Dictionary<DelegateCacheKey, Func<object, object>>();
-        private static Dictionary<DelegateCacheKey, Action<object, object>> _setterCache = new Dictionary<DelegateCacheKey, Action<object, object>>();
-        private static Dictionary<Type, IEnumerable<(string name, Type type, bool readable, bool writeable)>> _allProps = new Dictionary<Type, IEnumerable<(string name, Type type, bool readable, bool writeable)>>();
+        private static RWLockInfo _lockAllProp = new RWLockInfo();
+        private static Dictionary<DelegateCacheKey, Func<object, object>> _getterCache = new Dictionary<DelegateCacheKey, Func<object, object>>(Globals.DefaultDictionaryCapacity);
+        private static Dictionary<DelegateCacheKey, Action<object, object>> _setterCache = new Dictionary<DelegateCacheKey, Action<object, object>>(Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>> _allProps = new ConcurrentDictionary<Type, ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static Dictionary<Type, Func<object>> _constructorCache = new Dictionary<Type, Func<object>>(Globals.DefaultDictionaryCapacity);
 
         public static void FlushCaches()
         {
@@ -88,53 +90,73 @@ namespace CodexMicroORM.Core.Helper
                 _getterCache.Clear();
                 _setterCache.Clear();
                 _allProps.Clear();
+                _constructorCache.Clear();
             }
+
+            using (new WriterLock(_lockAllProp))
+            {
+                _allProps.Clear();
+            }
+        }
+
+        public static object FastCreateNoParm(this Type t)
+        {
+            if (_constructorCache.TryGetValue(t, out var del))
+            {
+                return del();
+            }
+
+            var exp = (Func<object>)Expression.Lambda(Expression.New(t.GetConstructor(Type.EmptyTypes))).Compile();
+
+            using (new WriterLock(_lock))
+            {
+                _constructorCache[t] = exp;
+            }
+
+            return exp();
         }
 
         public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this object o, bool? canRead = null, bool? canWrite = null, string name = null)
         {
-            if (!_allProps.TryGetValue(o.GetType(), out var list))
-            {
-                list = (from a in o.GetType().GetProperties() select (a.Name, a.PropertyType, a.CanRead, a.CanWrite));
+            var t = o?.GetType() ?? throw new ArgumentNullException("o");
 
-                using (new WriterLock(_lock))
+            if (!_allProps.TryGetValue(t, out var pnmap))
+            {
+                pnmap = new ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>(
+                    from a in t.GetProperties()
+                    select new KeyValuePair<string, (Type type, bool readable, bool writeable)>(a.Name, (a.PropertyType, a.CanRead, a.CanWrite)));
+
+                _allProps[t] = pnmap;
+            }
+
+            if (!string.IsNullOrEmpty(name))
+            {
+                // If name provided, a direct lookup can be used
+                if (pnmap.TryGetValue(name, out var info)
+                    && (!canRead.HasValue || canRead.Value == info.readable)
+                    && (!canWrite.HasValue || canWrite.Value == info.writeable))
                 {
-                    _allProps[o.GetType()] = list.ToArray();
+                    return new(string name, Type type, bool readable, bool writeable)[] { (name, info.type, info.readable, info.writeable) };
                 }
+                
+                return new(string name, Type type, bool readable, bool writeable)[] { };
             }
-
-            return (from a in list
-                    where (!canRead.HasValue || canRead.Value == a.readable) 
-                        && (!canWrite.HasValue || canWrite.Value == a.writeable) 
-                        && (name == null || name == a.name)
-                    select (a.name, a.type, a.readable, a.writeable));
-        }
-
-        public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllPropertiesNoLock(this object o, bool? canRead = null, bool? canWrite = null, string name = null)
-        {
-            if (!_allProps.TryGetValue(o.GetType(), out var list))
+            else
             {
-                list = (from a in o.GetType().GetProperties() select (a.Name, a.PropertyType, a.CanRead, a.CanWrite));
-                _allProps[o.GetType()] = list.ToArray();
+                return (from a in pnmap
+                        where (!canRead.HasValue || canRead.Value == a.Value.readable)
+                            && (!canWrite.HasValue || canWrite.Value == a.Value.writeable)
+                        select (a.Key, a.Value.type, a.Value.readable, a.Value.writeable));
             }
-
-            return (from a in list
-                    where (!canRead.HasValue || canRead.Value == a.readable)
-                        && (!canWrite.HasValue || canWrite.Value == a.writeable)
-                        && (name == null || name == a.name)
-                    select (a.name, a.type, a.readable, a.writeable));
         }
 
         public static (bool readable, object value) FastPropertyReadableWithValue(this object o, string propName)
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            using (new ReaderLock(_lock))
+            if (_getterCache.TryGetValue(key, out Func<object, object> call))
             {
-                if (_getterCache.TryGetValue(key, out Func<object, object> call))
-                {
-                    return (call != null, call == null ? null : call(o));
-                }
+                return (call != null, call == null ? null : call(o));
             }
 
             try
@@ -151,7 +173,7 @@ namespace CodexMicroORM.Core.Helper
                     return (false, null);
                 }
 
-                MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
                 var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
@@ -192,7 +214,7 @@ namespace CodexMicroORM.Core.Helper
                     return (false, null);
                 }
 
-                MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
                 var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
@@ -210,12 +232,9 @@ namespace CodexMicroORM.Core.Helper
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            using (new ReaderLock(_lock))
+            if (_getterCache.TryGetValue(key, out Func<object, object> call))
             {
-                if (_getterCache.TryGetValue(key, out Func<object, object> call))
-                {
-                    return call != null;
-                }
+                return call != null;
             }
 
             try
@@ -232,7 +251,7 @@ namespace CodexMicroORM.Core.Helper
                     return false;
                 }
 
-                MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
                 var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
@@ -273,7 +292,7 @@ namespace CodexMicroORM.Core.Helper
                     return false;
                 }
 
-                MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
                 var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
@@ -287,47 +306,17 @@ namespace CodexMicroORM.Core.Helper
             }
         }
 
-        /* This was only intended for demo purposes...
-         * 
-        private static Dictionary<DelegateCacheKey, MethodInfo> _reflGetMethodInfos = new Dictionary<DelegateCacheKey, MethodInfo>();
-
-        public static object GetValueReflection(this object o, string propName)
-        {
-            var key = new DelegateCacheKey(o.GetType(), propName);
-
-            using (new ReaderLock(_lock))
-            {
-                if (_reflGetMethodInfos.TryGetValue(key, out MethodInfo mi2))
-                {
-                    return mi2.Invoke(o, new object[] { });
-                }
-            }
-
-            var mi = o.GetType().GetProperty(propName).GetGetMethod();
-
-            using (new WriterLock(_lock))
-            {
-                _reflGetMethodInfos[key] = mi;
-            }
-
-            return mi.Invoke(o, new object[] { });
-        }
-        */
-
         public static object FastGetValue(this object o, string propName)
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            using (new ReaderLock(_lock))
+            if (_getterCache.TryGetValue(key, out Func<object, object> call))
             {
-                if (_getterCache.TryGetValue(key, out Func<object, object> call))
-                {
-                    return call(o);
-                }
+                return call(o);
             }
 
             var pi = o.GetType().GetProperty(propName);
-            MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
             var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
@@ -349,7 +338,7 @@ namespace CodexMicroORM.Core.Helper
             }
 
             var pi = o.GetType().GetProperty(propName);
-            MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
             var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
@@ -368,12 +357,9 @@ namespace CodexMicroORM.Core.Helper
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            using (new ReaderLock(_lock))
+            if (_setterCache.TryGetValue(key, out Action<object, object> call))
             {
-                if (_setterCache.TryGetValue(key, out Action<object, object> call))
-                {
-                    return call != null;
-                }
+                return call != null;
             }
 
             try
@@ -390,7 +376,7 @@ namespace CodexMicroORM.Core.Helper
                     return false;
                 }
 
-                MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
                 var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
@@ -431,7 +417,7 @@ namespace CodexMicroORM.Core.Helper
                     return false;
                 }
 
-                MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
                 var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
@@ -449,17 +435,14 @@ namespace CodexMicroORM.Core.Helper
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            using (new ReaderLock(_lock))
+            if (_setterCache.TryGetValue(key, out Action<object, object> call))
             {
-                if (_setterCache.TryGetValue(key, out Action<object, object> call))
-                {
-                    call(o, value);
-                    return;
-                }
+                call(o, value);
+                return;
             }
 
             var pi = o.GetType().GetProperty(propName);
-            MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
             var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
@@ -482,7 +465,7 @@ namespace CodexMicroORM.Core.Helper
             }
 
             var pi = o.GetType().GetProperty(propName);
-            MethodInfo internalHelper = typeof(PropertyHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
             var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 

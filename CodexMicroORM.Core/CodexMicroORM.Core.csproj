@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
 	<AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
 	<PackageId>CodexMicroORM.Core</PackageId>
-	<Version>0.5.5</Version>
+	<Version>0.6.0</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Product>CodexMicroORM.Core</Product>
@@ -18,17 +18,20 @@
 	<PackageIconUrl>http://www.xskrape.com/images/cef64.png</PackageIconUrl>
 	<ApplicationIcon>xSkrape.ico</ApplicationIcon>
 	<PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
-	<AssemblyVersion>0.5.5.0</AssemblyVersion>
-	<FileVersion>0.5.5.0</FileVersion>
+	<AssemblyVersion>0.6.0.0</AssemblyVersion>
+	<FileVersion>0.6.0.0</FileVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard2.0|AnyCPU'">
     <LangVersion>7.1</LangVersion>
     <PlatformTarget>AnyCPU</PlatformTarget>
+    <Optimize>true</Optimize>
+    <DefineConstants>TRACE;RELEASE;NETSTANDARD2_0;_LOCK_TRACE;RELEASE;NETSTANDARD2_0</DefineConstants>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.0|AnyCPU'">
     <LangVersion>7.1</LangVersion>
+    <DefineConstants>TRACE;DEBUG;NETSTANDARD2_0;_LOCK_TRACE;NETSTANDARD2_0</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

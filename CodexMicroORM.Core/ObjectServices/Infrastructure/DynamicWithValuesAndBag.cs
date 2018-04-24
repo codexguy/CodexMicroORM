@@ -31,7 +31,7 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithValuesAndBag : DynamicWithBag, IDisposable
     {
-        protected Dictionary<string, object> _originalValues = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY, Globals.CurrentStringComparer);
+        protected Dictionary<string, object> _originalValues = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
         protected ObjectState _rowState;
 
         public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
@@ -136,7 +136,7 @@ namespace CodexMicroORM.Core.Services
 
         protected override void OnPropertyChanged(string propName, object oldVal, object newVal, bool isBag)
         {
-            if (!propName.StartsWith("~"))
+            if (propName[0] != KeyService.SHADOW_PROP_PREFIX)
             {
                 base.OnPropertyChanged(propName, oldVal, newVal, isBag);
 
@@ -148,18 +148,17 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        // todo
         private void CEFValueTrackingWrapper_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            var r = _source.FastPropertyReadableWithValue(e.PropertyName);
+            var (readable, value) = _source.FastPropertyReadableWithValue(e.PropertyName);
 
-            if (r.readable)
+            if (readable)
             {
                 var oldval = _originalValues[e.PropertyName];
 
-                if (!oldval.IsSame(r.value))
+                if (!oldval.IsSame(value))
                 {
-                    OnPropertyChanged(e.PropertyName, oldval, r.value, _valueBag.ContainsKey(e.PropertyName));
+                    OnPropertyChanged(e.PropertyName, oldval, value, _valueBag.ContainsKey(e.PropertyName));
                 }
             }
         }

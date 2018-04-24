@@ -29,16 +29,38 @@ namespace CodexMicroORM.Core
     {
         public ReaderWriterLockSlim Lock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
 
+#if DEBUG
+        public static int GlobalTimeout
+        {
+            get;
+            set;
+        } = 1500000;
+#else
         public static int GlobalTimeout
         {
             get;
             set;
         } = 15000;
+#endif
+
+        public bool AllowDirtyReads
+        {
+            get;
+            set;
+        } = true;
 
         public int Timeout = GlobalTimeout;
 
-        // Mainly for debugging purposes, but leaving in release too
+#if LOCK_TRACE
+        // Mainly for debugging purposes, but can be useful in Release too so different compiler directive
         public int LastWriter;
+        public int LastReader;
+        public int LastWriterRelease;
+        public int LastReaderRelease;
+        public static int Waits;
+        public static long WaitDuration;
+        public static double AvgDurationMs => Waits == 0 ? 0 : WaitDuration / 10000.0 / Waits;            
+#endif
     }
 
     /// <summary>
@@ -55,14 +77,35 @@ namespace CodexMicroORM.Core
         {            
             _info = info;
 
-            if (active.GetValueOrDefault(Globals.UseReaderWriterLocks))
+            if (active.GetValueOrDefault(Globals.UseReaderWriterLocks && (!Globals.AllowDirtyReads || !info.AllowDirtyReads)))
             {
-                if (!_info.Lock.TryEnterReadLock(_info.Timeout))
+                try
                 {
-                    throw new TimeoutException("Failed to obtain a read lock in timeout interval.");
-                }
+#if LOCK_TRACE
+                    RWLockInfo.Waits++;
+                    long start = DateTime.Now.Ticks;
+#endif
+                    Thread.BeginCriticalRegion();
 
-                _active = true;
+                    if (!_info.Lock.TryEnterReadLock(_info.Timeout))
+                    {
+#if LOCK_TRACE
+                        RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
+#endif
+                        throw new TimeoutException("Failed to obtain a read lock in timeout interval.");
+                    }
+
+                    _active = true;
+
+#if LOCK_TRACE
+                    _info.LastReader = Environment.CurrentManagedThreadId;
+                    RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
+#endif
+                }
+                finally
+                {
+                    Thread.EndCriticalRegion();
+                }
             }
         }
 
@@ -70,18 +113,26 @@ namespace CodexMicroORM.Core
         {
             if (_active)
             {
-                _info.Lock.ExitReadLock();
-                _active = false;
+                try
+                {
+                    Thread.BeginCriticalRegion();
+                    _info.Lock.ExitReadLock();
+                    _active = false;
+
+#if LOCK_TRACE
+                    _info.LastReaderRelease = Environment.CurrentManagedThreadId;
+#endif
+                }
+                finally
+                {
+                    Thread.EndCriticalRegion();
+                }
             }
         }
 
         public void Dispose()
         {
-            if (_active)
-            {
-                _info.Lock.ExitReadLock();
-                _active = false;
-            }
+            Release();
         }
     }
 
@@ -102,13 +153,22 @@ namespace CodexMicroORM.Core
 
             if (active.GetValueOrDefault(Globals.UseReaderWriterLocks))
             {
-                if (info.Lock.TryEnterWriteLock(0))
+                try
                 {
-                    _active = true;
+                    Thread.BeginCriticalRegion();
 
-#if DEBUG
-                    _info.LastWriter = Environment.CurrentManagedThreadId;
+                    if (_info.Lock.TryEnterWriteLock(0))
+                    {
+                        _active = true;
+
+#if LOCK_TRACE
+                        _info.LastWriter = Environment.CurrentManagedThreadId;
 #endif
+                    }
+                }
+                finally
+                {
+                    Thread.EndCriticalRegion();
                 }
             }
         }
@@ -117,18 +177,26 @@ namespace CodexMicroORM.Core
         {
             if (_active)
             {
-                _info.Lock.ExitWriteLock();
-                _active = false;
+                try
+                {
+                    Thread.BeginCriticalRegion();
+                    _info.Lock.ExitWriteLock();
+                    _active = false;
+
+#if LOCK_TRACE
+                    _info.LastWriterRelease = Environment.CurrentManagedThreadId;
+#endif
+                }
+                finally
+                {
+                    Thread.EndCriticalRegion();
+                }
             }
         }
 
         public void Dispose()
         {
-            if (_active)
-            {
-                _info.Lock.ExitWriteLock();
-                _active = false;
-            }
+            Release();
         }
     }
 
@@ -149,16 +217,33 @@ namespace CodexMicroORM.Core
 
             if (active.GetValueOrDefault(Globals.UseReaderWriterLocks))
             {
-                if (!_info.Lock.TryEnterWriteLock(info.Timeout))
+                try
                 {
-                    throw new TimeoutException("Failed to obtain a write lock in timeout interval.");
-                }
-
-                _active = true;
-
-#if DEBUG
-                    _info.LastWriter = Environment.CurrentManagedThreadId;
+#if LOCK_TRACE
+                    RWLockInfo.Waits++;
+                    long start = DateTime.Now.Ticks;
 #endif
+                    Thread.BeginCriticalRegion();
+
+                    if (!_info.Lock.TryEnterWriteLock(info.Timeout))
+                    {
+#if LOCK_TRACE
+                        RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
+#endif
+                        throw new TimeoutException("Failed to obtain a write lock in timeout interval.");
+                    }
+
+                    _active = true;
+
+#if LOCK_TRACE
+                    _info.LastWriter = Environment.CurrentManagedThreadId;
+                    RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
+#endif
+                }
+                finally
+                {
+                    Thread.EndCriticalRegion();
+                }
             }
         }
 
@@ -166,18 +251,26 @@ namespace CodexMicroORM.Core
         {
             if (_active)
             {
-                _info.Lock.ExitWriteLock();
-                _active = false;
+                try
+                {
+                    Thread.BeginCriticalRegion();
+                    _info.Lock.ExitWriteLock();
+                    _active = false;
+
+#if LOCK_TRACE
+                    _info.LastWriterRelease = Environment.CurrentManagedThreadId;
+#endif
+                }
+                finally
+                {
+                    Thread.EndCriticalRegion();
+                }
             }
         }
 
         public void Dispose()
         {
-            if (_active)
-            {
-                _info.Lock.ExitWriteLock();
-                _active = false;
-            }
+            Release();
         }
     }
 

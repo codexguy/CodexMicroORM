@@ -36,11 +36,12 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithBag : DynamicObject, ICEFInfraWrapper, ICEFSerializable
     {
-        protected RWLockInfo _lock = new RWLockInfo();
-        protected Dictionary<string, object> _valueBag = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY, Globals.CurrentStringComparer);
-        protected Dictionary<string, Type> _preferredType = new Dictionary<string, Type>(Globals.DEFAULT_DICT_CAPACITY, Globals.CurrentStringComparer);
+        protected RWLockInfo _lock = new RWLockInfo() { AllowDirtyReads = false };
+        protected Dictionary<string, object> _valueBag = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
+        protected Dictionary<string, Type> _preferredType = new Dictionary<string, Type>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
         protected object _source;
         protected bool _isBagChanged = false;
+        protected int _shadowPropCount = 0;
 
         internal DynamicWithBag(object o, IDictionary<string, object> props, IDictionary<string, Type> types)
         {
@@ -113,7 +114,7 @@ namespace CodexMicroORM.Core.Services
         {
             using (new ReaderLock(_lock))
             {
-                if (_valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + binder.Name))
+                if (_shadowPropCount > 0 && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + binder.Name))
                 {
                     result = _valueBag[KeyService.SHADOW_PROP_PREFIX + binder.Name];
                     return true;
@@ -189,7 +190,7 @@ namespace CodexMicroORM.Core.Services
         {
             using (new ReaderLock(_lock))
             {
-                if (_valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
+                if (_shadowPropCount > 0 && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
                 {
                     return _valueBag[KeyService.SHADOW_PROP_PREFIX + propName];
                 }
@@ -269,7 +270,7 @@ namespace CodexMicroORM.Core.Services
                 }
 
                 // Special case - if setting a property where there exists a shadow property already AND the new prop is NOT default - blow away the shadow property!
-                if (value != null && !propName.StartsWith(KeyService.SHADOW_PROP_PREFIX) && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
+                if (value != null && _shadowPropCount > 0 && propName[0] != KeyService.SHADOW_PROP_PREFIX && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
                 {
                     var defVal = WrappingHelper.GetDefaultForType(value.GetType());
 
@@ -280,6 +281,7 @@ namespace CodexMicroORM.Core.Services
                         if (_valueBag.ContainsKey(k))
                         {
                             _valueBag.Remove(k);
+                            _shadowPropCount--;
                         }
                     }
                 }
@@ -303,7 +305,7 @@ namespace CodexMicroORM.Core.Services
 
                 if (_valueBag.ContainsKey(propName))
                 {
-                    if (!propName.StartsWith("~"))
+                    if (propName[0] != KeyService.SHADOW_PROP_PREFIX)
                     {
                         var oldVal = _valueBag[propName];
 
@@ -323,8 +325,9 @@ namespace CodexMicroORM.Core.Services
 
                 _valueBag[propName] = value;
 
-                if (propName.StartsWith("~"))
+                if (propName[0] == KeyService.SHADOW_PROP_PREFIX)
                 {
+                    _shadowPropCount++;
                     return false;
                 }
 
@@ -366,8 +369,31 @@ namespace CodexMicroORM.Core.Services
                 if (_valueBag.ContainsKey(propName))
                 {
                     _valueBag.Remove(propName);
+
+                    if (propName[0] == KeyService.SHADOW_PROP_PREFIX)
+                    {
+                        _shadowPropCount--;
+                    }
                 }
             }
+        }
+
+        public bool HasShadowProperty(string propName)
+        {
+            if (_shadowPropCount == 0)
+            {
+                return false;
+            }
+
+            using (new ReaderLock(_lock))
+            {
+                if (_valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public bool HasProperty(string propName)
@@ -403,7 +429,7 @@ namespace CodexMicroORM.Core.Services
             throw new NotSupportedException();
         }
 
-        private static ConcurrentDictionary<Type, bool> _serializableCahce = new ConcurrentDictionary<Type, bool>();
+        private static ConcurrentDictionary<Type, bool> _serializableCahce = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         private bool IsTypeSerializable(Type t)
         {
@@ -429,7 +455,7 @@ namespace CodexMicroORM.Core.Services
 
         public IDictionary<string, object> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false)
         {
-            Dictionary<string, object> vals = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY);
+            Dictionary<string, object> vals = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
 
             using (new ReaderLock(_lock))
             {
@@ -462,7 +488,7 @@ namespace CodexMicroORM.Core.Services
         {
             using (new ReaderLock(_lock))
             {
-                return (CEF.CurrentPCTService()?.SaveContents(tw, this, mode, new Dictionary<object, bool>(Globals.DEFAULT_DICT_CAPACITY))).GetValueOrDefault();
+                return (CEF.CurrentPCTService()?.SaveContents(tw, this, mode, new Dictionary<object, bool>(Globals.DefaultDictionaryCapacity))).GetValueOrDefault();
             }
         }
 

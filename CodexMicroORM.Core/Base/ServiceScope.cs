@@ -23,7 +23,6 @@ using System.Linq;
 using CodexMicroORM.Core.Services;
 using CodexMicroORM.Core.Collections;
 using System.ComponentModel;
-using System.Data;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
@@ -32,7 +31,6 @@ using Newtonsoft.Json;
 using System.IO;
 using System.Threading.Tasks;
 using CodexMicroORM.Core.Helper;
-using System.Diagnostics;
 using System.Threading;
 
 namespace CodexMicroORM.Core
@@ -176,21 +174,25 @@ namespace CodexMicroORM.Core
         #region "Private state"
 
         // Global config...
-        private static ConcurrentDictionary<Type, CacheBehavior> _cacheBehaviorByType = new ConcurrentDictionary<Type, CacheBehavior>();
-        private static ConcurrentDictionary<Type, int> _cacheDurByType = new ConcurrentDictionary<Type, int>();
+        private static ConcurrentDictionary<Type, CacheBehavior> _cacheBehaviorByType = new ConcurrentDictionary<Type, CacheBehavior>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, int> _cacheDurByType = new ConcurrentDictionary<Type, int>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Tracks all objects in this scope - and their services.
-        private ConcurrentIndexedList<TrackedObject> _scopeObjects = new ConcurrentIndexedList<TrackedObject>(nameof(TrackedObject.Target), nameof(TrackedObject.Wrapper));
+        private ConcurrentIndexedList<TrackedObject> _scopeObjects = null;
 
         // Optional state maintained at scope level, per service type
-        private ConcurrentDictionary<Type, ICEFServiceObjState> _serviceState = new ConcurrentDictionary<Type, ICEFServiceObjState>();
+        private ConcurrentDictionary<Type, ICEFServiceObjState> _serviceState = null;
 
         // Known/resolved services available in this scope - when asking for non-object-specific services, this offers a fast(er) way to determine
-        private ConcurrentBag<ICEFService> _scopeServices = new ConcurrentBag<ICEFService>();
+        private HashSet<ICEFService> _scopeServices = null;
 
         private ServiceScopeSettings _settings = new ServiceScopeSettings();
 
-        private ConcurrentBag<ICEFService> _localServices = new ConcurrentBag<ICEFService>();
+        private HashSet<ICEFService> _localServices = null;
+
+        // Connection scopes can be thread-static (default) or per service scope...
+        internal Stack<ConnectionScope> _allConnScopes = new Stack<ConnectionScope>();
+        internal ConnectionScope _currentConnScope = null;
 
         #endregion
 
@@ -201,6 +203,7 @@ namespace CodexMicroORM.Core
             _settings = settings;
 
             // Normally internal locking should be very quick, for very large scopes, dictionary resizing can be slow on rare instances, so increase max timeout (TODO - investigate "flipping" storage to a new type if pass a threshold)
+            _scopeObjects = new ConcurrentIndexedList<TrackedObject>(nameof(TrackedObject.Target), nameof(TrackedObject.Wrapper));
             _scopeObjects.LockTimeout = 25000;
             _scopeObjects.AddNeverTrackNull(nameof(TrackedObject.Wrapper)).AddUniqueConstraint(nameof(TrackedObject.Target));
 
@@ -208,6 +211,10 @@ namespace CodexMicroORM.Core
             {
                 _scopeObjects.InitialCapacity = settings.EstimatedScopeSize;
             }
+
+            _serviceState = new ConcurrentDictionary<Type, ICEFServiceObjState>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+            _scopeServices = new HashSet<ICEFService>();
+            _localServices = new HashSet<ICEFService>();
         }
 
         internal ServiceScope(ServiceScope template)
@@ -216,6 +223,8 @@ namespace CodexMicroORM.Core
             _serviceState = template._serviceState;
             _scopeServices = template._scopeServices;
             _localServices = template._localServices;
+            _allConnScopes = template._allConnScopes;
+            _currentConnScope = template._currentConnScope;
             FriendlyName = template.FriendlyName;
 
             // Settings need to be deep copied
@@ -231,7 +240,8 @@ namespace CodexMicroORM.Core
                 AsyncCacheUpdates = template.Settings.AsyncCacheUpdates,
                 EntitySetUsesUnwrapped = template.Settings.EntitySetUsesUnwrapped,
                 RetrievalPostProcessing = template.Settings.RetrievalPostProcessing,
-                EstimatedScopeSize = template.Settings.EstimatedScopeSize
+                EstimatedScopeSize = template.Settings.EstimatedScopeSize,
+                ConnectionScopePerThread = template.Settings.ConnectionScopePerThread
             };
 
             // Special case - this as a shallow copy cannot dispose state!
@@ -315,7 +325,10 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            service = (from a in _scopeServices where a is T select a).FirstOrDefault();
+            lock (_scopeServices)
+            {
+                service = (from a in _scopeServices where a is T select a).FirstOrDefault();
+            }
 
             if (service != null)
             {
@@ -323,7 +336,10 @@ namespace CodexMicroORM.Core
             }
 
             // As a last resort, check local and global services
-            service = (from a in _localServices where a is T select a).FirstOrDefault();
+            lock (_localServices)
+            {
+                service = (from a in _localServices where a is T select a).FirstOrDefault();
+            }
 
             if (service == null)
             {
@@ -332,7 +348,10 @@ namespace CodexMicroORM.Core
 
             if (service != null)
             {
-                _scopeServices.Add(service);
+                lock (_scopeServices)
+                {
+                    _scopeServices.Add(service);
+                }
             }
 
             return (T)service;
@@ -360,7 +379,10 @@ namespace CodexMicroORM.Core
 
         public void AddLocalService(ICEFService service)
         {
-            _localServices.Add(service);
+            lock (_localServices)
+            {
+                _localServices.Add(service);
+            }
         }
 
         public IList<(object item, string message, int status)> DBSave(DBSaveSettings settings = null)
@@ -544,7 +566,7 @@ namespace CodexMicroORM.Core
             }
 
             var setArray = JArray.Parse(json);
-            Dictionary<object, object> visits = new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY);
+            Dictionary<object, object> visits = new Dictionary<object, object>(Globals.DefaultDictionaryCapacity);
 
             foreach (var i in setArray.Children())
             {
@@ -570,16 +592,16 @@ namespace CodexMicroORM.Core
                 throw new CEFInvalidOperationException("JSON provided is not an object.");
             }
 
-            return InternalDeserialize(typeof(T), json, new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY)) as T;
+            return InternalDeserialize(typeof(T), json, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity)) as T;
         }
 
         private object InternalDeserialize(Type type, string json, IDictionary<object, object> visits)
         {
             var copyFrom = JObject.Parse(json);
 
-            Dictionary<string, object> props = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY);
-            Dictionary<string, (Type type, IEnumerable<string> json)> lists = new Dictionary<string, (Type type, IEnumerable<string> json)>(Globals.DEFAULT_DICT_CAPACITY);
-            Dictionary<string, (Type type, string json)> objs = new Dictionary<string, (Type type, string json)>(Globals.DEFAULT_DICT_CAPACITY);
+            Dictionary<string, object> props = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
+            Dictionary<string, (Type type, IEnumerable<string> json)> lists = new Dictionary<string, (Type type, IEnumerable<string> json)>(Globals.DefaultDictionaryCapacity);
+            Dictionary<string, (Type type, string json)> objs = new Dictionary<string, (Type type, string json)>(Globals.DefaultDictionaryCapacity);
             ObjectState rs = ObjectState.Unchanged;
 
             foreach (var c in (from a in copyFrom.Children() where a.Type == JTokenType.Property select a))
@@ -680,7 +702,7 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            var constructed = CEF.CurrentServiceScope.InternalCreateAddBase(Activator.CreateInstance(type), rs == ObjectState.Added, rs, props, null, visits);
+            var constructed = CEF.CurrentServiceScope.InternalCreateAddBase(type.FastCreateNoParm(), rs == ObjectState.Added, rs, props, null, visits);
 
             var iw = constructed.AsInfraWrapped();
 
@@ -697,10 +719,9 @@ namespace CodexMicroORM.Core
 
                 var itemType = kvp.Value.type.GenericTypeArguments[0];
 
-                (lw as ISupportInitializeNotification)?.BeginInit();
-
                 foreach (var itemText in kvp.Value.json)
                 {
+                    //lw.AddWrappedItem(InternalDeserialize(itemType, itemText, visits));
                     InternalDeserialize(itemType, itemText, visits);
                 }
 
@@ -738,6 +759,48 @@ namespace CodexMicroORM.Core
         #endregion
 
         #region "Internals"
+
+        internal void ConnScopeInit(ConnectionScope newcs, ScopeMode mode)
+        {
+            if (_currentConnScope != null)
+            {
+                if (_allConnScopes == null)
+                {
+                    _allConnScopes = new Stack<ConnectionScope>();
+                }
+
+                _allConnScopes.Push(_currentConnScope);
+            }
+
+            _currentConnScope = newcs ?? throw new ArgumentNullException("newcs");
+
+            var db = GetService<DBService>();
+
+            newcs.Disposing = () =>
+            {
+                // Not just service scopes but connection scopes should wait for all pending operations!
+                db?.WaitOnCompletions();
+            };
+
+            newcs.Disposed = () =>
+            {
+                if (_allConnScopes?.Count > 0)
+                {
+                    do
+                    {
+                        var cspop = _allConnScopes.Pop();
+
+                        if (cspop != _currentConnScope)
+                        {
+                            _currentConnScope = cspop;
+                            return;
+                        }
+                    } while (_allConnScopes.Count > 0);
+                }
+
+                _currentConnScope = null;
+            };
+        }
 
         internal ConcurrentIndexedList<TrackedObject> Objects => _scopeObjects;
 
@@ -833,11 +896,20 @@ namespace CodexMicroORM.Core
                 throw new ArgumentException("o cannot be a TrackedObject.");
             }
 
+            if (o is DynamicWithBag dyn)
+            {
+                return (() =>
+                {
+                    return dyn.GetValue(propName);
+                }
+                , dyn.GetPropertyType(propName));
+            }
+
             var target = GetInfraOrWrapperOrTarget(o);
 
             if (target != null)
             {
-                var dyn = target as DynamicWithBag;
+                dyn = target as DynamicWithBag;
 
                 if (dyn != null)
                 {
@@ -925,93 +997,96 @@ namespace CodexMicroORM.Core
 
             var bt = o.GetBaseType();
 
-            (bool resolved, IList<ICEFService> list) svcTypes;
-            CEF.DefaultServicesByType.TryGetValue(bt, out svcTypes);
-
-            if (svcTypes.list != null && svcTypes.resolved)
+            var list = CEF.ResolvedServicesByType.AddWithFactory(bt, (key) =>
             {
-                return svcTypes.list.Concat(_localServices);
-            }
+                var vl = new List<ICEFService>();
 
-            var vl = new List<ICEFService>();
-
-            // Append any "missing" global services
-            if (svcTypes.list?.Count > 0)
-            {
-                vl.AddRange(svcTypes.list.Union(CEF.GlobalServices));
-            }
-            else
-            {
+                // Append any "missing" global services
                 vl.AddRange(CEF.GlobalServices);
-            }
 
-            // Look for dependent services that are not yet included - add them as needed
-            foreach (var s in (from a in vl
-                               where a.RequiredServices()?.Count > 0
-                               from b in a.RequiredServices()
-                               select b).Distinct().ToArray())
-            {
-                if (!(from a in vl where a.GetType().Equals(s) select a).Any())
+                // Append services registered by type
+                CEF.RegisteredServicesByType.TryGetValue(bt, out var rl);
+
+                if (rl != null)
                 {
-                    ICEFService sta = null;
+                    vl.AddRange(from a in rl where !(from b in vl where b.GetType() == a.GetType() select b).Any() select a);
+                }
 
-                    try
+                // Look for dependent services that are not yet included - add them as needed
+                foreach (var s in (from a in vl
+                                   where a.RequiredServices()?.Count > 0
+                                   from b in a.RequiredServices()
+                                   select b).Distinct().ToArray())
+                {
+                    if (!(from a in vl where s.IsAssignableFrom(a.GetType()) select a).Any())
                     {
-                        // An interface was likely returned from RequiredServices - go look up based on interface first
-                        if (s == typeof(ICEFDataHost))
+                        ICEFService sta = null;
+
+                        try
                         {
-                            sta = CEF.CurrentDBService(o);
-                        }
-                        else
-                        {
-                            if (s == typeof(ICEFAuditHost))
+                            // An interface was likely returned from RequiredServices - go look up based on interface first
+                            if (s == typeof(ICEFDataHost))
                             {
-                                sta = CEF.CurrentAuditService(o);
+                                sta = CEF.CurrentDBService(o);
                             }
                             else
                             {
-                                if (s == typeof(ICEFKeyHost))
+                                if (s == typeof(ICEFAuditHost))
                                 {
-                                    sta = CEF.CurrentKeyService(o);
+                                    sta = CEF.CurrentAuditService(o);
                                 }
                                 else
                                 {
-                                    if (s == typeof(ICEFPersistenceHost))
+                                    if (s == typeof(ICEFKeyHost))
                                     {
-                                        sta = CEF.CurrentPCTService(o);
+                                        sta = CEF.CurrentKeyService(o);
                                     }
                                     else
                                     {
-                                        if (s == typeof(ICEFCachingHost))
+                                        if (s == typeof(ICEFPersistenceHost))
                                         {
-                                            sta = CEF.CurrentCacheService(o);
+                                            sta = CEF.CurrentPCTService(o);
                                         }
                                         else
                                         {
-                                            // Assumes a parameterless constructor exists - most of these should be internal
-                                            sta = Activator.CreateInstance(s) as ICEFService;
+                                            if (s == typeof(ICEFCachingHost))
+                                            {
+                                                sta = CEF.CurrentCacheService(o);
+                                            }
+                                            else
+                                            {
+                                                // Assumes a parameterless constructor exists - most of these should be internal
+                                                sta = s.FastCreateNoParm() as ICEFService;
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    catch
-                    {
-                    }
+                        catch
+                        {
+                        }
 
-                    if (sta == null)
-                    {
-                        throw new CEFInvalidOperationException($"Service {s.Name} should be initialized with details, cannot create it automatically.");
-                    }
+                        if (sta == null)
+                        {
+                            throw new CEFInvalidOperationException($"Service {s.Name} should be initialized with details, cannot create it automatically.");
+                        }
 
-                    vl.Add(sta);
+                        vl.Add(sta);
+                    }
                 }
+
+                return vl;
+            });
+
+            if (list != null)
+            {
+                return list.Concat(from a in _localServices where !(from b in list where a.GetType() == b.GetType() select b).Any() select a);
             }
-
-            CEF.DefaultServicesByType[bt] = (true, vl);
-
-            return vl.Concat(_localServices);
+            else
+            {
+                return _localServices;
+            }
         }
 
         private HashSet<object> GetFilterRows(DBSaveSettings settings)
@@ -1074,7 +1149,7 @@ namespace CodexMicroORM.Core
         {
             ReconcileModifiedState(null);
 
-            Dictionary<object, bool> visits = new Dictionary<object, bool>(Globals.DEFAULT_DICT_CAPACITY);
+            Dictionary<object, bool> visits = new Dictionary<object, bool>(Globals.DefaultDictionaryCapacity);
             StringBuilder sb = new StringBuilder(16384);
             var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode) | SerializationMode.SingleLevel;
 
@@ -1158,7 +1233,7 @@ namespace CodexMicroORM.Core
 
         private IList<ICEFInfraWrapper> GetSaveables(HashSet<object> filterRows, DBSaveSettings settings)
         {
-            List<ICEFInfraWrapper> tosave = new List<ICEFInfraWrapper>();
+            const int USE_PARALLEL_THRESHOLD = 20000;
 
             IEnumerable<TrackedObject> list = null;
 
@@ -1171,7 +1246,11 @@ namespace CodexMicroORM.Core
                 list = _scopeObjects;
             }
 
-            foreach (var v in list)
+            var cnt = list.Count();
+
+            List<ICEFInfraWrapper> tosave = new List<ICEFInfraWrapper>(cnt);
+
+            void work(TrackedObject v)
             {
                 if (v.IsAlive)
                 {
@@ -1181,18 +1260,39 @@ namespace CodexMicroORM.Core
                     {
                         if (settings.IgnoreObjectType == null || target.GetType() != settings.IgnoreObjectType)
                         {
-                            var db = v.GetCreateInfra() as DynamicWithValuesAndBag;
-
-                            if (db != null)
+                            if (v.GetCreateInfra() is DynamicWithValuesAndBag db)
                             {
                                 if (db.State != ObjectState.Unlinked && db.State != ObjectState.Unchanged)
                                 {
-                                    tosave.Add(db);
+                                    lock (tosave)
+                                    {
+                                        tosave.Add(db);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            }
+
+            if (cnt < USE_PARALLEL_THRESHOLD)
+            {
+                foreach (var v in list)
+                {
+                    work(v);
+                }
+            }
+            else
+            {
+                var ss = CEF.CurrentServiceScope;
+
+                Parallel.ForEach(list, (v) =>
+                {
+                    using (CEF.UseServiceScope(ss))
+                    {
+                        work(v);
+                    }
+                });
             }
 
             return tosave;
@@ -1216,7 +1316,7 @@ namespace CodexMicroORM.Core
             if (visits == null)
             {
                 // Would have liked to use plain Dictionary but we do support parallel object graph traversal, so...
-                visits = new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY);
+                visits = new Dictionary<object, object>(Globals.DefaultDictionaryCapacity);
             }
 
             // See if already tracked - if so, return quickly
@@ -1262,20 +1362,20 @@ namespace CodexMicroORM.Core
                                     {
                                         if ((Settings.MergeBehavior & MergeBehavior.SilentMerge) != 0)
                                         {
-                                            var pkset = GetSetter(iw, prop.Key);
+                                            var (setter, type) = GetSetter(iw, prop.Key);
 
-                                            if (pkset.setter != null)
+                                            if (setter != null)
                                             {
-                                                pkset.setter.Invoke(prop.Value);
+                                                setter.Invoke(prop.Value);
                                             }
                                         }
                                         else
                                         {
-                                            var pkget = GetGetter(iw, prop.Key);
+                                            var (getter, type) = GetGetter(iw, prop.Key);
 
-                                            if (pkget.getter != null)
+                                            if (getter != null)
                                             {
-                                                if (!prop.Value.IsSame(pkget.getter.Invoke()))
+                                                if (!prop.Value.IsSame(getter.Invoke()))
                                                 {
                                                     throw new CEFInvalidOperationException($"Based on your merge settings, you're not allowed to load records that are already in scope with different property values. ({pkto.BaseName})");
                                                 }
@@ -1285,9 +1385,7 @@ namespace CodexMicroORM.Core
 
                                     if (initState.HasValue)
                                     {
-                                        var aiw = iw as ICEFInfraWrapper;
-
-                                        if (aiw != null)
+                                        if (iw is ICEFInfraWrapper aiw)
                                         {
                                             aiw.SetRowState(initState.Value);
                                         }
@@ -1312,7 +1410,7 @@ namespace CodexMicroORM.Core
 
                 if (stateType != null && !_serviceState.ContainsKey(stateType))
                 {
-                    _serviceState[stateType] = Activator.CreateInstance(stateType) as ICEFServiceObjState;
+                    _serviceState[stateType] = stateType.FastCreateNoParm() as ICEFServiceObjState;
                 }
 
                 objServices.Add(svc);
@@ -1385,9 +1483,7 @@ namespace CodexMicroORM.Core
             };
 
             // This is the big moment! "to" is our "tracked object" container
-            _scopeObjects.Add(to);
-
-            Interlocked.Increment(ref _c);
+            _scopeObjects.Add(to, false);
 
             foreach (var svc in objServices)
             {
@@ -1409,8 +1505,6 @@ namespace CodexMicroORM.Core
 
             return repl ?? o;
         }
-
-        private static long _c = 0;
 
         private void InternalDelete(object root, HashSet<object> visits, DeleteCascadeAction action)
         {
@@ -1454,7 +1548,7 @@ namespace CodexMicroORM.Core
 
         internal T InternalCreateAdd<T>(T initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types) where T : class, new()
         {
-            var v = InternalCreateAddBase(initial ?? new T(), isNew, initState, props, types, new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY));
+            var v = InternalCreateAddBase(initial ?? new T(), isNew, initState, props, types, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity));
             return v as T;
         }
 

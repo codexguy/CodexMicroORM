@@ -31,13 +31,13 @@ namespace CodexMicroORM.Core.Services
 {
     public class KeyService : ICEFKeyHost
     {
-        internal const string SHADOW_PROP_PREFIX = "___";
+        public const char SHADOW_PROP_PREFIX = '\\';
 
         private static long _lowLongKey = long.MinValue;
         private static int _lowIntKey = int.MinValue;
 
         // Populated during startup, represents all object primary keys we track - should be eastablished prior to relationships!
-        private static ConcurrentDictionary<Type, IList<string>> _primaryKeys = new ConcurrentDictionary<Type, IList<string>>();
+        private static ConcurrentDictionary<Type, IList<string>> _primaryKeys = new ConcurrentDictionary<Type, IList<string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Populated during startup, represents all object relationships we track
         private static ConcurrentIndexedList<TypeChildRelationship> _relations = new ConcurrentIndexedList<TypeChildRelationship>(
@@ -1055,7 +1055,7 @@ namespace CodexMicroORM.Core.Services
 
                             if (iw != null)
                             {
-                                if (iw.HasProperty(SHADOW_PROP_PREFIX + e.PropertyName))
+                                if (iw.HasShadowProperty(e.PropertyName))
                                 {
                                     iw.RemoveProperty(SHADOW_PROP_PREFIX + e.PropertyName);
                                 }
@@ -1098,16 +1098,16 @@ namespace CodexMicroORM.Core.Services
 
                         if (pkGet == null)
                         {
-                            var iw = Parent.GetInfraWrapperTarget();
+                            var o = Parent.GetInfraWrapperTarget();
 
-                            if (Globals.UseShadowPropertiesForNew && iw.HasProperty(SHADOW_PROP_PREFIX + f))
+                            if (Globals.UseShadowPropertiesForNew && o is ICEFInfraWrapper && ((ICEFInfraWrapper)o).HasShadowProperty(f))
                             {
-                                pkGet = LinkedScope.GetGetter(iw, SHADOW_PROP_PREFIX + f).getter;
+                                pkGet = LinkedScope.GetGetter(o, SHADOW_PROP_PREFIX + f).getter;
                             }
 
                             if (pkGet == null)
                             {
-                                pkGet = LinkedScope.GetGetter(iw, f).getter;
+                                pkGet = LinkedScope.GetGetter(o, f).getter;
                             }
                         }
 
@@ -1308,8 +1308,8 @@ namespace CodexMicroORM.Core.Services
 
                     for (int i = 0; i < Key.ChildResolvedKey.Count; ++i)
                     {
-                        var forChild = LinkedScope.GetGetter(Child.Target, Key.ChildResolvedKey[i]);
-                        var chVal = forChild.getter.Invoke();
+                        var (getter, type) = LinkedScope.GetGetter(Child.Target, Key.ChildResolvedKey[i]);
+                        var chVal = getter.Invoke();
                         val.Add(chVal);
                     }
 
@@ -1320,8 +1320,8 @@ namespace CodexMicroORM.Core.Services
                 {
                     for (int i = 0; i < Key.ParentKey.Count && i < Key.ChildResolvedKey.Count; ++i)
                     {
-                        var forParent = LinkedScope.GetGetter(NotifyParent.Target, Key.ParentKey[i]);
-                        var parVal = forParent.getter.Invoke();
+                        var (getter, type) = LinkedScope.GetGetter(NotifyParent.Target, Key.ParentKey[i]);
+                        var parVal = getter.Invoke();
                         var forChild = LinkedScope.GetSetter(Child.GetInfraWrapperTarget(), Key.ChildResolvedKey[i]);
                         forChild.setter.Invoke(parVal);
                     }
@@ -1378,8 +1378,7 @@ namespace CodexMicroORM.Core.Services
 
             private ConcurrentIndexedList<KeyObjectStateFK> _fks = new ConcurrentIndexedList<KeyObjectStateFK>(nameof(KeyObjectStateFK.Parent), nameof(KeyObjectStateFK.Child));
             private ConcurrentIndexedList<KeyObjectStatePK> _pks = new ConcurrentIndexedList<KeyObjectStatePK>(nameof(KeyObjectStatePK.Composite)).AddUniqueConstraint(nameof(KeyObjectStatePK.Composite));
-            private Dictionary<TypeChildRelationship, ConcurrentDictionary<object, ImmutableList<ServiceScope.TrackedObject>>> _unlinkedChild = new Dictionary<TypeChildRelationship, ConcurrentDictionary<object, ImmutableList<ServiceScope.TrackedObject>>>(Globals.DEFAULT_DICT_CAPACITY);
-            private RWLockInfo _unlinkedChildLock = new RWLockInfo();
+            private ConcurrentDictionary<TypeChildRelationship, ConcurrentDictionary<object, ImmutableList<ServiceScope.TrackedObject>>> _unlinkedChild = new ConcurrentDictionary<TypeChildRelationship, ConcurrentDictionary<object, ImmutableList<ServiceScope.TrackedObject>>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
             private object _asNull = new object();
             private bool _firstInit = true;
 
@@ -1411,31 +1410,28 @@ namespace CodexMicroORM.Core.Services
                 if (parentWrapped != null)
                 {
                     var nk = new KeyObjectStateFK(ss, key, parent, child, parentWrapped);
-                    _fks.Add(nk);
+                    _fks.Add(nk, false);
 
                     // Remove from unlinked child list, if preset
-                    using (new ReaderLock(_unlinkedChildLock))
+                    if (_unlinkedChild.TryGetValue(key, out var map))
                     {
-                        if (_unlinkedChild.TryGetValue(key, out var map))
+                        if (map.TryGetValue(_asNull, out var ul1))
                         {
-                            if (map.TryGetValue(_asNull, out var ul1))
+                            map[_asNull] = ul1.Remove(child);
+                        }
+
+                        var pwt = parent.GetWrapperTarget();
+                        if (map.TryGetValue(pwt, out var ul2))
+                        {
+                            var keep = (from a in ul2 where a != child select a);
+
+                            if (keep.Any())
                             {
-                                map[_asNull] = ul1.Remove(child);
+                                map[pwt] = ImmutableList.CreateRange(keep);
                             }
-
-                            var pwt = parent.GetWrapperTarget();
-                            if (map.TryGetValue(pwt, out var ul2))
+                            else
                             {
-                                var keep = (from a in ul2 where a != child select a);
-
-                                if (keep.Any())
-                                {
-                                    map[pwt] = ImmutableList.CreateRange(keep);
-                                }
-                                else
-                                {
-                                    map.TryRemove(pwt, out var tmp);
-                                }
+                                map.TryRemove(pwt, out var tmp);
                             }
                         }
                     }
@@ -1453,30 +1449,27 @@ namespace CodexMicroORM.Core.Services
 
             public IEnumerable<ServiceScope.TrackedObject> GetUnlinkedChildrenForParent(TypeChildRelationship key, object parentWoTValue)
             {
-                using (new ReaderLock(_unlinkedChildLock))
+                _unlinkedChild.TryGetValue(key, out var uk);
+
+                if (uk != null)
                 {
-                    _unlinkedChild.TryGetValue(key, out var uk);
+                    uk.TryGetValue(parentWoTValue, out var tl1);
 
-                    if (uk != null)
+                    if (tl1 != null)
                     {
-                        uk.TryGetValue(parentWoTValue, out var tl1);
-
-                        if (tl1 != null)
+                        foreach (var v in tl1)
                         {
-                            foreach (var v in tl1)
-                            {
-                                yield return v;
-                            }
+                            yield return v;
                         }
+                    }
 
-                        uk.TryGetValue(parentWoTValue, out var tl2);
+                    uk.TryGetValue(parentWoTValue, out var tl2);
 
-                        if (tl2 != null)
+                    if (tl2 != null)
+                    {
+                        foreach (var v in tl2)
                         {
-                            foreach (var v in tl2)
-                            {
-                                yield return v;
-                            }
+                            yield return v;
                         }
                     }
                 }
@@ -1484,26 +1477,23 @@ namespace CodexMicroORM.Core.Services
 
             public void TrackUnlinkedParent(TypeChildRelationship key, object parentWoTValue, ServiceScope.TrackedObject child)
             {
-                using (new WriterLock(_unlinkedChildLock))
+                _unlinkedChild.TryGetValue(key, out var uk);
+
+                if (uk == null)
                 {
-                    _unlinkedChild.TryGetValue(key, out var uk);
-
-                    if (uk == null)
-                    {
-                        uk = new ConcurrentDictionary<object, ImmutableList<ServiceScope.TrackedObject>>();
-                        _unlinkedChild[key] = uk;
-                    }
-
-                    uk.TryGetValue(parentWoTValue ?? _asNull, out var tl);
-
-                    if (tl == null)
-                    {
-                        tl = ImmutableList<ServiceScope.TrackedObject>.Empty;
-                        uk[parentWoTValue ?? _asNull] = tl;
-                    }
-
-                    tl.Add(child);
+                    uk = new ConcurrentDictionary<object, ImmutableList<ServiceScope.TrackedObject>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+                    _unlinkedChild[key] = uk;
                 }
+
+                uk.TryGetValue(parentWoTValue ?? _asNull, out var tl);
+
+                if (tl == null)
+                {
+                    tl = ImmutableList<ServiceScope.TrackedObject>.Empty;
+                    uk[parentWoTValue ?? _asNull] = tl;
+                }
+
+                tl.Add(child);
             }
 
             public KeyObjectStatePK AddPK(ServiceScope ss, ServiceScope.TrackedObject parent, INotifyPropertyChanged parentWrapped, IList<string> parentKeyFields, Action<ServiceScope.TrackedObject, object, object> notifyKeyChange)
@@ -1526,7 +1516,7 @@ namespace CodexMicroORM.Core.Services
                 if (parentWrapped != null)
                 {
                     var nk = new KeyObjectStatePK(ss, parent, parentWrapped, parentKeyFields, notifyKeyChange);
-                    _pks.Add(nk);
+                    _pks.Add(nk, false);
                     return nk;
                 }
 

@@ -95,6 +95,12 @@ namespace CodexMicroORM.Core
             set;
         } = Environment.ProcessorCount * 7;
 
+        public bool? ConnectionScopePerThread
+        {
+            get;
+            set;
+        } = null;
+
         [ThreadStatic]
         public bool CanDispose = true;
     }

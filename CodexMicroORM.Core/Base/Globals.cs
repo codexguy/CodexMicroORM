@@ -27,15 +27,48 @@ namespace CodexMicroORM.Core
     /// </summary>
     public static class Globals
     {
-        public const int DEFAULT_DICT_CAPACITY = 11;
-        public const int DEFAULT_LARGER_DICT_CAPACITY = 31;
-
         private static WrappingAction _wrappingAction = WrappingAction.Dynamic;
         private static Type _defaultAuditServiceType = typeof(AuditService);
         private static Type _defaultDBServiceType = typeof(DBService);
         private static Type _defaultKeyServiceType = typeof(KeyService);
         private static Type _defaultPCTServiceType = typeof(PCTService);
         private static Type _defaultValidationServiceType = typeof(ValidationService);
+
+        /// <summary>
+        /// Rather than the default of "3" for standard dictionary initialization, offers a different starting capacity for most dictionaries managed by the framework.
+        /// </summary>
+        public static int DefaultDictionaryCapacity
+        {
+            get;
+            set;
+        } = 11;
+
+        /// <summary>
+        /// Similar to DefaultDictionaryCapacity but intended for dictionaries that are known to likely hold more than a trivial number of values.
+        /// </summary>
+        public static int DefaultLargerDictionaryCapacity
+        {
+            get;
+            set;
+        } = 31;
+
+        /// <summary>
+        /// Custom collection types that are optimized for parallel usage will leverage this setting to establish "buckets" to which individual threads will map, thus reducing contention over the whole of the collection.
+        /// </summary>
+        public static int DefaultCollectionConcurrencyLevel
+        {
+            get;
+            set;
+        } = Environment.ProcessorCount.MaxOf(4);
+
+        /// <summary>
+        /// Custom collection types that are list-based would use this setting to establish their initial capacities unless otherwise specified.
+        /// </summary>
+        public static int DefaultListCapacity
+        {
+            get;
+            set;
+        } = 6;
 
         public static Type DefaultPCTServiceType
         {
@@ -218,13 +251,22 @@ namespace CodexMicroORM.Core
         } = BulkRules.Threshold;
 
         /// <summary>
-        /// When a global query timeout (milliseconds) is specified, queries are run on threads that can be aborted if the timeout period elapses before completion. By default this is "off" since we assume most DBMS offer their own timeouts.
+        /// When a global query timeout (milliseconds) is specified, queries are run up until this maximum timeout, after which co-operative cancellation is attempted. By default this is "off" since we assume most DBMS offer their own timeout mechanism.
         /// </summary>
         public static int? GlobalQueryTimeout
         {
             get;
             set;
         } = null;
+
+        /// <summary>
+        /// When set to true, queries use dedicated threads that can be aborted if the global query timeout elapses. This is a higher cost setting so the default is false, with false also being applicable when using RDBMS which can manage their own command timeouts.
+        /// </summary>
+        public static bool QueriesUseDedicatedThreads
+        {
+            get;
+            set;
+        } = false;
 
         public static WrappingAction DefaultWrappingAction
         {
@@ -440,6 +482,21 @@ namespace CodexMicroORM.Core
         } = true;
 
         public static bool UseReaderWriterLocks
+        {
+            get;
+            set;
+        } = true;
+
+        /// <summary>
+        /// The reason the default is true is this lets us manage connection scopes that cross multiple sevice scopes. We can override this at a service scope level.
+        /// </summary>
+        public static bool ConnectionScopePerThread
+        {
+            get;
+            set;
+        } = true;
+
+        public static bool AllowDirtyReads
         {
             get;
             set;

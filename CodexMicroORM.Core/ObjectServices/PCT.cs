@@ -57,7 +57,7 @@ namespace CodexMicroORM.Core.Services
             if ((mode & SerializationMode.OnlyChanged) != 0)
             {
                 // Point of this? if we have object graph a->b->c, if c is modified, both a and b need to be included even if unmodified to support proper hierarchy
-                include = RequiresPersistenceForChanges(o, mode, new ConcurrentDictionary<object, bool>());
+                include = RequiresPersistenceForChanges(o, mode, new ConcurrentDictionary<object, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity));
             }
 
             if (include)

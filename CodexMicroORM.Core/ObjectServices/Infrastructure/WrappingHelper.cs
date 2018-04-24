@@ -20,14 +20,13 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Reflection;
-using System.Data;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections;
 using CodexMicroORM.Core.Helper;
 using System.Threading;
-using System.Diagnostics;
+using CodexMicroORM.Core.Collections;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -41,9 +40,15 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     internal static class WrappingHelper
     {
-        private static ConcurrentDictionary<Type, Type> _directTypeMap = new ConcurrentDictionary<Type, Type>();
-        private static ConcurrentDictionary<Type, string> _cachedTypeMap = new ConcurrentDictionary<Type, string>();
-        private static ConcurrentDictionary<Type, object> _defValMap = new ConcurrentDictionary<Type, object>();
+        private static ConcurrentDictionary<Type, Type> _directTypeMap = new ConcurrentDictionary<Type, Type>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, string> _cachedTypeMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, object> _defValMap = new ConcurrentDictionary<Type, object>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, bool> _isWrapListCache = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, IDictionary<string, Type>> _propCache = new ConcurrentDictionary<Type, IDictionary<string, Type>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, bool> _sourceValTypeOk = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static SlimConcurrentDictionary<string, Type> _typeByName = new SlimConcurrentDictionary<string, Type>();
+        private static long _copyNesting = 0;
+
 
         public static object GetDefaultForType(Type t)
         {
@@ -121,8 +126,6 @@ namespace CodexMicroORM.Core.Services
             return fullName;
         }
 
-        private static ConcurrentDictionary<Type, bool> _isWrapListCache = new ConcurrentDictionary<Type, bool>();
-
         internal static bool IsWrappableListType(Type sourceType, object sourceVal)
         {
             if (_isWrapListCache.TryGetValue(sourceType, out bool v))
@@ -151,16 +154,12 @@ namespace CodexMicroORM.Core.Services
         internal static ICEFList CreateWrappingList(ServiceScope ss, Type sourceType, object host, string propName)
         {
             var setWrapType = Globals.PreferredEntitySetType.MakeGenericType(sourceType.GenericTypeArguments[0]);
-            var wrappedCol = Activator.CreateInstance(setWrapType) as ICEFList;
+            var wrappedCol = setWrapType.FastCreateNoParm() as ICEFList;
 
             ((ISupportInitializeNotification)wrappedCol).BeginInit();
             ((ICEFList)wrappedCol).Initialize(ss, host, host.GetBaseType().Name, propName);
             return wrappedCol;
         }
-
-        private static ConcurrentDictionary<Type, IDictionary<string, Type>> _propCache = new ConcurrentDictionary<Type, IDictionary<string, Type>>();
-        private static ConcurrentDictionary<Type, bool> _sourceValTypeOk = new ConcurrentDictionary<Type, bool>();
-        private static long _copyNesting = 0;
 
         internal static void CopyParsePropertyValues(IDictionary<string, object> sourceProps, object source, object target, bool isNew, ServiceScope ss, IDictionary<object, object> visits, bool justTraverse)
         {
@@ -306,7 +305,7 @@ namespace CodexMicroORM.Core.Services
 
         internal static void CopyPropertyValuesObject(object source, object target, bool isNew, ServiceScope ss, IDictionary<string, object> removeIfSet, IDictionary<object, object> visits)
         {
-            Dictionary<string, object> props = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY);
+            Dictionary<string, object> props = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
 
             var pkFields = KeyService.ResolveKeyDefinitionForType(source.GetBaseType());
 
@@ -346,7 +345,11 @@ namespace CodexMicroORM.Core.Services
                     throw new CEFInvalidOperationException($"Failed to determine name of wrapper class for object of type {o.GetType().Name}.");
                 }
 
-                var t = Type.GetType(fqn, false, true);
+                if (!_typeByName.TryGetValue(fqn, out Type t))
+                {
+                    t = Type.GetType(fqn, false, true);
+                    _typeByName[fqn] = t;
+                }
 
                 if (t == null)
                 {
@@ -358,7 +361,7 @@ namespace CodexMicroORM.Core.Services
                 }
 
                 // Relies on parameterless constructor
-                var wrapper = Activator.CreateInstance(t);
+                var wrapper = t.FastCreateNoParm();
 
                 if (wrapper == null)
                 {
@@ -394,7 +397,7 @@ namespace CodexMicroORM.Core.Services
 
         public static ICEFWrapper CreateWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ServiceScope ss, IDictionary<string, object> props = null, IDictionary<string, Type> types = null, IDictionary<object, object> visits = null)
         {
-            return InternalCreateWrapper(need, action, isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(Globals.DEFAULT_DICT_CAPACITY), props, types, visits ?? new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY));
+            return InternalCreateWrapper(need, action, isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(Globals.DefaultDictionaryCapacity), props, types, visits ?? new Dictionary<object, object>(Globals.DefaultDictionaryCapacity));
         }
 
         public static ICEFInfraWrapper CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types)
@@ -438,7 +441,7 @@ namespace CodexMicroORM.Core.Services
         /// <param name="toRun">A delegate to invoke for each infrastructure wrapper found.</param>
         public static void NodeVisiter(ICEFInfraWrapper iw, Action<ICEFInfraWrapper> toRun)
         {
-            InternalNodeVisiter(iw, toRun, new ConcurrentDictionary<object, bool>());
+            InternalNodeVisiter(iw, toRun, new ConcurrentDictionary<object, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity));
         }
 
         private static void InternalNodeVisiter(ICEFInfraWrapper iw, Action<ICEFInfraWrapper> toRun, IDictionary<object, bool> visits)

@@ -18,13 +18,14 @@ Major Changes:
 ***********************************************************************/
 using System;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Linq;
 using CodexMicroORM.Core.Services;
 using System.Data;
 using System.Collections.Immutable;
-using System.Threading.Tasks;
 using System.Threading;
+using CodexMicroORM.Core.Collections;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
 
 namespace CodexMicroORM.Core
 {
@@ -35,7 +36,8 @@ namespace CodexMicroORM.Core
     {
         #region "Private state (global)"
 
-        private static ConcurrentDictionary<Type, (bool resolved, IList<ICEFService> list)> _defaultServicesByType = new ConcurrentDictionary<Type, (bool, IList<ICEFService>)>();
+        private static SlimConcurrentDictionary<Type, IList<ICEFService>> _resolvedServicesByType = new SlimConcurrentDictionary<Type, IList<ICEFService>>();
+        private static ConcurrentDictionary<Type, IList<ICEFService>> _regServicesByType = new ConcurrentDictionary<Type, IList<ICEFService>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static ImmutableArray<ICEFService> _globalServices = ImmutableArray<ICEFService>.Empty;
 
         internal static ServiceScope _globalServiceScope = null;
@@ -54,7 +56,8 @@ namespace CodexMicroORM.Core
 
         public static ICollection<ICEFService> GlobalServices => _globalServices.ToArray();
 
-        internal static ConcurrentDictionary<Type, (bool resolved, IList<ICEFService> list)> DefaultServicesByType => _defaultServicesByType;
+        internal static SlimConcurrentDictionary<Type, IList<ICEFService>> ResolvedServicesByType => _resolvedServicesByType;
+        internal static ConcurrentDictionary<Type, IList<ICEFService>> RegisteredServicesByType => _regServicesByType;
 
         private static Action<string, long> _queryPerfInfo = null;
 
@@ -112,13 +115,26 @@ namespace CodexMicroORM.Core
 
             var mode = settings.ScopeMode.GetValueOrDefault(Globals.DefaultConnectionScopeMode);
 
-            if (mode == ScopeMode.CreateNew || _currentConnScope == null)
+            var ss = CEF.CurrentServiceScope;
+            var useLocal = ss.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread);
+            var cs = new ConnectionScope(settings.IsTransactional.GetValueOrDefault(Globals.UseTransactionsForNewScopes), settings.ConnectionStringOverride);
+
+            if (!useLocal)
             {
-                var cs = new ConnectionScope(settings.IsTransactional.GetValueOrDefault(Globals.UseTransactionsForNewScopes), settings.ConnectionStringOverride);
-                ConnScopeInit(cs, mode);
+                if (mode == ScopeMode.CreateNew || ss._currentConnScope == null)
+                {
+                    ss.ConnScopeInit(cs, mode);
+                }
+            }
+            else
+            {
+                if (mode == ScopeMode.CreateNew || _currentConnScope == null)
+                {
+                    ConnScopeInit(cs, mode);
+                }
             }
 
-            return _currentConnScope;
+            return CurrentConnectionScope;
         }
 
         /// <summary>
@@ -128,10 +144,29 @@ namespace CodexMicroORM.Core
         {
             get
             {
+                var ss = CEF.CurrentServiceScope;
+                var useLocal = ss.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread);
+
+                if (!useLocal)
+                {
+                    if (ss._currentConnScope == null)
+                    {
+                        var cs = new ConnectionScope(Globals.DefaultTransactionalStandalone)
+                        {
+                            IsStandalone = true
+                        };
+                        ss.ConnScopeInit(cs, Globals.DefaultConnectionScopeMode);
+                    }
+
+                    return ss._currentConnScope;
+                }
+
                 if (_currentConnScope == null)
                 {
-                    var cs = new ConnectionScope(Globals.DefaultTransactionalStandalone);
-                    cs.IsStandalone = true;
+                    var cs = new ConnectionScope(Globals.DefaultTransactionalStandalone)
+                    {
+                        IsStandalone = true
+                    };
                     ConnScopeInit(cs, Globals.DefaultConnectionScopeMode);
                 }
 
@@ -828,31 +863,39 @@ namespace CodexMicroORM.Core
 
         internal static void RegisterForType<T>(ICEFService service)
         {
-            (bool resolved, IList<ICEFService> list) existing;
-
-            _defaultServicesByType.TryGetValue(typeof(T), out existing);
+            _regServicesByType.TryGetValue(typeof(T), out IList<ICEFService> existing);
 
             bool doadd = false;
 
-            if (existing.list == null)
+            if (existing == null)
             {
-                existing.list = new List<ICEFService>();
+                existing = new List<ICEFService>();
                 doadd = true;
             }
 
-            if (!(from a in existing.list where a.GetType().Equals(service.GetType()) select a).Any())
+            if (!(from a in existing where a.GetType().Equals(service.GetType()) select a).Any())
             {
-                existing.list.Add(service);
+                existing.Add(service);
             }
 
             if (doadd)
             {
-                _defaultServicesByType[typeof(T)] = existing;
+                _regServicesByType[typeof(T)] = existing;
             }
         }
 
         private static void ConnScopeInit(ConnectionScope newcs, ScopeMode mode)
         {
+            var ss = CEF.CurrentServiceScope;
+
+            var useLocal = ss.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread);
+
+            if (!useLocal)
+            {
+                ss.ConnScopeInit(newcs, mode);
+                return;
+            }
+
             if (_currentConnScope != null)
             {
                 if (_allConnScopes == null)
@@ -865,10 +908,12 @@ namespace CodexMicroORM.Core
 
             _currentConnScope = newcs ?? throw new ArgumentNullException("newcs");
 
+            var db = ss.GetService<DBService>();
+
             newcs.Disposing = () =>
             {
                 // Not just service scopes but connection scopes should wait for all pending operations!
-                CEF.CurrentDBService()?.WaitOnCompletions();
+                db?.WaitOnCompletions();
             };
 
             newcs.Disposed = () =>
@@ -877,11 +922,11 @@ namespace CodexMicroORM.Core
                 {
                     do
                     {
-                        var cs = _allConnScopes.Pop();
+                        var cspop = _allConnScopes.Pop();
 
-                        if (cs != _currentConnScope)
+                        if (cspop != _currentConnScope)
                         {
-                            _currentConnScope = cs;
+                            _currentConnScope = cspop;
                             return;
                         }
                     } while (_allConnScopes.Count > 0);
@@ -949,38 +994,76 @@ namespace CodexMicroORM.Core
             Exception tex = null;
             var ss = CEF.CurrentServiceScope;
 
-            Action a = () =>
+            void a(CancellationToken ct, DateTime? start)
             {
                 foreach (var row in CurrentDBService().RetrieveAll<T>())
                 {
+                    if (Globals.GlobalQueryTimeout.HasValue)
+                    {
+                        ct.ThrowIfCancellationRequested();
+
+                        if (start.HasValue)
+                        {
+                            if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                            {
+                                throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
+                            }
+                        }
+                    }
+
                     pop.Add(row);
                 }
-            };
+            }
 
-            Action b = () =>
-            {
-                try
-                {
-                    using (CEF.UseServiceScope(ss))
-                    {
-                        a();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    tex = ex;
-                }
-            };
+            tex = InternalRunQuery(ss, a);
+        }
+
+        private static Exception InternalRunQuery(ServiceScope ss, Action<CancellationToken, DateTime?> a)
+        {
+            Exception tex = null;
 
             if (Globals.GlobalQueryTimeout.HasValue)
             {
-                var t = new Thread(new ThreadStart(b));
-                t.Start();
+                CancellationTokenSource cts = new CancellationTokenSource();
+                DateTime start = DateTime.Now;
 
-                if (!t.Join(Globals.GlobalQueryTimeout.Value))
+                void b()
                 {
-                    t.Abort();
-                    throw new CEFTimeoutException($"The query failed to complete in the allowed time ({(Globals.GlobalQueryTimeout.Value / 1000)} sec).");
+                    try
+                    {
+                        using (CEF.UseServiceScope(ss))
+                        {
+                            a(cts.Token, start);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        tex = ex;
+                    }
+                }
+
+                if (Globals.QueriesUseDedicatedThreads)
+                {
+                    var th = new Thread(new ThreadStart(b));
+                    th.Start();
+
+                    if (!th.Join(Globals.GlobalQueryTimeout.Value))
+                    {
+                        cts.Cancel();
+
+                        // We'll wait an additional second after a cancel request to see if thread stops naturally, otherwise we'll abort it
+                        if (!th.Join(1000))
+                        {
+                            th.Abort();
+                            throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value + 1000) / 1000)} sec).");
+                        }
+                    }
+                }
+                else
+                {
+                    // We'll just use cooperative checks to wait for completion
+                    CancellationToken ct = new CancellationToken();
+                    a(ct, start);
                 }
 
                 if (tex != null)
@@ -990,8 +1073,12 @@ namespace CodexMicroORM.Core
             }
             else
             {
-                a();
+                // No timeout means we just wait as long as it takes! If we're using an RDBMS, its timeout may be in force and offer non-cooperative timeouts which is actually a good thing.
+                CancellationToken ct = new CancellationToken();
+                a(ct, null);
             }
+
+            return tex;
         }
 
         private static void InternalDBAppendByKey<T>(EntitySet<T> pop, object[] key) where T : class, new()
@@ -999,49 +1086,28 @@ namespace CodexMicroORM.Core
             Exception tex = null;
             var ss = CEF.CurrentServiceScope;
 
-            Action a = () =>
+            void a(CancellationToken ct, DateTime? start)
             {
                 foreach (var row in CurrentDBService().RetrieveByKey<T>(key))
                 {
+                    if (Globals.GlobalQueryTimeout.HasValue)
+                    {
+                        ct.ThrowIfCancellationRequested();
+
+                        if (start.HasValue)
+                        {
+                            if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                            {
+                                throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
+                            }
+                        }
+                    }
+
                     pop.Add(row);
                 }
             };
 
-            Action b = () =>
-            {
-                try
-                {
-                    using (CEF.UseServiceScope(ss))
-                    {
-                        a();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    tex = ex;
-                }
-            };
-
-            if (Globals.GlobalQueryTimeout.HasValue)
-            {
-                var t = new Thread(new ThreadStart(b));
-                t.Start();
-
-                if (!t.Join(Globals.GlobalQueryTimeout.Value))
-                {
-                    t.Abort();
-                    throw new CEFTimeoutException($"The query failed to complete in the allowed time ({(Globals.GlobalQueryTimeout.Value / 1000)} sec).");
-                }
-
-                if (tex != null)
-                {
-                    throw tex;
-                }
-            }
-            else
-            {
-                a();
-            }
+            tex = InternalRunQuery(ss, a);
         }
 
         private static void InternalDBAppendByQuery<T>(EntitySet<T> pop, CommandType cmdType, string cmdText, object[] parms) where T : class, new()
@@ -1049,53 +1115,32 @@ namespace CodexMicroORM.Core
             Exception tex = null;
             var ss = CEF.CurrentServiceScope;
 
-            Action a = () =>
+            void a(CancellationToken ct, DateTime? start)
             {
-                long start = DateTime.Now.Ticks;
+                long tickstart = DateTime.Now.Ticks;
 
                 foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, parms))
                 {
+                    if (Globals.GlobalQueryTimeout.HasValue)
+                    {
+                        ct.ThrowIfCancellationRequested();
+
+                        if (start.HasValue)
+                        {
+                            if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                            {
+                                throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
+                            }
+                        }
+                    }
+
                     pop.Add(row);
                 }
 
-                _queryPerfInfo?.Invoke(cmdText, DateTime.Now.Ticks - start);
-            };
-
-            Action b = () =>
-            {
-                try
-                {
-                    using (CEF.UseServiceScope(ss))
-                    {
-                        a();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    tex = ex;
-                }
-            };
-
-            if (Globals.GlobalQueryTimeout.HasValue)
-            {
-                var t = new Thread(new ThreadStart(b));
-                t.Start();
-
-                if (!t.Join(Globals.GlobalQueryTimeout.Value))
-                {
-                    t.Abort();
-                    throw new CEFTimeoutException($"The query failed to complete in the allowed time ({(Globals.GlobalQueryTimeout.Value / 1000)} sec).");
-                }
-
-                if (tex != null)
-                {
-                    throw tex;
-                }
+                _queryPerfInfo?.Invoke(cmdText, DateTime.Now.Ticks - tickstart);
             }
-            else
-            {
-                a();
-            }
+
+            tex = InternalRunQuery(ss, a);
         }
 
         #endregion

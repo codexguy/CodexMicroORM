@@ -33,7 +33,7 @@ namespace CodexMicroORM.Providers
     /// </summary>
     public sealed class MSSQLCommand : IDBProviderCommand
     {
-        private static ConcurrentDictionary<string, IEnumerable<SqlParameter>> _paramCache = new ConcurrentDictionary<string, IEnumerable<SqlParameter>>(Globals.CurrentStringComparer);
+        private static ConcurrentDictionary<string, IEnumerable<SqlParameter>> _paramCache = new ConcurrentDictionary<string, IEnumerable<SqlParameter>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultLargerDictionaryCapacity, Globals.CurrentStringComparer);
         private SqlCommand _cmd;
 
         public static void FlushCaches()
@@ -51,7 +51,7 @@ namespace CodexMicroORM.Providers
 
         public IDictionary<string, object> GetParameterValues()
         {
-            Dictionary<string, object> parms = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY);
+            Dictionary<string, object> parms = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
 
             if (_cmd.Parameters != null)
             {
@@ -238,7 +238,7 @@ namespace CodexMicroORM.Providers
                 {
                     while (r.Read())
                     {
-                        Dictionary<string, (object, Type)> values = new Dictionary<string, (object, Type)>(Globals.DEFAULT_LARGER_DICT_CAPACITY);
+                        Dictionary<string, (object, Type)> values = new Dictionary<string, (object, Type)>(Globals.DefaultLargerDictionaryCapacity);
 
                         for (int i = 0; i < r.FieldCount; ++i)
                         {

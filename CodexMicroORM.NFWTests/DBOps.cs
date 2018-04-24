@@ -31,6 +31,8 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Collections.Generic;
+using CodexMicroORM.Core.Collections;
+using System.Windows;
 
 namespace CodexMicroORM.NFWTests
 {
@@ -603,7 +605,7 @@ namespace CodexMicroORM.NFWTests
                 Assert.AreEqual(2, vals.Count);
                 Assert.AreEqual(2, CEF.GetAllTracked().Count());
                 var sr = (from a in vals where a.Age == 40 select a).FirstOrDefault();
-                var jr = (from a in vals where a.Age == 40 select a).FirstOrDefault();
+                var jr = (from a in vals where a.Age == 20 select a).FirstOrDefault();
                 Assert.IsTrue(sr.Kids.First().PersonID == jr.PersonID);
             }
         }
@@ -790,6 +792,40 @@ namespace CodexMicroORM.NFWTests
                 Task.Delay(5000).Wait();
             }
         }
+
+        //[TestMethod]
+        //public void TestLightweightLongList()
+        //{
+        //    LightweightLongList ll = new LightweightLongList(31);
+
+        //    var sw = new Stopwatch();
+        //    sw.Start();
+
+        //    for (int i = 1; i < 10000000; ++i)
+        //    {
+        //        ll.Add(i);
+        //    }
+
+        //    var t1 = sw.ElapsedMilliseconds;
+        //    sw.Restart();
+
+        //    for (int i = 100000; i < 200000; ++i)
+        //    {
+        //        ll.Remove(i);
+        //    }
+
+        //    var t2 = sw.ElapsedMilliseconds;
+        //    sw.Restart();
+
+        //    long acc = 0;
+        //    for (int i = 1; i < 10; ++i)
+        //    {
+        //        acc += (from a in ll.All().Take(300000) select a).Sum();
+        //    }
+
+        //    var t3 = sw.ElapsedMilliseconds;
+        //    sw.Restart();
+        //}
 
         [TestMethod]
         public void PopulateFromInitialPocoVariousRetrievalsSaves()

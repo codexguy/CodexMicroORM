@@ -29,11 +29,11 @@ namespace CodexMicroORM.Core.Services
 {
     public class ValidationService : ICEFValidationHost
     {
-        private static ConcurrentDictionary<Type, List<(string prop, object defval)>> _typePropRequired = new ConcurrentDictionary<Type, List<(string prop, object defval)>>();
-        private static ConcurrentDictionary<Type, List<(string prop, int maxlength)>> _typePropMaxLength = new ConcurrentDictionary<Type, List<(string prop, int maxlength)>>();
-        private static ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>> _typePropRange = new ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>>();
-        private static ConcurrentDictionary<Type, List<(string prop, Func<object, string> fn)>> _typeCustomValidator = new ConcurrentDictionary<Type, List<(string prop, Func<object, string> fn)>>();
-        private static ConcurrentDictionary<Type, List<string>> _typeIllegalUpdate = new ConcurrentDictionary<Type, List<string>>();
+        private static ConcurrentDictionary<Type, List<(string prop, object defval)>> _typePropRequired = new ConcurrentDictionary<Type, List<(string prop, object defval)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, List<(string prop, int maxlength)>> _typePropMaxLength = new ConcurrentDictionary<Type, List<(string prop, int maxlength)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>> _typePropRange = new ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, List<(string prop, Func<object, string> fn)>> _typeCustomValidator = new ConcurrentDictionary<Type, List<(string prop, Func<object, string> fn)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, List<string>> _typeIllegalUpdate = new ConcurrentDictionary<Type, List<string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         /// <summary>
         /// Registers a global validation for a specific type / specific property, indicating it cannot be updated after having been assigned a value.

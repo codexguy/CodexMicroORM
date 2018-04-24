@@ -258,6 +258,8 @@ namespace CodexMicroORM.Core
 
         bool HasProperty(string propName);
 
+        bool HasShadowProperty(string propName);
+
         void RemoveProperty(string propName);
 
         object GetWrappedObject();

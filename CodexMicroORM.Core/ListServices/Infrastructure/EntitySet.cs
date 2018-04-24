@@ -15,6 +15,7 @@ limitations under the License.
 
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
+04/2018    0.6     Fairly major rework: removed use of ObservableCollection as base
 ***********************************************************************/
 using System;
 using System.Collections.Generic;
@@ -30,6 +31,7 @@ using System.Text;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using CodexMicroORM.Core.Collections;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -37,16 +39,19 @@ namespace CodexMicroORM.Core.Services
     /// EntitySet's are specialized collections of objects that CEF can leverage.
     /// This does not mean you can't use plain collections with CEF, but CEF will make an attempt to "promote" collections to EntitySet's where it can.
     /// You should not care much about this implementation detail: handle most of your collections as ICollection<T> or IList<T>.
+    /// In 0.6 release, I've changed this class quite a bit, to avoid locking (both read and write!). It initializes per-thread buckets that are
+    /// thread-safe for the executing thread (cross-thread, we still use r/w locks but some key operations that were slow such as bulk adding rows should be much faster).
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public class EntitySet<T> : ObservableCollection<T>, ICEFList, ICEFSerializable, ISupportInitializeNotification where T : class, new()
+    public class EntitySet<T> : ConcurrentObservableCollection<T>, ICEFList, ICEFSerializable, ISupportInitializeNotification where T : class, new()
     {
         #region "Private state"
 
-        private HashSet<T> _contains = new HashSet<T>();
-        private long _init = 1;
-        private int? _firstToWire = null;
         private RWLockInfo _lock = new RWLockInfo();
+
+        private SlimConcurrentDictionary<T, bool> _contains;
+        private long _init = 1;
+        private List<T> _toWire = new List<T>();
 
         #endregion
 
@@ -54,18 +59,21 @@ namespace CodexMicroORM.Core.Services
 
         public EntitySet() : base()
         {
+            _contains = new SlimConcurrentDictionary<T, bool>(Globals.DefaultLargerDictionaryCapacity);
             BoundScope = CEF.CurrentServiceScope;
             EndInit();
         }
 
         public EntitySet(ServiceScope ss) : base()
         {
+            _contains = new SlimConcurrentDictionary<T, bool>(Globals.DefaultLargerDictionaryCapacity);
             BoundScope = ss;
             EndInit();
         }
 
         public EntitySet(IEnumerable<T> source) : base()
         {
+            _contains = new SlimConcurrentDictionary<T, bool>(Globals.DefaultLargerDictionaryCapacity);
             BoundScope = CEF.CurrentServiceScope;
 
             foreach (var i in source)
@@ -106,10 +114,7 @@ namespace CodexMicroORM.Core.Services
             if (o == null)
                 return false;
 
-            using (new ReaderLock(_lock))
-            {
-                return _contains.Contains(o as T);
-            }
+            return _contains.Contains(o as T);
         }
 
         public bool IsDirty()
@@ -149,7 +154,7 @@ namespace CodexMicroORM.Core.Services
 
                     if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
                     {
-                        CEF.CurrentPCTService()?.SaveContents(jw, i, actmode, new Dictionary<object, bool>(Globals.DEFAULT_DICT_CAPACITY));
+                        CEF.CurrentPCTService()?.SaveContents(jw, i, actmode, new Dictionary<object, bool>(Globals.DefaultDictionaryCapacity));
                     }
                 }
 
@@ -185,36 +190,10 @@ namespace CodexMicroORM.Core.Services
 
             if (cast != null)
             {
-                using (new WriterLock(_lock))
+                if (_contains.Contains(cast))
                 {
-                    if (_contains.Contains(cast))
-                    {
-                        this.Remove(cast);
-                    }
+                    this.Remove(cast);
                 }
-            }
-        }
-
-        private void ToAddWorker()
-        {
-            Interlocked.Increment(ref _toAddWorkers);
-
-            try
-            {
-                while (_toAdd.Count > 0)
-                {
-                    if (_toAdd.TryDequeue(out var t))
-                    {
-                        using (new WriterLock(_lock))
-                        {
-                            base.Add(t);
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                Interlocked.Decrement(ref _toAddWorkers);
             }
         }
 
@@ -222,9 +201,27 @@ namespace CodexMicroORM.Core.Services
         {
             if (Interlocked.Read(ref _toAddWorkers) == 0 && _toAdd.Count > 0)
             {
+                Interlocked.Increment(ref _toAddWorkers);
+
                 Task.Factory.StartNew(() =>
                 {
-                    ToAddWorker();
+                    try
+                    {
+                        using (new WriterLock(_lock))
+                        {
+                            while (_toAdd.Count > 0)
+                            {
+                                if (_toAdd.TryDequeue(out var t))
+                                {
+                                    base.Add(t);
+                                }
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _toAddWorkers);
+                    }
                 });
             }
         }
@@ -257,34 +254,15 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public new void Add(T o)
-        {
-            using (new WriterLock(_lock))
-            {
-                base.Add(o);
-            }
-        }
-
-        public new void Remove(T o)
-        {
-            using (new WriterLock(_lock))
-            {
-                base.Remove(o);
-            }
-        }
-
         public void AddWrappedItem(object o)
         {
             var cast = o as T;
 
             if (cast != null)
             {
-                using (new WriterLock(_lock))
+                if (!_contains.Contains(cast))
                 {
-                    if (!_contains.Contains(cast))
-                    {
-                        this.Add(cast);
-                    }
+                    this.Add(cast);
                 }
             }
         }
@@ -331,9 +309,7 @@ namespace CodexMicroORM.Core.Services
 
             if (was == 1)
             {
-                WireDependencies(_firstToWire.GetValueOrDefault(), null);
-                _firstToWire = null;
-
+                WireDependencies();
                 Initialized?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -381,80 +357,83 @@ namespace CodexMicroORM.Core.Services
 
         protected override void ClearItems()
         {
-            using (new WriterLock(_lock))
-            {
-                _contains = new HashSet<T>();
-                base.ClearItems();
-            }
+            _contains = new SlimConcurrentDictionary<T, bool>(Globals.DefaultLargerDictionaryCapacity);
+            base.ClearItems();
         }
 
-        private void WireDependencies(int? firstToWire, int? lastToWire)
+        private void WireDependencies()
         {
-            for (int i = firstToWire.GetValueOrDefault(); i <= lastToWire.GetValueOrDefault() && i < this.Count; ++i)
+            foreach (var item in _toWire.ToList())
             {
-                var item = this[i];
                 CEF.CurrentKeyService()?.WireDependents(item.AsUnwrapped(), item, BoundScope, this, null);
             }
+
+            _toWire.Clear();
         }
 
         protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
         {
             if (Interlocked.Read(ref _init) == 0)
             {
-                using (new WriterLock(_lock))
+                switch (e.Action)
                 {
-                    switch (e.Action)
+                    case NotifyCollectionChangedAction.Replace:
+                        {
+                            ProcessRemove(e.OldItems);
+                            ProcessAdd(e.NewItems, e.NewStartingIndex);
+                            break;
+                        }
+
+                    case NotifyCollectionChangedAction.Remove:
+                        {
+                            ProcessRemove(e.OldItems);
+                            break;
+                        }
+
+                    case NotifyCollectionChangedAction.Add:
+                        {
+                            ProcessAdd(e.NewItems, e.NewStartingIndex);
+                            break;
+                        }
+                }
+
+                base.OnCollectionChanged(e);
+            }
+            else
+            {
+                // Need to defer wiring dependencies
+                if (e.NewItems?.Count > 0)
+                {
+                    foreach (T ni in e.NewItems)
                     {
-                        case NotifyCollectionChangedAction.Replace:
-                            {
-                                ProcessRemove(e.OldItems);
-                                ProcessAdd(e.NewItems, e.NewStartingIndex);
-                                break;
-                            }
-
-                        case NotifyCollectionChangedAction.Remove:
-                            {
-                                ProcessRemove(e.OldItems);
-                                break;
-                            }
-
-                        case NotifyCollectionChangedAction.Add:
-                            {
-                                ProcessAdd(e.NewItems, e.NewStartingIndex);
-                                break;
-                            }
+                        _toWire.Add(ni);
                     }
-
-                    base.OnCollectionChanged(e);
                 }
             }
         }
 
         protected virtual void ProcessRemove(IList oldItems)
         {
-            using (new WriterLock(_lock))
+            foreach (var oi in oldItems.Cast<T>())
             {
-                foreach (var oi in oldItems.Cast<T>())
-                {
-                    _contains.Remove(oi);
-                }
+                _contains.Remove(oi);
+            }
 
-                if (!EnableIntegration)
-                {
-                    return;
-                }
+            if (!EnableIntegration)
+            {
+                return;
+            }
 
-                if (ParentContainer != null)
-                {
-                    var oiCopy = (from a in oldItems.Cast<Object>() select a).ToList();
+            if (ParentContainer != null)
+            {
+                var oiCopy = (from a in oldItems.Cast<Object>() select a).ToList();
 
-                    foreach (var oi in oiCopy)
+                foreach (var oi in oiCopy)
+                {
+                    if (oi != null)
                     {
-                        if (oi != null)
-                        {
-                            // Attempt to establish a FK relationship, carry parent key down
-                            CEF.CurrentKeyService()?.UnlinkChildFromParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, oi);
-                        }
+                        // Attempt to establish a FK relationship, carry parent key down
+                        CEF.CurrentKeyService()?.UnlinkChildFromParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, oi);
                     }
                 }
             }
@@ -462,79 +441,69 @@ namespace CodexMicroORM.Core.Services
 
         protected virtual void ProcessAdd(IList newItems, int newStartingIndex)
         {
-            using (new WriterLock(_lock))
+            var niCopy = (from a in newItems.Cast<Object>() select a).ToList();
+
+            foreach (T ni in niCopy)
             {
-                var niCopy = (from a in newItems.Cast<Object>() select a).ToList();
+                _contains[ni] = true;
+            }
 
-                foreach (T ni in niCopy)
+            if (!EnableIntegration)
+            {
+                return;
+            }
+
+            if (BoundScope != null)
+            {
+                // First, we inspect to see if we have a wrapped object or not - if not, we try to do so and REPLACE the current item
+                if (!BoundScope.Settings.EntitySetUsesUnwrapped)
                 {
-                    _contains.Add(ni);
-                }
-
-                if (!EnableIntegration)
-                {
-                    return;
-                }
-
-                if (BoundScope != null)
-                {
-                    var idx = newStartingIndex;
-
-                    if (!_firstToWire.HasValue || idx < _firstToWire)
-                    {
-                        _firstToWire = idx;
-                    }
-
-                    // First, we inspect to see if we have a wrapped object or not - if not, we try to do so and REPLACE the current item
-                    if (!BoundScope.Settings.EntitySetUsesUnwrapped)
-                    {
-                        var idx2 = 0;
-                        foreach (var ni in niCopy.ToArray())
-                        {
-                            if (ni != null)
-                            {
-                                var w = BoundScope.InternalCreateAddBase(ni, true, null, null, null, new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY)) as ICEFWrapper;
-
-                                if (w != null)
-                                {
-                                    var cast = w as T;
-
-                                    if (this[idx] != cast)
-                                    {
-                                        try
-                                        {
-                                            this.SuspendNotifications(true);
-
-                                            this[idx] = cast;
-
-                                            _contains.Add(cast);
-                                            _contains.Remove(newItems[idx2] as T);
-                                        }
-                                        finally
-                                        {
-                                            this.SuspendNotifications(false);
-                                        }
-                                    }
-
-                                    niCopy[idx2] = this[idx];
-                                }
-                            }
-
-                            idx++;
-                            idx2++;
-                        }
-                    }
-                }
-
-                if (ParentContainer != null)
-                {
-                    foreach (var ni in niCopy)
+                    var idx2 = 0;
+                    foreach (var ni in niCopy.ToArray())
                     {
                         if (ni != null)
                         {
-                            // Attempt to establish a FK relationship, carry parent key down
-                            CEF.CurrentKeyService()?.LinkChildInParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, ni);
+                            if (BoundScope.InternalCreateAddBase(ni, true, null, null, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity)) is ICEFWrapper w)
+                            {
+                                var cast = w as T;
+
+                                if (ni != cast)
+                                {
+                                    try
+                                    {
+                                        this.SuspendNotifications(true);
+
+                                        using (new WriterLock(_lock))
+                                        {
+                                            this.Replace(ni as T, cast);
+
+                                            _contains.Add(cast, true);
+                                            _contains.Remove(newItems[idx2] as T);
+                                        }
+                                    }
+                                    finally
+                                    {
+                                        this.SuspendNotifications(false);
+                                    }
+                                }
+
+                                niCopy[idx2] = cast;
+                            }
                         }
+
+                        idx2++;
+                    }
+                }
+            }
+
+            if (ParentContainer != null)
+            {
+                foreach (var ni in niCopy)
+                {
+                    if (ni != null)
+                    {
+                        // Attempt to establish a FK relationship, carry parent key down
+                        CEF.CurrentKeyService()?.LinkChildInParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, ni);
                     }
                 }
             }

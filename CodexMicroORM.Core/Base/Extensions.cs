@@ -69,17 +69,19 @@ namespace CodexMicroORM.Core
     /// </summary>
     public static class PublicExtensions
     {
-        public static int Min(this int i1, int i2)
+        private static ConcurrentDictionary<Type, Type> _typeMap = new ConcurrentDictionary<Type, Type>();
+
+        public static int MinOf(this int i1, int i2)
         {
-            if (i1 > i2)
+            if (i1 < i2)
                 return i1;
 
             return i2;
         }
 
-        public static int Max(this int i1, int i2)
+        public static int MaxOf(this int i1, int i2)
         {
-            if (i1 < i2)
+            if (i1 > i2)
                 return i1;
 
             return i2;
@@ -244,8 +246,6 @@ namespace CodexMicroORM.Core
 
             return (-code, sb.ToString());
         }
-
-        private static ConcurrentDictionary<Type, Type> _typeMap = new ConcurrentDictionary<Type, Type>();
 
         /// <summary>
         /// Given a potentially wrapped object, returns the base object type that it maps to. (E.g. an instance of a derived class from a base POCO object passed in would return the base POCO Type.)

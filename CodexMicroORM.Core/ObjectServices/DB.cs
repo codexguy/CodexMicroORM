@@ -33,25 +33,25 @@ namespace CodexMicroORM.Core.Services
         private static IDBProvider _defaultProvider;
 
         // Can declare what DB schemas any object belongs to (if not expressed in GetSchemaName())
-        private static ConcurrentDictionary<Type, string> _schemaTypeMap = new ConcurrentDictionary<Type, string>();
+        private static ConcurrentDictionary<Type, string> _schemaTypeMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Providers can be set, by type
-        private static ConcurrentDictionary<Type, IDBProvider> _providerTypeMap = new ConcurrentDictionary<Type, IDBProvider>();
+        private static ConcurrentDictionary<Type, IDBProvider> _providerTypeMap = new ConcurrentDictionary<Type, IDBProvider>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Field names can differ from OM and storage
-        private static ConcurrentDictionary<Type, ConcurrentDictionary<string, string>> _typeFieldNameMap = new ConcurrentDictionary<Type, ConcurrentDictionary<string, string>>();
+        private static ConcurrentDictionary<Type, ConcurrentDictionary<string, string>> _typeFieldNameMap = new ConcurrentDictionary<Type, ConcurrentDictionary<string, string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Entity names can differ from OM and storage
-        private static ConcurrentDictionary<Type, string> _typeEntityNameMap = new ConcurrentDictionary<Type, string>();
+        private static ConcurrentDictionary<Type, string> _typeEntityNameMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Fields can have defaults (can match simple SQL DEFAULTs, for example)
-        private static ConcurrentDictionary<Type, List<(string prop, object value, object def)>> _typePropDefaults = new ConcurrentDictionary<Type, List<(string prop, object value, object def)>>();
+        private static ConcurrentDictionary<Type, List<(string prop, object value, object def)>> _typePropDefaults = new ConcurrentDictionary<Type, List<(string prop, object value, object def)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Property values can be "copied" from contained objects for DB persistence
-        private static ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>> _typePropGroups = new ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>>();
+        private static ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>> _typePropGroups = new ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Properties on an object can be saved to a parent 1:0/1 in the DB
-        private static ConcurrentDictionary<Type, (string schema, string name)> _typeParentSave = new ConcurrentDictionary<Type, (string schema, string name)>();
+        private static ConcurrentDictionary<Type, (string schema, string name)> _typeParentSave = new ConcurrentDictionary<Type, (string schema, string name)>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         public DBService()
         {
@@ -168,7 +168,7 @@ namespace CodexMicroORM.Core.Services
 
             if (vl == null)
             {
-                vl = new ConcurrentDictionary<string, string>(Globals.CurrentStringComparer);
+                vl = new ConcurrentDictionary<string, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
             }
 
             vl[storeName] = propName;
@@ -228,7 +228,7 @@ namespace CodexMicroORM.Core.Services
 
                     if (pv == null)
                     {
-                        pv = Activator.CreateInstance(v.proptype);
+                        pv = v.proptype.FastCreateNoParm();
                         o.FastSetValue(v.prop, pv);
                         set = true;
                     }
@@ -635,7 +635,7 @@ namespace CodexMicroORM.Core.Services
             cs.DoneWork();
         }
 
-        private ConcurrentDictionary<Type, Func<object[], IEnumerable>> _retrieveByKeyCache = new ConcurrentDictionary<Type, Func<object[], IEnumerable>>();
+        private ConcurrentDictionary<Type, Func<object[], IEnumerable>> _retrieveByKeyCache = new ConcurrentDictionary<Type, Func<object[], IEnumerable>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         internal IEnumerable RetrieveByKeyNonGeneric(Type bt, params object[] key)
         {

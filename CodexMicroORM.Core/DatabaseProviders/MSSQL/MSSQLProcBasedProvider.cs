@@ -38,7 +38,7 @@ namespace CodexMicroORM.Providers
     {
         private const string DEFAULT_DB_SCHEMA = "dbo";
 
-        private static ConcurrentDictionary<string, string> _csMap = new ConcurrentDictionary<string, string>(Globals.CurrentStringComparer);
+        private static ConcurrentDictionary<string, string> _csMap = new ConcurrentDictionary<string, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
 
         private enum CommandType
         {
@@ -586,7 +586,7 @@ namespace CodexMicroORM.Providers
                 }
                 else
                 {
-                    var propVals = new Dictionary<string, object>(Globals.DEFAULT_DICT_CAPACITY);
+                    var propVals = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
 
                     foreach (var kvp in row)
                     {
@@ -594,7 +594,7 @@ namespace CodexMicroORM.Providers
                     }
 
                     no = new T();
-                    WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new Dictionary<object, object>(Globals.DEFAULT_DICT_CAPACITY), false);
+                    WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), false);
                 }
 
                 // Handle property groups if they exist for this type
