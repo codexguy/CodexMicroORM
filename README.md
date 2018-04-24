@@ -351,7 +351,7 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 * 0.5.5 - April 2018
 	* Performance improvements, documented in a C# Corner [article](https://www.c-sharpcorner.com/article/dynamic-objects-and-alternatives-to-reflection/)
 * 0.6.0 - April 2018
-    * A number of improvements drive by ZableDB development. Details to follow in [site article](https://www.xskrape.com/home/articles)
+    * A number of improvements driven by ZableDB development. Details to follow in [site article](https://www.xskrape.com/home/articles)
 
 ## Roadmap / Plans
 Look for in coming releases:
