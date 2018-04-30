@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>CodexMicroORM.BindingSupport</id>
-    <version>0.5.2</version>
+    <version>0.6.1</version>
     <title>CodexMicroORM UI Binding Support</title>
     <authors>CodeX Enterprises LLC</authors>
     <owners>CodeX Enterprises LLC</owners>

@@ -269,6 +269,39 @@ namespace CodexMicroORM.Core.Services
                     _preferredType[propName] = preferredType;
                 }
 
+                if (_preferredType.TryGetValue(propName, out Type pt))
+                {
+                    try
+                    {
+                        bool isnull = pt.IsGenericType && pt.GetGenericTypeDefinition() == typeof(Nullable<>);
+
+                        if (value != null)
+                        {
+                            if (value.GetType() != pt && (!isnull || value.GetType() != Nullable.GetUnderlyingType(pt)))
+                            {
+                                if (isnull)
+                                {
+                                    value = Convert.ChangeType(value, Nullable.GetUnderlyingType(pt));
+                                }
+                                else
+                                {
+                                    value = Convert.ChangeType(value, pt);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if (isnull)
+                            {
+                                value = pt.FastCreateNoParm();
+                            }
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+
                 // Special case - if setting a property where there exists a shadow property already AND the new prop is NOT default - blow away the shadow property!
                 if (value != null && _shadowPropCount > 0 && propName[0] != KeyService.SHADOW_PROP_PREFIX && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
                 {
