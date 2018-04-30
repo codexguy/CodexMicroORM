@@ -156,7 +156,7 @@ namespace CodexMicroORM.Core.Services
             return SetValue(binder.Name, value);
         }
 
-        internal Type GetPropertyType(string propName)
+        public Type GetPropertyType(string propName)
         {
             using (new ReaderLock(_lock))
             {
@@ -261,7 +261,7 @@ namespace CodexMicroORM.Core.Services
             {
                 if (preferredType != null)
                 {
-                    if (preferredType.IsValueType && !isRequired)
+                    if (preferredType.IsValueType && !isRequired && !(preferredType.IsGenericType && preferredType.GetGenericTypeDefinition() == typeof(Nullable<>)))
                     {
                         preferredType = typeof(Nullable<>).MakeGenericType(preferredType);
                     }
@@ -286,10 +286,14 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
+                wl.Release();
+
                 var info = _source.FastGetAllProperties(true, true, propName);
 
                 if (info.Any())
                 {
+                    wl.Reacquire();
+
                     var oldVal = _source.FastGetValue(propName);
 
                     if (!oldVal.IsSame(value))
@@ -302,6 +306,8 @@ namespace CodexMicroORM.Core.Services
                     }
                     return false;
                 }
+
+                wl.Reacquire();
 
                 if (_valueBag.ContainsKey(propName))
                 {
@@ -459,12 +465,12 @@ namespace CodexMicroORM.Core.Services
 
             using (new ReaderLock(_lock))
             {
-                foreach (var v in (from a in _valueBag
-                                   where (!onlySerializable || a.Value == null || IsTypeSerializable(a.Value.GetType()))
-                                   select new { a.Key, a.Value }).
-                    Concat(from pi in _source.FastGetAllProperties(true)
-                           where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
-                           select new { Key = pi.name, Value = _source.FastGetValue(pi.name) }))
+                foreach (var v in (from pi in _source.FastGetAllProperties(true)
+                                   where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
+                                   select new { Key = pi.name, Value = _source.FastGetValue(pi.name) }).
+                    Concat(from a in _valueBag
+                           where (!onlySerializable || a.Value == null || IsTypeSerializable(a.Value.GetType()))
+                           select new { a.Key, a.Value }))
                 {
                     if (!vals.ContainsKey(v.Key))
                     {

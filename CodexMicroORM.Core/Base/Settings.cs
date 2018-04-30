@@ -105,6 +105,48 @@ namespace CodexMicroORM.Core
         public bool CanDispose = true;
     }
 
+    public sealed class JsonSerializationSettings
+    {
+        public SerializationType SerializationType
+        {
+            get;
+            set;
+        } = SerializationType.Array;
+
+        public string SchemaName
+        {
+            get;
+            set;
+        } = "Schema";
+
+        public string SchemaFieldNameName
+        {
+            get;
+            set;
+        } = "Name";
+
+        public string SchemaFieldTypeName
+        {
+            get;
+            set;
+        } = "Type";
+
+        public string DataRootName
+        {
+            get;
+            set;
+        }
+
+        public Func<string, Type> GetDataType
+        {
+            get;
+            set;
+        } = (tn) =>
+        {
+            return Type.GetType($"System.{tn}");
+        };
+    }
+
     /// <summary>
     /// Settings applicable to connection scopes.
     /// </summary>

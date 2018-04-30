@@ -214,18 +214,65 @@ namespace CodexMicroORM.Core
         public WriterLock(RWLockInfo info, bool? active = null)
         {
             _info = info;
+            Reacquire(active);
+        }
 
-            if (active.GetValueOrDefault(Globals.UseReaderWriterLocks))
+        public void Reacquire(bool? active = null)
+        {
+            if (!_active)
+            {
+                if (active.GetValueOrDefault(Globals.UseReaderWriterLocks))
+                {
+                    try
+                    {
+#if LOCK_TRACE
+                        RWLockInfo.Waits++;
+                        long start = DateTime.Now.Ticks;
+#endif
+                        Thread.BeginCriticalRegion();
+
+                        if (!_info.Lock.TryEnterWriteLock(_info.Timeout))
+                        {
+#if LOCK_TRACE
+                            RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
+#endif
+                            throw new TimeoutException("Failed to obtain a write lock in timeout interval.");
+                        }
+
+                        _active = true;
+
+#if LOCK_TRACE
+                        _info.LastWriter = Environment.CurrentManagedThreadId;
+                        RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
+#endif
+                    }
+                    finally
+                    {
+                        Thread.EndCriticalRegion();
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// YieldLock is useful if you're dealing with a long-held write lock and there are points in time where you could allow blocked waiters to get some forward progress.
+        /// </summary>
+        public void YieldLock()
+        {
+            if (_active)
             {
                 try
                 {
+                    Thread.BeginCriticalRegion();
+                    _info.Lock.ExitWriteLock();
+                    _active = false;
+
 #if LOCK_TRACE
+                    _info.LastWriterRelease = Environment.CurrentManagedThreadId;
                     RWLockInfo.Waits++;
                     long start = DateTime.Now.Ticks;
 #endif
-                    Thread.BeginCriticalRegion();
-
-                    if (!_info.Lock.TryEnterWriteLock(info.Timeout))
+                    if (!_info.Lock.TryEnterWriteLock(_info.Timeout))
                     {
 #if LOCK_TRACE
                         RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;

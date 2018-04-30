@@ -75,6 +75,7 @@ namespace CodexMicroORM.BindingSupport
             }
         }
 
+        [Browsable(false)]
         public ObjectState State => _infra.GetRowState();
 
         string IDataErrorInfo.Error => _errorSource?.Error;
@@ -112,12 +113,48 @@ namespace CodexMicroORM.BindingSupport
             throw new NotSupportedException("Properties cannot be added using the custom type mechanism.");
         }
 
+        private object ParseNullable(object value, Type knownType)
+        {
+            if (knownType == null || knownType == typeof(object))
+            {
+                return value;
+            }
+
+            if (value == null || value.GetType() != knownType)
+            {
+                bool isnullable = knownType.IsGenericType && knownType.GetGenericTypeDefinition() == typeof(Nullable<>);
+
+                if (value == null)
+                {
+                    if (isnullable)
+                    {
+                        value = Activator.CreateInstance(knownType);
+                    }
+                }
+                else
+                {
+                    if (isnullable)
+                    {
+                        value = Activator.CreateInstance(knownType, Convert.ChangeType(value, Nullable.GetUnderlyingType(knownType)));
+                    }
+                    else
+                    {
+                        value = Convert.ChangeType(value, knownType);
+                    }
+                }
+            }
+
+            return value;
+        }
+
         public void SetPropertyValue(string propertyName, object value)
         {
             ++_signalling;
 
             try
             {
+                value = ParseNullable(value, _infra.GetPropertyType(propertyName));
+
                 if (_infra.SetValue(propertyName, value))
                 {
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -141,6 +178,7 @@ namespace CodexMicroORM.BindingSupport
             }
         }
 
+        [Browsable(false)]
         public object this[string propName]
         {
             get
@@ -171,18 +209,10 @@ namespace CodexMicroORM.BindingSupport
             public string _name;
             public Type _type;
 
-            public CustomPropertyInfoHelper(string name, object value)
+            public CustomPropertyInfoHelper(string name, Type type)
             {
                 _name = name;
-
-                if (value == null)
-                {
-                    _type = typeof(object);
-                }
-                else
-                {
-                    _type = value.GetType();
-                }
+                _type = type;
             }
 
             public override PropertyAttributes Attributes
@@ -220,9 +250,13 @@ namespace CodexMicroORM.BindingSupport
                 return null;
             }
 
-            // Returns the value from the dictionary stored in the Customer's instance.
             public override object GetValue(object obj, BindingFlags invokeAttr, Binder binder, object[] index, System.Globalization.CultureInfo culture)
             {
+                if (obj is DynamicBindable db)
+                {
+                    return db.GetPropertyValue(_name);
+                }
+
                 return obj.GetType().GetMethod("GetPropertyValue").Invoke(obj, new[] { _name });
             }
 
@@ -231,9 +265,14 @@ namespace CodexMicroORM.BindingSupport
                 get { return _type; }
             }
 
-            // Sets the value in the dictionary stored in the Customer's instance.
             public override void SetValue(object obj, object value, BindingFlags invokeAttr, Binder binder, object[] index, System.Globalization.CultureInfo culture)
             {
+                if (obj is DynamicBindable db)
+                {
+                    db.SetPropertyValue(_name, value);
+                    return;
+                }
+
                 obj.GetType().GetMethod("SetPropertyValue").Invoke(obj, new[] { _name, value });
             }
 
@@ -385,7 +424,7 @@ namespace CodexMicroORM.BindingSupport
                 PropertyInfo[] clrProperties = _baseType.GetProperties(bindingAttr);
 
                 var allVals = _infra.GetAllValues();
-                var allCustomProps = from a in allVals select new CustomPropertyInfoHelper(a.Key, a.Value);
+                var allCustomProps = from a in allVals select new CustomPropertyInfoHelper(a.Key, _infra.GetPropertyType(a.Key));
 
                 if (clrProperties != null)
                 {
@@ -401,14 +440,16 @@ namespace CodexMicroORM.BindingSupport
             {
                 // Look for the CLR property with this name first.
                 PropertyInfo propertyInfo = (from prop in GetProperties(bindingAttr) where prop.Name == name select prop).FirstOrDefault();
+
                 if (propertyInfo == null)
                 {
                     // If the CLR property was not found, return a custom property
                     if (_infra.HasProperty(name))
                     {
-                        return new CustomPropertyInfoHelper(name, _infra.GetValue(name));
+                        return new CustomPropertyInfoHelper(name, _infra.GetPropertyType(name));
                     }
                 }
+
                 return propertyInfo;
             }
 

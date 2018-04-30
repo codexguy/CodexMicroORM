@@ -122,15 +122,23 @@ namespace CodexMicroORM.Core.Services
             return (from b in (from a in this let iw = a.AsInfraWrapped() where iw != null select iw.GetRowState()) where b != ObjectState.Unchanged select b).Any();
         }
 
-        public void PopulateFromSerializationText(string json)
+        public void PopulateFromSerializationText(string json, JsonSerializationSettings jss = null)
         {
-            // Must be an array...
-            if (!Regex.IsMatch(json, @"^\s*\[") || !Regex.IsMatch(json, @"\]\s*$"))
+            if (jss == null)
             {
-                throw new CEFInvalidOperationException("JSON provided is not an array (must be to deserialize a service scope).");
+                jss = new JsonSerializationSettings();
             }
 
-            foreach (var i in CEF.CurrentPCTService()?.GetItemsFromSerializationText<T>(json))
+            // Must be an array...
+            if (jss.SerializationType == SerializationType.Array)
+            {
+                if (!Regex.IsMatch(json, @"^\s*\[") || !Regex.IsMatch(json, @"\]\s*$"))
+                {
+                    throw new CEFInvalidOperationException("JSON provided is not an array (must be to deserialize a service scope).");
+                }
+            }
+
+            foreach (var i in CEF.CurrentPCTService()?.GetItemsFromSerializationText<T>(json, jss))
             {
                 this.Add(i);
             }

@@ -70,16 +70,98 @@ namespace CodexMicroORM.Core.Services
             return include;
         }
 
-        public IEnumerable<T> GetItemsFromSerializationText<T>(string json) where T : class, new()
+        public IEnumerable<T> GetItemsFromSerializationText<T>(string json, JsonSerializationSettings settings) where T : class, new()
         {
-            var setArray = JArray.Parse(json);
-
-            foreach (var i in setArray.Children())
+            if (settings == null)
             {
-                if (i.First.Type == JTokenType.Object)
-                {
-                    yield return CEF.Deserialize<T>(i.ToString());
-                }
+                settings = new JsonSerializationSettings();
+            }
+
+            switch (settings.SerializationType)
+            {
+                case SerializationType.Array:
+                    {
+                        var setArray = JArray.Parse(json);
+
+                        foreach (var i in setArray.Children())
+                        {
+                            if (i.First.Type == JTokenType.Object)
+                            {
+                                yield return CEF.Deserialize<T>(i.ToString());
+                            }
+                        }
+
+                        break;
+                    }
+
+                case SerializationType.ObjectWithSchemaType1AndRows:
+                    {
+                        // Read schema
+                        Dictionary<string, Type> schema = new Dictionary<string, Type>();
+
+                        var root = JObject.Parse(json);
+
+                        // Read schema
+                        foreach (var propInfo in root.GetValue(settings.SchemaName).ToArray())
+                        {
+                            if (propInfo is JObject jo)
+                            {
+                                if (jo.Count < 2 || jo.Count > 3)
+                                {
+                                    throw new CEFInvalidOperationException("Invalid JSON format.");
+                                }
+
+                                var p1 = jo.First as JProperty;
+                                var p2 = jo.First.Next as JProperty;
+
+                                var pn = settings.SchemaFieldNameName.Equals(p1.Name) ? p1 : p2;
+                                var pt = settings.SchemaFieldTypeName.Equals(p1.Name) ? p1 : p2;
+
+                                if (pn == null || pt == null)
+                                {
+                                    throw new CEFInvalidOperationException("Invalid JSON format.");
+                                }
+
+                                var t = settings.GetDataType(pt.Value.ToString());
+
+                                // Assume that any property might be omitted/missing which means everything should be considered nullable
+                                if (t.IsValueType && !(t.IsGenericType && t.GetGenericTypeDefinition() == typeof(Nullable<>)))
+                                {
+                                    t = typeof(Nullable<>).MakeGenericType(t);
+                                }
+
+                                schema[pn.Value.ToString()] = t;
+                            }
+                        }
+
+                        // Read objects, using the schema as the "basis" where missing/omitted properties are still carried through
+                        foreach (var itemInfo in root.GetValue(settings.DataRootName).ToArray())
+                        {
+                            var obj = CEF.Deserialize<T>(itemInfo.ToString());
+                            var iw = obj.AsInfraWrapped();
+
+                            // We need to apply property type settings after-the-fact
+                            var allProp = iw.GetAllValues();
+
+                            foreach (var propInfo in schema)
+                            {
+                                var existingInfo = (from a in allProp where a.Key == propInfo.Key select (propInfo.Value, a.Value));
+
+                                if (existingInfo.Any())
+                                {
+                                    iw.SetValue(propInfo.Key, existingInfo.First().Item2, existingInfo.First().Item1);
+                                }
+                                else
+                                {
+                                    iw.SetValue(propInfo.Key, null, propInfo.Value);
+                                }
+                            }
+
+                            yield return obj;
+                        }
+
+                        break;
+                    }
             }
         }
 

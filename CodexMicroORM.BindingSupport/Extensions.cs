@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using CodexMicroORM.Core;
@@ -33,6 +34,12 @@ namespace CodexMicroORM.BindingSupport
         public static GenericBindableSet AsDynamicBindable<T>(this EntitySet<T> list) where T : class, new()
         {
             return new GenericBindableSet(from a in list let d = a.AsInfraWrapped() as DynamicWithBag where d != null select new DynamicBindable(d));
+        }
+
+        public static DynamicBindable AsDynamicBindable(this object o)
+        {
+            var d = (o.AsInfraWrapped() as DynamicWithBag) ?? throw new ArgumentException("Type does not have an infrastructure wrapper.");
+            return new DynamicBindable(d);
         }
     }
 }

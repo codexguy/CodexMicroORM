@@ -20,6 +20,12 @@ using System;
 
 namespace CodexMicroORM.Core
 {
+    public enum SerializationType
+    {
+        Array = 0,
+        ObjectWithSchemaType1AndRows = 1
+    }
+
     [Flags]
     public enum SerializationMode
     {

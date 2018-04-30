@@ -142,7 +142,7 @@ namespace CodexMicroORM.Core
 
     public interface ICEFPersistenceHost : ICEFService
     {
-        IEnumerable<T> GetItemsFromSerializationText<T>(string json) where T : class, new();
+        IEnumerable<T> GetItemsFromSerializationText<T>(string json, JsonSerializationSettings settings) where T : class, new();
 
         bool SaveContents(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits);
     }
