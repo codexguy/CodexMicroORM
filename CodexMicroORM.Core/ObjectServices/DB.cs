@@ -30,6 +30,8 @@ namespace CodexMicroORM.Core.Services
 {
     public class DBService : ICEFDataHost
     {
+        #region "Static state"
+
         private static IDBProvider _defaultProvider;
 
         // Can declare what DB schemas any object belongs to (if not expressed in GetSchemaName())
@@ -53,6 +55,16 @@ namespace CodexMicroORM.Core.Services
         // Properties on an object can be saved to a parent 1:0/1 in the DB
         private static ConcurrentDictionary<Type, (string schema, string name)> _typeParentSave = new ConcurrentDictionary<Type, (string schema, string name)>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
+        #endregion
+
+        #region "Private state"
+
+        private ConcurrentDictionary<Type, Func<object[], IEnumerable>> _retrieveByKeyCache = new ConcurrentDictionary<Type, Func<object[], IEnumerable>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+
+        #endregion
+
+        #region "Constructors"
+
         public DBService()
         {
         }
@@ -62,15 +74,9 @@ namespace CodexMicroORM.Core.Services
             _defaultProvider = defaultProvider;
         }
 
-        public IDBProvider GetProviderForType(Type bt)
-        {
-            if (_providerTypeMap.TryGetValue(bt, out IDBProvider prov))
-            {
-                return prov;
-            }
+        #endregion
 
-            return _defaultProvider;
-        }
+        #region "Static methods"
 
         public static IDBProvider DefaultProvider => _defaultProvider;
 
@@ -78,38 +84,6 @@ namespace CodexMicroORM.Core.Services
         {
             CEF.RegisterForType<T>(new DBService());
             _schemaTypeMap[typeof(T)] = schema;
-        }
-
-        public string GetEntityNameByType(Type bt, ICEFWrapper w)
-        {
-            string name;
-
-            if (w != null && _typeEntityNameMap.TryGetValue(w.GetBaseType(), out name))
-            {
-                return name;
-            }
-
-            if (w != null)
-            {
-                return w.GetBaseType().Name;
-            }
-
-            if (_typeEntityNameMap.TryGetValue(bt, out name))
-            {
-                return name;
-            }
-
-            return bt?.Name;
-        }
-
-        public string GetSchemaNameByType(Type bt)
-        {
-            if (_schemaTypeMap.TryGetValue(bt, out string sn))
-            {
-                return sn;
-            }
-
-            return null;
         }
 
         public static void RegisterOnSaveParentSave<T>(string name, string schema = null) where T : class
@@ -122,9 +96,7 @@ namespace CodexMicroORM.Core.Services
         {
             CEF.RegisterForType<T>(new DBService());
 
-            List<(string prop, Type proptype, string prefix)> vl = null;
-
-            _typePropGroups.TryGetValue(typeof(T), out vl);
+            _typePropGroups.TryGetValue(typeof(T), out List<(string prop, Type proptype, string prefix)> vl);
 
             if (vl == null)
             {
@@ -139,9 +111,7 @@ namespace CodexMicroORM.Core.Services
         {
             CEF.RegisterForType<T>(new DBService());
 
-            List<(string prop, object value, object def)> vl = null;
-
-            _typePropDefaults.TryGetValue(typeof(T), out vl);
+            _typePropDefaults.TryGetValue(typeof(T), out List<(string prop, object value, object def)> vl);
 
             if (vl == null)
             {
@@ -162,9 +132,7 @@ namespace CodexMicroORM.Core.Services
         {
             CEF.RegisterForType<T>(new DBService());
 
-            ConcurrentDictionary<string, string> vl = null;
-
-            _typeFieldNameMap.TryGetValue(typeof(T), out vl);
+            _typeFieldNameMap.TryGetValue(typeof(T), out ConcurrentDictionary<string, string> vl);
 
             if (vl == null)
             {
@@ -173,6 +141,58 @@ namespace CodexMicroORM.Core.Services
 
             vl[storeName] = propName;
             _typeFieldNameMap[typeof(T)] = vl;
+        }
+
+        #endregion
+
+        public IDBProvider GetProviderForType(Type bt)
+        {
+            if (_providerTypeMap.TryGetValue(bt, out IDBProvider prov))
+            {
+                return prov;
+            }
+
+            if (_defaultProvider == null)
+            {
+                throw new CEFInvalidOperationException($"Could not find a default data provider based on type {bt.Name}.");
+            }
+
+            return _defaultProvider;
+        }
+
+        public string GetEntityNameByType(Type bt, ICEFWrapper w)
+        {
+            if (bt == null)
+            {
+                return null;
+            }
+
+            if (w != null && _typeEntityNameMap.TryGetValue(w.GetBaseType(), out string name))
+            {
+                return name;
+            }
+
+            if (w != null)
+            {
+                return w.GetBaseType().Name;
+            }
+
+            if (_typeEntityNameMap.TryGetValue(bt, out name))
+            {
+                return name;
+            }
+
+            return bt.Name;
+        }
+
+        public string GetSchemaNameByType(Type bt)
+        {
+            if (_schemaTypeMap.TryGetValue(bt, out string sn))
+            {
+                return sn;
+            }
+
+            return null;
         }
 
         public string GetPropertyNameFromStorageName(Type baseType, string storeName)
@@ -213,6 +233,21 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
+        public IEnumerable<string> GetPropertyGroupFields(Type t)
+        {
+            if (_typePropGroups.TryGetValue(t, out List<(string prop, Type proptype, string prefix)> vl))
+            {
+                foreach (var (prop, proptype, prefix) in vl)
+                {
+                    foreach (var pi in proptype.GetProperties())
+                    {
+                        var fn = string.Concat(prefix, pi.Name);
+                        yield return fn;
+                    }
+                }
+            }
+        }
+
         public void ExpandPropertyGroupValues(object o)
         {
             var bt = o.GetBaseType();
@@ -222,20 +257,20 @@ namespace CodexMicroORM.Core.Services
                 var iw = o.AsInfraWrapped();
                 var set = false;
 
-                foreach (var v in vl)
+                foreach (var (prop, proptype, prefix) in vl)
                 {
-                    var pv = o.FastGetValue(v.prop);
+                    var pv = o.FastGetValue(prop);
 
                     if (pv == null)
                     {
-                        pv = v.proptype.FastCreateNoParm();
-                        o.FastSetValue(v.prop, pv);
+                        pv = proptype.FastCreateNoParm();
+                        o.FastSetValue(prop, pv);
                         set = true;
                     }
 
-                    foreach (var pi in v.proptype.GetProperties())
+                    foreach (var pi in proptype.GetProperties())
                     {
-                        var fn = string.Concat(v.prefix, pi.Name);
+                        var fn = string.Concat(prefix, pi.Name);
 
                         if (iw.HasProperty(fn))
                         {
@@ -296,13 +331,13 @@ namespace CodexMicroORM.Core.Services
 
                 if (iw != null)
                 {
-                    foreach (var v in vl)
+                    foreach (var (prop, proptype, prefix) in vl)
                     {
-                        var val = iw.GetValue(v.prop);
+                        var val = iw.GetValue(prop);
 
-                        foreach (var pi in (from a in v.proptype.GetProperties() where a.CanRead select a))
+                        foreach (var pi in (from a in proptype.GetProperties() where a.CanRead select a))
                         {
-                            var targName = string.Concat(v.prefix, pi.Name);
+                            var targName = string.Concat(prefix, pi.Name);
 
                             if (val != null)
                             {
@@ -318,10 +353,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        IList<Type> ICEFService.RequiredServices()
-        {
-            return new Type[] { typeof(ICEFPersistenceHost), typeof(ICEFKeyHost) };
-        }
+        IList<Type> ICEFService.RequiredServices() => new Type[] { typeof(ICEFPersistenceHost), typeof(ICEFKeyHost) };
 
         public void WaitOnCompletions()
         {
@@ -364,6 +396,13 @@ namespace CodexMicroORM.Core.Services
             _defaultProvider.ExecuteRaw(cs, cmdText, doThrow, stopOnError);
         }
 
+        /// <summary>
+        /// Primary entry point for saving one or more "rows" of data, sourced from entities.
+        /// </summary>
+        /// <param name="rows"></param>
+        /// <param name="ss"></param>
+        /// <param name="settings"></param>
+        /// <returns></returns>
         public IList<(object item, string message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings)
         {
             List<(object item, string message, int status)> results = new List<(object item, string message, int status)>();
@@ -412,28 +451,6 @@ namespace CodexMicroORM.Core.Services
                           group a by new { Level = a.level, RowState = a.rs, Provider = a.prov }
                           into g
                           select new { g.Key.Provider, g.Key.Level, g.Key.RowState, Rows = (from asp in g select (asp.schema, asp.name, asp.basetype, asp.row)) };
-
-            /*
-            var ordRows = (from a in rows
-                           let uw = a.AsUnwrapped()
-                           let bt = uw?.GetBaseType()
-                           where uw != null && (settings.LimitToSingleType == null || settings.LimitToSingleType.Equals(bt))
-                           let sp = (settings.RowSavePreview == null ? (true, null) : settings.RowSavePreview.Invoke(a))
-                           let rs = sp.treatas.GetValueOrDefault(a.GetRowState())
-                           where (rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && sp.cansave && (cs.ToAcceptList?.Count == 0 || !cs.ToAcceptList.Contains(a))
-                           let w = a.GetWrappedObject() as ICEFWrapper
-                           let rd = new { Row = a, BaseType = bt, Schema = w?.GetSchemaName() ?? GetSchemaNameByType(bt), Name = GetEntityNameByType(bt, w) }
-                           let prov = GetProviderForType(bt)
-                           let level = settings.LimitToSingleType != null ? 1 : ks.GetObjectNestLevel(uw)
-                           group rd by new
-                           {
-                               Level = level,
-                               RowState = rs,
-                               Provider = prov
-                           }
-                           into g
-                           select new { g.Key.Provider, g.Key.Level, g.Key.RowState, Rows = (from asp in g select (asp.Schema, asp.Name, asp.BaseType, Row: (aud == null ? asp.Row : aud.SavePreview(ss, asp.Row, g.Key.RowState)))) });
-            */
 
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Delete) != 0)
             {
@@ -635,8 +652,6 @@ namespace CodexMicroORM.Core.Services
             cs.DoneWork();
         }
 
-        private ConcurrentDictionary<Type, Func<object[], IEnumerable>> _retrieveByKeyCache = new ConcurrentDictionary<Type, Func<object[], IEnumerable>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-
         internal IEnumerable RetrieveByKeyNonGeneric(Type bt, params object[] key)
         {
             if (_retrieveByKeyCache.TryGetValue(bt, out Func<object[], IEnumerable> vl))
@@ -651,10 +666,7 @@ namespace CodexMicroORM.Core.Services
             return funcWrap(key);
         }
 
-        private Func<object[], IEnumerable> InternalRetrieveByKey<T>() where T : class, new()
-        {
-            return new Func<object[], IEnumerable>((k) => { return RetrieveByKey<T>(k); });
-        }
+        private Func<object[], IEnumerable> InternalRetrieveByKey<T>() where T : class, new() => new Func<object[], IEnumerable>((k) => { return RetrieveByKey<T>(k); });
 
         public IEnumerable<T> RetrieveByKey<T>(params object[] key) where T : class, new()
         {
@@ -850,13 +862,15 @@ namespace CodexMicroORM.Core.Services
 
         public class DBServiceState : ICEFServiceObjState
         {
-            private ConcurrentQueue<Task> _completions = new ConcurrentQueue<Task>();
-            private List<Exception> _completionEx = new List<Exception>();
-            private object _sync = new object();
+            public ConcurrentQueue<Task> Completions { get; } = new ConcurrentQueue<Task>();
 
-            public ConcurrentQueue<Task> Completions => _completions;
-            public List<Exception> Exceptions => _completionEx;
-            public object Sync => _sync;
+            public List<Exception> Exceptions { get; } = new List<Exception>();
+
+            public object Sync { get; } = new object();
+
+            public void Cleanup(ServiceScope ss)
+            {
+            }
         }
     }
 }

@@ -111,11 +111,9 @@ namespace CodexMicroORM.Core.Services
                                     throw new CEFInvalidOperationException("Invalid JSON format.");
                                 }
 
-                                var p1 = jo.First as JProperty;
-                                var p2 = jo.First.Next as JProperty;
-
-                                var pn = settings.SchemaFieldNameName.Equals(p1.Name) ? p1 : p2;
-                                var pt = settings.SchemaFieldTypeName.Equals(p1.Name) ? p1 : p2;
+                                JProperty pn = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldNameName) select b).FirstOrDefault();
+                                JProperty pt = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldTypeName) select b).FirstOrDefault();
+                                JProperty pr = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldRequiredName) select b).FirstOrDefault();
 
                                 if (pn == null || pt == null)
                                 {
@@ -123,6 +121,7 @@ namespace CodexMicroORM.Core.Services
                                 }
 
                                 var t = settings.GetDataType(pt.Value.ToString());
+                                var torig = t;
 
                                 // Assume that any property might be omitted/missing which means everything should be considered nullable
                                 if (t.IsValueType && !(t.IsGenericType && t.GetGenericTypeDefinition() == typeof(Nullable<>)))
@@ -130,7 +129,14 @@ namespace CodexMicroORM.Core.Services
                                     t = typeof(Nullable<>).MakeGenericType(t);
                                 }
 
-                                schema[pn.Value.ToString()] = t;
+                                var name = pn.Value.ToString();
+                                schema[name] = t;
+
+                                // If is required, we add a validation for this
+                                if (pr != null && bool.TryParse(pr.Value.ToString(), out bool prv) && prv)
+                                {
+                                    ValidationService.RegisterRequired<T>(torig, name);
+                                }
                             }
                         }
 

@@ -41,136 +41,8 @@ namespace CodexMicroORM.Core
     /// Managed objects can use services, and the scope is responsible for tracking the use of these services.
     /// Scopes are typically thread-bound, where inter-thread/process use of scope data would be typically carried out via a presisting service.
     /// </summary>
-    public sealed class ServiceScope : IDisposable
+    public sealed partial class ServiceScope : IDisposable
     {
-        #region "Tracked Object"
-
-        public sealed class TrackedObject : ICEFIndexedListItem
-        {
-            public string BaseName { get; set; }
-            public Type BaseType { get; set; }
-            public CEFWeakReference<object> Target { get; set; }
-            public CEFWeakReference<ICEFWrapper> Wrapper { get; set; }
-            public ICEFInfraWrapper Infra { get; set; }
-            public List<ICEFService> Services { get; set; }
-            
-            public bool ValidTarget
-            {
-                get
-                {
-                    return (Target?.IsAlive).GetValueOrDefault();
-                }
-            }
-
-            public object GetTarget()
-            {
-                if ((Target?.IsAlive).GetValueOrDefault() && Target.Target != null)
-                    return Target.Target;
-
-                return null;
-            }
-
-            public ICEFInfraWrapper GetInfra()
-            {
-                if ((Target?.IsAlive).GetValueOrDefault())
-                {
-                    return Infra;
-                }
-
-                return null;
-            }
-
-            public INotifyPropertyChanged GetNotifyFriendly()
-            {
-                var test1 = GetTarget() as INotifyPropertyChanged;
-                if (test1 != null)
-                    return test1;
-
-                var test2 = GetWrapper() as INotifyPropertyChanged;
-                if (test2 != null)
-                    return test2;
-
-                return GetInfra() as INotifyPropertyChanged;
-            }
-
-            public ICEFInfraWrapper GetCreateInfra()
-            {
-                var infra = GetInfra();
-
-                if (infra != null)
-                    return infra;
-
-                // Must succeed so create an infra wrapper!
-                var wt = GetWrapperTarget();
-
-                if (wt == null)
-                    throw new CEFInvalidOperationException("Failed to identify target object to create infrastructure wrapper for.");
-
-                Infra = WrappingHelper.CreateInfraWrapper(WrappingSupport.All, WrappingAction.Dynamic, false, wt, null, null, null);
-                return Infra;
-            }
-
-            public ICEFWrapper GetWrapper()
-            {
-                if ((Wrapper?.IsAlive).GetValueOrDefault() && Wrapper.Target != null)
-                    return Wrapper.Target as ICEFWrapper;
-
-                return null;
-            }
-
-            public object GetInfraWrapperTarget()
-            {
-                return GetInfra() ?? GetWrapper() ?? GetTarget();
-            }
-
-            public object GetWrapperTarget()
-            {
-                return GetWrapper() ?? GetTarget();
-            }
-
-            public object GetValue(string propName, bool unwrap)
-            {
-                switch (propName)
-                {
-                    case nameof(BaseName):
-                        return BaseName;
-
-                    case nameof(BaseType):
-                        return BaseType;
-
-                    case nameof(Target):
-                        if (unwrap)
-                            return Target.IsAlive ? Target.Target : null;
-                        else
-                            return Target;
-
-                    case nameof(Wrapper):
-                        if (unwrap)
-                            return Wrapper.IsAlive ? Wrapper.Target : null;
-                        else
-                            return Wrapper;
-
-                    case nameof(Infra):
-                        return Infra;
-
-                    case nameof(Services):
-                        return Services;
-                }
-                throw new NotSupportedException("Unsupported property name.");
-            }
-
-            public bool IsAlive
-            {
-                get
-                {
-                    return !((!(Target?.IsAlive).GetValueOrDefault() || Target.Target == null)
-                        && (!(Wrapper?.IsAlive).GetValueOrDefault() || Wrapper.Target == null));
-                }
-            }
-        }
-
-        #endregion
-
         #region "Private state"
 
         // Global config...
@@ -250,17 +122,15 @@ namespace CodexMicroORM.Core
 
         #endregion
 
+        #region "Static methods"
+
+        public static void SetCacheBehavior<T>(CacheBehavior cb) => _cacheBehaviorByType[typeof(T)] = cb;
+
+        public static void SetCacheSeconds<T>(int seconds) => _cacheDurByType[typeof(T)] = seconds;
+
+        #endregion
+
         #region "Public methods"
-
-        public static void SetCacheBehavior<T>(CacheBehavior cb)
-        {
-            _cacheBehaviorByType[typeof(T)] = cb;
-        }
-
-        public static void SetCacheSeconds<T>(int seconds)
-        {
-            _cacheDurByType[typeof(T)] = seconds;
-        }
 
         public string FriendlyName
         {
@@ -541,6 +411,17 @@ namespace CodexMicroORM.Core
             }
         }
 
+        public IEnumerable<TrackedObject> GetAllTrackedByType(Type t)
+        {
+            foreach (var to in _scopeObjects)
+            {
+                if (to.IsAlive && to.BaseType == t)
+                {
+                    yield return to;
+                }
+            }
+        }
+
         public IEnumerable<ICEFInfraWrapper> GetAllTracked()
         {
             foreach (var to in _scopeObjects)
@@ -594,6 +475,123 @@ namespace CodexMicroORM.Core
 
             return InternalDeserialize(typeof(T), json, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity)) as T;
         }
+
+        public EntitySet<T> DeserializeSet<T>(string json) where T : class, new()
+        {
+            // Must be an array...
+            if (!Regex.IsMatch(json, @"^\s*\[") || !Regex.IsMatch(json, @"\]\s*$"))
+            {
+                throw new CEFInvalidOperationException("JSON provided is not an array (must be to deserialize as an EntitySet).");
+            }
+
+            // Construct a shadow copy that we'll traverse to build the corresponding wrapped structure
+            var setArray = JArray.Parse(json);
+            var outSet = Globals.NewEntitySet<T>();
+            outSet.BeginInit();
+
+            foreach (var i in setArray.Children())
+            {
+                outSet.Add(Deserialize<T>(i.ToString()));
+            }
+
+            outSet.EndInit();
+            return outSet;
+        }
+
+        public ServiceScopeSettings Settings => _settings;
+
+        public void CleanupServiceStates()
+        {
+            foreach (var val in _serviceState.Values)
+            {
+                val.Cleanup(this);
+            }
+        }
+
+        public T GetServiceState<T>() where T : class, ICEFServiceObjState
+        {
+            if (_serviceState.TryGetValue(typeof(T), out ICEFServiceObjState val))
+            {
+                return val as T;
+            }
+
+            return null;
+        }
+
+        public object IncludeObjectNonGeneric(object initial, IDictionary<string, object> props)
+        {
+            return InternalCreateAddBase(initial, false, null, props, null, null);
+        }
+
+        public INotifyPropertyChanged GetNotifyFriendlyFor(object o)
+        {
+            if (o == null)
+                return null;
+
+            var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), o.AsUnwrapped());
+
+            if (to == null)
+                return null;
+
+            return to.GetNotifyFriendly();
+        }
+
+        public TrackedObject GetTrackedByWrapperOrTarget(object wot)
+        {
+            if (wot == null)
+            {
+                return null;
+            }
+
+            var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), wot);
+
+            if (to == null)
+            {
+                to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Wrapper), wot);
+            }
+
+            return to;
+        }
+
+        public string GetScopeSerializationText(SerializationMode? mode)
+        {
+            ReconcileModifiedState(null);
+
+            Dictionary<object, bool> visits = new Dictionary<object, bool>(Globals.DefaultDictionaryCapacity);
+            StringBuilder sb = new StringBuilder(16384);
+            var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode) | SerializationMode.SingleLevel;
+
+            using (var jw = new JsonTextWriter(new StringWriter(sb)))
+            {
+                jw.WriteStartArray();
+
+                foreach (var to in _scopeObjects)
+                {
+                    if (to.IsAlive && !visits.ContainsKey(to.GetWrapperTarget()))
+                    {
+                        var iw = to.GetInfra();
+
+                        if (iw != null)
+                        {
+                            var rs = iw.GetRowState();
+
+                            if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
+                            {
+                                CEF.CurrentPCTService()?.SaveContents(jw, to.GetWrapperTarget(), actmode | SerializationMode.IncludeType, visits);
+                            }
+                        }
+                    }
+                }
+
+                jw.WriteEndArray();
+            }
+
+            return sb.ToString();
+        }
+
+        #endregion
+
+        #region "Internals"
 
         private object InternalDeserialize(Type type, string json, IDictionary<object, object> visits)
         {
@@ -734,32 +732,6 @@ namespace CodexMicroORM.Core
             return constructed;
         }
 
-        public EntitySet<T> DeserializeSet<T>(string json) where T : class, new()
-        {
-            // Must be an array...
-            if (!Regex.IsMatch(json, @"^\s*\[") || !Regex.IsMatch(json, @"\]\s*$"))
-            {
-                throw new CEFInvalidOperationException("JSON provided is not an array (must be to deserialize as an EntitySet).");
-            }
-
-            // Construct a shadow copy that we'll traverse to build the corresponding wrapped structure
-            var setArray = JArray.Parse(json);
-            var outSet = Globals.NewEntitySet<T>();
-            outSet.BeginInit();
-
-            foreach (var i in setArray.Children())
-            {
-                outSet.Add(Deserialize<T>(i.ToString()));
-            }
-
-            outSet.EndInit();
-            return outSet;
-        }
-
-        #endregion
-
-        #region "Internals"
-
         internal void ConnScopeInit(ConnectionScope newcs, ScopeMode mode)
         {
             if (_currentConnScope != null)
@@ -803,18 +775,6 @@ namespace CodexMicroORM.Core
         }
 
         internal ConcurrentIndexedList<TrackedObject> Objects => _scopeObjects;
-
-        public ServiceScopeSettings Settings => _settings;
-
-        public T GetServiceState<T>() where T : class, ICEFServiceObjState
-        {
-            if (_serviceState.TryGetValue(typeof(T), out ICEFServiceObjState val))
-            {
-                return val as T;
-            }
-
-            return null;
-        }
 
         internal object GetWrapperOrTarget(object o)
         {
@@ -873,19 +833,6 @@ namespace CodexMicroORM.Core
             return GetWrapperOrTarget(o);
         }
 
-        public INotifyPropertyChanged GetNotifyFriendlyFor(object o)
-        {
-            if (o == null)
-                return null;
-
-            var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), o.AsUnwrapped());
-
-            if (to == null)
-                return null;
-
-            return to.GetNotifyFriendly();
-        }
-
         internal (Func<object> getter, Type type) GetGetter(object o, string propName)
         {
             if (o == null)
@@ -919,21 +866,19 @@ namespace CodexMicroORM.Core
                     }
                     , dyn.GetPropertyType(propName));
                 }
-                else
+            }
+
+            var pi = (target ?? o).FastPropertyReadableWithValue(propName);
+
+            if (pi.readable)
+            {
+                var (name, type, readable, writeable) = (target ?? o).FastGetAllProperties(null, null, propName).First();
+
+                return (() =>
                 {
-                    var pi = target.FastPropertyReadableWithValue(propName);
-
-                    if (pi.readable)
-                    {
-                        var pi2 = target.FastGetAllProperties(null, null, propName).First();
-
-                        return (() =>
-                        {
-                            return pi.value;
-                        }
-                        , pi2.type);
-                    }
+                    return pi.value;
                 }
+                , type);
             }
 
             return (null, null);
@@ -971,23 +916,6 @@ namespace CodexMicroORM.Core
             }
 
             return (null, null);
-        }
-
-        public TrackedObject GetTrackedByWrapperOrTarget(object wot)
-        {
-            if (wot == null)
-            {
-                return null;
-            }
-
-            var to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), wot);
-
-            if (to == null)
-            {
-                to = _scopeObjects.GetFirstByName(nameof(TrackedObject.Wrapper), wot);
-            }
-
-            return to;
         }
 
         private IEnumerable<ICEFService> ResolveTypeServices(object o)
@@ -1145,44 +1073,10 @@ namespace CodexMicroORM.Core
             return filterRows.Count == 0 ? null : filterRows;
         }
 
-        public string GetScopeSerializationText(SerializationMode? mode)
-        {
-            ReconcileModifiedState(null);
-
-            Dictionary<object, bool> visits = new Dictionary<object, bool>(Globals.DefaultDictionaryCapacity);
-            StringBuilder sb = new StringBuilder(16384);
-            var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode) | SerializationMode.SingleLevel;
-
-            using (var jw = new JsonTextWriter(new StringWriter(sb)))
-            {
-                jw.WriteStartArray();
-
-                foreach (var to in _scopeObjects)
-                {
-                    if (to.IsAlive && !visits.ContainsKey(to.GetWrapperTarget()))
-                    {
-                        var iw = to.GetInfra();
-
-                        if (iw != null)
-                        {
-                            var rs = iw.GetRowState();
-
-                            if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
-                            {
-                                CEF.CurrentPCTService()?.SaveContents(jw, to.GetWrapperTarget(), actmode | SerializationMode.IncludeType, visits);
-                            }
-                        }
-                    }
-                }
-
-                jw.WriteEndArray();
-            }
-
-            return sb.ToString();
-        }
-
         internal int ReconcileModifiedState(HashSet<object> filterRows)
         {
+            const int USE_PARALLEL_THRESHOLD = 20000;
+
             int count = 0;
             var db = CEF.CurrentDBService();
 
@@ -1197,7 +1091,7 @@ namespace CodexMicroORM.Core
                 list = _scopeObjects;
             }
 
-            foreach (var to in list)
+            void work(TrackedObject to)
             {
                 // If object is unlinked, ignore and evict!
                 if (to.GetInfra()?.GetRowState() == ObjectState.Unlinked)
@@ -1211,9 +1105,7 @@ namespace CodexMicroORM.Core
 
                     if (!(to.GetTarget() is INotifyPropertyChanged))
                     {
-                        var dyn = to.GetInfra() as DynamicWithValuesAndBag;
-
-                        if (dyn != null)
+                        if (to.GetInfra() is DynamicWithValuesAndBag dyn)
                         {
                             if (dyn.ReconcileModifiedState((field, oval, nval) =>
                             {
@@ -1221,11 +1113,30 @@ namespace CodexMicroORM.Core
                                 CEF.CurrentKeyService()?.UpdateBoundKeys(to, this, field, oval, nval);
                             }))
                             {
-                                ++count;
+                                Interlocked.Increment(ref count);
                             }
                         }
                     }
                 }
+            }
+
+            if (list.Count() < USE_PARALLEL_THRESHOLD)
+            {
+                foreach (var to in list)
+                {
+                    work(to);
+                }
+
+            }
+            else
+            {
+                Parallel.ForEach(list, (i) =>
+                {
+                    using (CEF.UseServiceScope(this))
+                    {
+                        work(i);
+                    }
+                });
             }
 
             return count;
@@ -1284,11 +1195,9 @@ namespace CodexMicroORM.Core
             }
             else
             {
-                var ss = CEF.CurrentServiceScope;
-
                 Parallel.ForEach(list, (v) =>
                 {
-                    using (CEF.UseServiceScope(ss))
+                    using (CEF.UseServiceScope(this))
                     {
                         work(v);
                     }
@@ -1296,11 +1205,6 @@ namespace CodexMicroORM.Core
             }
 
             return tosave;
-        }
-
-        public object IncludeObjectNonGeneric(object initial, IDictionary<string, object> props)
-        {
-            return InternalCreateAddBase(initial, false, null, props, null, null);
         }
 
         internal object InternalCreateAddBase(object initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits)

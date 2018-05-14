@@ -353,7 +353,11 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 * 0.6.0 - April 2018
     * A number of improvements driven by ZableDB development. Details to follow in [site article](https://www.xskrape.com/home/articles)
 * 0.6.3 - April 2018
-    * Updates to support C# Corner article (link to follow)
+    * Updates to support C# Corner [article](https://www.c-sharpcorner.com/article/wpf-data-binding-with-icustomtypeprovider)
+* 0.6.4 - May 2018
+    * Minor fixes, deeper support for ZableDB
+* 0.6.5 - May 2018
+    * Addition of ResolveForArbitraryLoadOrder global setting, slight refactoring for support of ZableDB
 
 ## Roadmap / Plans
 Look for in coming releases:

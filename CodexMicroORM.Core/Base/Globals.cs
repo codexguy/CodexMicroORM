@@ -27,12 +27,21 @@ namespace CodexMicroORM.Core
     /// </summary>
     public static class Globals
     {
+        #region "Internal state"
+
         private static WrappingAction _wrappingAction = WrappingAction.Dynamic;
         private static Type _defaultAuditServiceType = typeof(AuditService);
         private static Type _defaultDBServiceType = typeof(DBService);
         private static Type _defaultKeyServiceType = typeof(KeyService);
         private static Type _defaultPCTServiceType = typeof(PCTService);
         private static Type _defaultValidationServiceType = typeof(ValidationService);
+        private static Type _entitySetType = typeof(EntitySet<>);
+        private static bool _useGlobalServiceScope = false;
+
+        [ThreadStatic]
+        private static string _currentThreadUser = null;
+
+        #endregion
 
         /// <summary>
         /// Rather than the default of "3" for standard dictionary initialization, offers a different starting capacity for most dictionaries managed by the framework.
@@ -78,7 +87,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface("ICEFPersistenceHost") == null)
+                if (value.GetInterface(typeof(ICEFPersistenceHost).Name) == null)
                 {
                     throw new ArgumentException("Type does not implement ICEFPersistenceHost.");
                 }
@@ -95,9 +104,9 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface("ICEFAuditService") == null)
+                if (value.GetInterface(typeof(ICEFAuditHost).Name) == null)
                 {
-                    throw new ArgumentException("Type does not implement ICEFAuditService.");
+                    throw new ArgumentException("Type does not implement ICEFAuditHost.");
                 }
 
                 _defaultAuditServiceType = value;
@@ -112,7 +121,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface("ICEFDataHost") == null)
+                if (value.GetInterface(typeof(ICEFDataHost).Name) == null)
                 {
                     throw new ArgumentException("Type does not implement ICEFDataHost.");
                 }
@@ -129,7 +138,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface("ICEFValidationHost") == null)
+                if (value.GetInterface(typeof(ICEFValidationHost).Name) == null)
                 {
                     throw new ArgumentException("Type does not implement ICEFValidationHost.");
                 }
@@ -146,7 +155,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface("ICEFKeyHost") == null)
+                if (value.GetInterface(typeof(ICEFKeyHost).Name) == null)
                 {
                     throw new ArgumentException("Type does not implement ICEFKeyHost.");
                 }
@@ -154,8 +163,6 @@ namespace CodexMicroORM.Core
                 _defaultKeyServiceType = value;
             }
         }
-
-        private static Type _entitySetType = typeof(EntitySet<>);
 
         /// <summary>
         /// When the framework attempts to auto-constuct collections, this is the preferred type to use (must implement ICEFList). Intended to name types with even more functionality than EntitySet, if needed.
@@ -177,11 +184,22 @@ namespace CodexMicroORM.Core
             }
         }
 
+        /// <summary>
+        /// Returns an instance of the collection type that CEF uses to track object relationships.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
         public static EntitySet<T> NewEntitySet<T>() where T : class, new()
         {
             return (EntitySet<T>) Activator.CreateInstance(_entitySetType.MakeGenericType(typeof(T)));
         }
 
+        /// <summary>
+        /// Returns an instance of the collection type that CEF uses to track object relationships. Initializes based on an enumerable source.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="source"></param>
+        /// <returns></returns>
         public static EntitySet<T> NewEntitySet<T>(IEnumerable<T> source) where T : class, new()
         {
             return (EntitySet<T>)Activator.CreateInstance(_entitySetType.MakeGenericType(typeof(T)), source);
@@ -192,8 +210,6 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = null;
-
-        private static bool _useGlobalServiceScope = false;
 
         public static bool UseGlobalServiceScope
         {
@@ -263,6 +279,15 @@ namespace CodexMicroORM.Core
         /// When set to true, queries use dedicated threads that can be aborted if the global query timeout elapses. This is a higher cost setting so the default is false, with false also being applicable when using RDBMS which can manage their own command timeouts.
         /// </summary>
         public static bool QueriesUseDedicatedThreads
+        {
+            get;
+            set;
+        } = false;
+
+        /// <summary>
+        /// When set to true, child objects instantiated before their parent references (based on surrogate key values) are linked back to parents when the parents are instantiated. This is not a normal flow, so is considered "false" by default to help improve performance. (ZDB requires it to be true on startup.)
+        /// </summary>
+        public static bool ResolveForArbitraryLoadOrder
         {
             get;
             set;
@@ -341,13 +366,7 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
-        [ThreadStatic]
-        private static string _currentThreadUser = null;
-
-        public static string GetCurrentUser()
-        {
-            return _currentThreadUser ?? (_currentThreadUser = Environment.UserName);
-        }
+        public static string GetCurrentUser() => _currentThreadUser ?? (_currentThreadUser = Environment.UserName);
 
         /// <summary>
         /// When true, null collections are initialized when found with EntitySet instances; this can impose a performance overhead with the benefit of a simpler way to populate the object graph.
@@ -358,12 +377,18 @@ namespace CodexMicroORM.Core
             set;
         } = false;
 
+        /// <summary>
+        /// Standalone transactions do not require you to call CanCommit - this is implied if each individual database operation completes without throwing an error. Default of false implies explicit CanCommit should be used.
+        /// </summary>
         public static bool DefaultTransactionalStandalone
         {
             get;
             set;
         } = false;
 
+        /// <summary>
+        /// The default (global) degree of parallelism used when saving multiple rows of data. (1 implies sequential processing.)
+        /// </summary>
         public static int DefaultDBSaveDOP
         {
             get;
@@ -382,12 +407,18 @@ namespace CodexMicroORM.Core
             set;
         } = "_typename_";
 
+        /// <summary>
+        /// When true, row state is serialized using a simple integer (when false, uses enumeration text - creates larger serialization output).
+        /// </summary>
         public static bool SerializationStateAsInteger
         {
             get;
             set;
         } = true;
 
+        /// <summary>
+        /// When true, uncommitted surrogate keys are tracked as "shadow properties" - not normally "visible" to object consumers. (When false, the base properties for the surrogate keys are used to hold uncommitted key values.)
+        /// </summary>
         public static bool UseShadowPropertiesForNew
         {
             get;
@@ -400,6 +431,9 @@ namespace CodexMicroORM.Core
             set;
         } = false;
 
+        /// <summary>
+        /// When true, saving multiple rows allows out-of-order per-row asynchronous processing.
+        /// </summary>
         public static bool UseAsyncSave
         {
             get;

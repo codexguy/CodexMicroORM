@@ -48,6 +48,7 @@ namespace CodexMicroORM.Core
 
     public interface ICEFServiceObjState
     {
+        void Cleanup(ServiceScope ss);
     }
 
     public interface IDBProvider
@@ -97,6 +98,8 @@ namespace CodexMicroORM.Core
         IList<(object item, string message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings);
 
         void CopyPropertyGroupValues(object o);
+
+        IEnumerable<string> GetPropertyGroupFields(Type t);
 
         void ExpandPropertyGroupValues(object o);
 
@@ -294,7 +297,7 @@ namespace CodexMicroORM.Core
     /// </summary>
     public interface ICEFList
     {
-        void AddWrappedItem(object o);
+        bool AddWrappedItem(object o);
 
         void Initialize(ServiceScope ss, object parentContainer, string parentTypeName, string parentFieldName);
 

@@ -567,6 +567,25 @@ namespace CodexMicroORM.Core
             return pop;
         }
 
+        public static EntitySet<T> DBRetrieveByKeyOrInsert<T>(this EntitySet<T> pop, T template) where T : class, new ()
+        {
+            var kv = CEF.CurrentKeyService()?.GetKeyValues(template);
+
+            if (kv?.Count > 0)
+            {
+                pop.DBRetrieveByKey((from a in kv select a.value).ToArray());
+
+                if (!pop.Any())
+                {
+                    template = CEF.NewObject(template);
+                    pop.Add(template);
+                    DBSave(template, false);
+                }
+            }
+
+            return pop;
+        }
+
         /// <summary>
         /// Retrieves zero or one entity from a specific data store (based on entity type). The contents of the collection are replaced.
         /// </summary>

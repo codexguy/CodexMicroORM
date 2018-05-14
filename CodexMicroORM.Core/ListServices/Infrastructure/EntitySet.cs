@@ -19,7 +19,6 @@ Major Changes:
 ***********************************************************************/
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
@@ -262,17 +261,18 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public void AddWrappedItem(object o)
+        public bool AddWrappedItem(object o)
         {
-            var cast = o as T;
-
-            if (cast != null)
+            if (o is T cast)
             {
                 if (!_contains.Contains(cast))
                 {
                     this.Add(cast);
+                    return true;
                 }
             }
+
+            return false;
         }
 
         public void Initialize(ServiceScope ss, object parentContainer, string parentTypeName, string parentFieldName)

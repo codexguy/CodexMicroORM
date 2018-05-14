@@ -42,7 +42,7 @@ namespace CodexMicroORM.Core.Collections
     /// </summary>
     /// <typeparam name="TKey"></typeparam>
     /// <typeparam name="TValue"></typeparam>
-    public class SlimConcurrentDictionary<TKey, TValue> : ICollection<KeyValuePair<TKey, TValue>>, IEnumerable<KeyValuePair<TKey, TValue>>, IEnumerable, IDictionary<TKey, TValue>, IReadOnlyCollection<KeyValuePair<TKey, TValue>>, IReadOnlyDictionary<TKey, TValue>, ICollection, IDictionary
+    public sealed class SlimConcurrentDictionary<TKey, TValue> : ICollection<KeyValuePair<TKey, TValue>>, IEnumerable<KeyValuePair<TKey, TValue>>, IEnumerable, IDictionary<TKey, TValue>, IReadOnlyCollection<KeyValuePair<TKey, TValue>>, IReadOnlyDictionary<TKey, TValue>, ICollection
     {
         private class BucketInfo
         {
@@ -91,12 +91,15 @@ namespace CodexMicroORM.Core.Collections
 
         public bool IsFixedSize => false;
 
-        ICollection IDictionary.Keys => (from a in All() select a.Key).ToList();
+        //ICollection IDictionary.Keys => (from a in All() select a.Key).ToList();
 
-        ICollection IDictionary.Values => (from a in All() select a.Value).ToList();
+        //ICollection IDictionary.Values => (from a in All() select a.Value).ToList();
 
-        public object this[object key] { get => ValueByKey((TKey)key); set => SafeAdd((TKey)key, (TValue)value); }
+        //public object this[object key] { get => ValueByKey((TKey)key); set => SafeAdd((TKey)key, (TValue)value); }
 
+        /// <summary>
+        /// This method consolidates all data into a single dictionary, reducing the need to traverse potentially multiple dictionaries on read.
+        /// </summary>
         public void Compact()
         {
             while (true)
@@ -106,8 +109,9 @@ namespace CodexMicroORM.Core.Collections
                 var dw = new BucketInfo() { Map = new Dictionary<TKey, TValue>(_count.MaxOf(_initCapacity)) };
                 newpt[0] = dw;
 
-                var snap = All().ToList();
+                var snap = All().ToArray();
 
+                // Process a "snapshot" of the data, in a private copy we will try to "swap in" in an atomic manner
                 foreach (var kvp in snap)
                 {
                     dw.Map[kvp.Key] = kvp.Value;
@@ -115,11 +119,28 @@ namespace CodexMicroORM.Core.Collections
 
                 if (Interlocked.CompareExchange(ref _perThreadMap, newpt, orig) == orig)
                 {
-                    Interlocked.Exchange(ref _count, snap.Count());
+                    Interlocked.Exchange(ref _count, snap.Length);
                     return;
                 }
 
                 Thread.Yield();
+            }
+        }
+
+        public IEnumerable<KeyValuePair<TKey, TValue>> SafeAll()
+        {
+            foreach (var bi in _perThreadMap)
+            {
+                if (bi != null)
+                {
+                    using (new ReaderLock(bi.Lock))
+                    {
+                        foreach (var i in bi.Map)
+                        {
+                            yield return i;
+                        }
+                    }
+                }
             }
         }
 
@@ -158,6 +179,12 @@ namespace CodexMicroORM.Core.Collections
             AddInternal(key, value);
         }
 
+        /// <summary>
+        /// This specialized form of "Add" will block other threads that may attempt to be adding the same key until the current thread completes its Add.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="creator"></param>
+        /// <returns></returns>
         public TValue AddWithFactory(TKey key, Func<TKey, TValue> creator)
         {
             var (map, value) = FindByKey(key);
@@ -216,9 +243,8 @@ namespace CodexMicroORM.Core.Collections
             using (new WriterLock(dw.Lock))
             {
                 dw.Map[key] = value;
+                Interlocked.Increment(ref _count);
             }
-
-            Interlocked.Increment(ref _count);
         }
 
         private (BucketInfo map, TValue value) FindByKey(TKey key)
@@ -273,11 +299,14 @@ namespace CodexMicroORM.Core.Collections
             {
                 if (i != null)
                 {
-                    i.Map.Clear();
+                    using (new WriterLock(i.Lock))
+                    {
+                        var reduce = i.Map.Count;
+                        i.Map.Clear();
+                        Interlocked.Add(ref _count, -reduce);
+                    }
                 }
             }
-
-            Interlocked.Exchange(ref _count, 0);
         }
 
         public bool Contains(KeyValuePair<TKey, TValue> item)
@@ -315,6 +344,11 @@ namespace CodexMicroORM.Core.Collections
         public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
         {
             return All().GetEnumerator();
+        }
+
+        public IEnumerable<KeyValuePair<TKey, TValue>> GetSafeList()
+        {
+            return SafeAll().ToList();
         }
 
         public bool Remove(TKey key)
@@ -389,10 +423,10 @@ namespace CodexMicroORM.Core.Collections
             return FindByKey((TKey)key).map != null;
         }
 
-        IDictionaryEnumerator IDictionary.GetEnumerator()
-        {
-            throw new NotSupportedException();
-        }
+        //IDictionaryEnumerator IDictionary.GetEnumerator()
+        //{
+        //    throw new NotSupportedException();
+        //}
 
         public void Remove(object key)
         {
@@ -411,7 +445,7 @@ namespace CodexMicroORM.Core.Collections
     /// After looking at BCL options having this available as a custom solution is "good until further notice" - preliminary testing looks pretty darn good.
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public class ConcurrentObservableCollection<T> : ICollection<T>, IEnumerable<T>, IList<T>, IEnumerable, IList, INotifyCollectionChanged, INotifyPropertyChanged where T : class, new()
+    public class ConcurrentObservableCollection<T> : ICollection<T>, IEnumerable<T>, IList<T>, IEnumerable, INotifyCollectionChanged, INotifyPropertyChanged where T : class, new()
     {
         private class Block
         {
@@ -463,7 +497,7 @@ namespace CodexMicroORM.Core.Collections
 
         public object SyncRoot => _lock;
 
-        object IList.this[int index] { get => All().Skip(index).FirstOrDefault(); set => throw new NotSupportedException(); }
+        //object IList.this[int index] { get => All().Skip(index).FirstOrDefault(); set => throw new NotSupportedException(); }
 
         public T this[int index] { get => All().Skip(index).FirstOrDefault(); set => throw new NotSupportedException(); }
 
@@ -750,12 +784,12 @@ namespace CodexMicroORM.Core.Collections
             Remove(this[index]);
         }
 
-        public int Add(object value)
-        {
-            var t = (value as T) ?? throw new ArgumentException("value must be type T.");
-            Add(t);
-            return IndexOf(t);
-        }
+        //public int Add(object value)
+        //{
+        //    var t = (value as T) ?? throw new ArgumentException("value must be type T.");
+        //    Add(t);
+        //    return IndexOf(t);
+        //}
 
         public bool Contains(object value)
         {
@@ -1030,6 +1064,7 @@ namespace CodexMicroORM.Core.Collections
 
         private static int _baseCapacity = Environment.ProcessorCount * 14;
         private static object _asNull = new object();
+        private static T[] _empty = Array.Empty<T>();
 
         private long _dataID = long.MinValue;
         private RWLockInfo _lock = new RWLockInfo();
@@ -1456,7 +1491,7 @@ namespace CodexMicroORM.Core.Collections
                 }
             }
 
-            return new T[] { };
+            return _empty;
         }
 
         /// <summary>
@@ -1480,7 +1515,7 @@ namespace CodexMicroORM.Core.Collections
                 }
             }
 
-            return new T[] { };
+            return _empty;
         }
 
         /// <summary>
@@ -1503,7 +1538,7 @@ namespace CodexMicroORM.Core.Collections
                 return (from a in bag.All() where _data.TryGetValue(a, out val) && preview(val) select val);
             }
 
-            return new T[] { };
+            return _empty;
         }
 
         /// <summary>
@@ -1524,7 +1559,7 @@ namespace CodexMicroORM.Core.Collections
                 return (from a in bag.All() select _data[a]);
             }
 
-            return new T[] { };
+            return _empty;
         }
 
         /// <summary>

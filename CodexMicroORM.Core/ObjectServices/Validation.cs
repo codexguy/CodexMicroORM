@@ -17,6 +17,7 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 02/2018    0.2.4   Primary implementation (Joel Champagne)
 ***********************************************************************/
+using CodexMicroORM.Core.Helper;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -77,6 +78,37 @@ namespace CodexMicroORM.Core.Services
             }
 
             vl.Add((propName, default(V)));
+            _typePropRequired[typeof(T)] = vl;
+        }
+
+        /// <summary>
+        /// Registers a global validation for a specific type / specific property, indicating it is a required field.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="propType"></param>
+        /// <param name="propName"></param>
+        public static void RegisterRequired<T>(Type propType, string propName) where T : class
+        {
+            CEF.RegisterForType<T>(new ValidationService());
+
+            List<(string prop, object defval)> vl = null;
+
+            _typePropRequired.TryGetValue(typeof(T), out vl);
+
+            if (vl == null)
+            {
+                vl = new List<(string prop, object defval)>();
+            }
+
+            if (propType.IsValueType)
+            {
+                vl.Add((propName, propType.FastCreateNoParm()));
+            }
+            else
+            {
+                vl.Add((propName, null));
+            }
+
             _typePropRequired[typeof(T)] = vl;
         }
 
@@ -285,7 +317,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            return messages;
+            return (from b in (from a in messages select new { a.error, a.message }).Distinct() select (b.error, b.message));
         }
 
         /// <summary>
@@ -350,7 +382,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            return messages;
+            return (from b in (from a in messages select new { a.error, a.message }).Distinct() select (b.error, b.message));
         }
 
         private static string BuildMessageForProperty(string msg, string propName, object opt1 = null, object opt2 = null)

@@ -69,9 +69,6 @@ namespace CodexMicroORM.Providers
 
                 if (CurrentConnection != null)
                 {
-                    // todo - review if can avoid this somehow (does appear helpful currently)
-                    //SqlConnection.ClearPool(_conn);
-
                     CurrentConnection.Dispose();
                     CurrentConnection = null;
                 }

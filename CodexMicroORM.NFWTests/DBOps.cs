@@ -33,6 +33,7 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using CodexMicroORM.Core.Collections;
 using System.Windows;
+using Newtonsoft.Json.Linq;
 
 namespace CodexMicroORM.NFWTests
 {
@@ -136,9 +137,115 @@ namespace CodexMicroORM.NFWTests
             {
                 CEF.CurrentDBService().ExecuteRaw(File.ReadAllText("setup.sql"), false);
             }
+
+            // Perform specialized clean-up for tests
+            using (CEF.NewConnectionScope(new ConnectionScopeSettings() { IsTransactional = false, ConnectionStringOverride = $@"Data Source={DB_SERVER};Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true" }))
+            {
+                CEF.CurrentDBService().ExecuteRaw("EXEC WTest.[up_Widget_TestCleanup]");
+            }
         }
 
         #region "Widget"
+
+        [TestMethod]
+        public void WidgetMultiLevelSaving()
+        {
+            Receipt r1 = null;
+
+            using (var ss = CEF.NewServiceScope(new ServiceScopeSettings() { EstimatedScopeSize = 2500000, InitializeNullCollections = true }))
+            {
+                List<string> city = new List<string>();
+                city.Add("Martinez");
+                city.Add("Santa Rosa");
+                city.Add("Napa");
+                city.Add("San Pablo");
+                city.Add("Oakland");
+                city.Add("Albany");
+                city.Add("Larkspur");
+                city.Add("Belmont");
+                city.Add("Regina");
+                city.Add("Edmonton");
+                city.Add("Calgary");
+                city.Add("Kyburz");
+                city.Add("Fremont");
+                city.Add("Groveland");
+                city.Add("Williston");
+
+                List<WidgetType> alltype = new List<WidgetType>();
+
+                // Create 10 Widget types
+                for (int i = 1; i <= 10; ++i)
+                {
+                    var wtl = new EntitySet<WidgetType>().DBRetrieveByKeyOrInsert(new WidgetType() { SKU = $"WX{i}", Description = $"Widget {i}" });
+                    alltype.Add(wtl.First());
+                }
+
+                CEF.DBSave();
+
+                List<Widget> allwid = new List<Widget>();
+
+                // Create 5 widgets
+                Parallel.For(1, 6, (i) =>
+                {
+                    using (CEF.UseServiceScope(ss))
+                    {
+                        var o = CEF.NewObject(new Widget() { SKU = $"WX{(i % 10) + 1}", CurrentStatus = (WidgetStatusValues)((i % 4) + 1), Cost = (i % 100000) / 100m, SerialNumber = $"SN{i.ToString("000000")}" });
+
+                        lock (allwid)
+                            allwid.Add(o);
+                    }
+                });
+
+                CEF.DBSave();
+
+                // Create 7 widget reviews (70,000 users x 10 types)
+                Parallel.For(1, 8, (i) =>
+                {
+                    using (CEF.UseServiceScope(ss))
+                    {
+                        CEF.NewObject(new WidgetReview() { RatingFor = alltype[i], Rating = Convert.ToInt32(Math.Round((Math.Pow((i % 10), 1.3) / Math.Pow(9, 1.3) * 10), 0) / 10.0), Username = $"User{((i - 1) % 70000)}" });
+                    }
+                });
+
+                CEF.DBSave();
+
+                List<Customer> allcust = new List<Customer>();
+
+                // Create 2 customers
+                Parallel.For(1, 3, (i) =>
+                {
+                    using (CEF.UseServiceScope(ss))
+                    {
+                        var o = CEF.NewObject(new Customer { Name = $"CustX{i}", Address = new Address() { City = city[i % city.Count], AddressLine = "123 1st St." } });
+
+                        lock (allcust)
+                            allcust.Add(o);
+                    }
+                });
+
+                CEF.DBSave();
+
+                // Create 2 receipts, 2 widgets each
+                for (int i = 1; i < 3; ++i)
+                {
+                    using (CEF.UseServiceScope(ss))
+                    {
+                        var r = CEF.NewObject(new Receipt() { ReceiptCustomer = allcust[i - 1], ReceiptNumber = $"G{i}", FinalDest = new Address() { City = city[(i ^ 6) % city.Count] }, FromAddress = new Address() { City = city[(i ^ 4) % city.Count], AddressLine = "456 Marble Lane" } });
+                        r.Widgets.Add(new GroupItem() { Widget = allwid[((i - 1) * 2)], TrackingNumber = $"N{(i * 2)}" });
+                        r.Widgets.Add(new GroupItem() { Widget = allwid[((i - 1) * 2) + 1], TrackingNumber = $"N{(i * 2) + 1}" });
+
+                        if (r1 == null)
+                        {
+                            r1 = r;
+                        }
+                    }
+                }
+
+                CEF.DBSave();
+            }
+
+            // Verify what's been saved!
+        }
 
         [TestMethod]
         public void NewWidgetNewReceiptNewShipment()
@@ -282,6 +389,17 @@ namespace CodexMicroORM.NFWTests
                 rcp.Widgets.First().Widget.CurrentStatus = WidgetStatusValues.SHIP;
                 rcp.Widgets.First().TrackingNumber = "121312321";
                 Assert.AreEqual(2, CEF.DBSave().Count());
+            }
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                // Retrieval of a receipt needs to pull from 2 tables, plus populate address prop group
+                var rcp = new EntitySet<Receipt>().DBRetrieveByReceiptNumber(rcpNumber).First();
+                Assert.AreEqual("Toledo", rcp.ReceiptCustomer.Address.City);
+
+                // Retrieving widgets could also be done outside of collection on Receipt - should get wired up properly, though
+                var wl = new EntitySet<GroupItem>().DBRetrieveByGroupNumber(rcpNumber, start);
+                Assert.AreEqual(2, rcp.Widgets.Count());
             }
         }
 

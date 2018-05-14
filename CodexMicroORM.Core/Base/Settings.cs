@@ -131,6 +131,12 @@ namespace CodexMicroORM.Core
             set;
         } = "Type";
 
+        public string SchemaFieldRequiredName
+        {
+            get;
+            set;
+        } = "Required";
+
         public string DataRootName
         {
             get;

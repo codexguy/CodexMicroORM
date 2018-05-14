@@ -7855,6 +7855,145 @@ END
 END
 GO
 
+/****** Object:  Index [NDX_Widget_SKU]    Script Date: 5/13/2018 6:45:50 AM ******/
+IF (SELECT COUNT(*) FROM sys.objects o JOIN sys.columns c ON o.[object_id]=c.[object_id] WHERE o.[object_id]=OBJECT_ID(N'[WTest].[Widget]') AND c.[name] IN ('SKU','SerialNumber'))>=2 AND NOT EXISTS (SELECT 0 FROM sys.indexes i WHERE i.name='NDX_Widget_SKU' AND i.[object_id]=OBJECT_ID(N'[WTest].[Widget]'))
+CREATE UNIQUE NONCLUSTERED INDEX [NDX_Widget_SKU] ON [WTest].[Widget]
+(
+	[SKU] ASC,
+	[SerialNumber] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, IGNORE_DUP_KEY = OFF, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+GO
+
+-- This is how it looks in source and would be executed in target
+/****** Object:  StoredProcedure [WTest].[up_Widget_ByTypeSerial]    Script Date: 5/13/2018 6:45:52 AM ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE WTest.[up_Widget_ByTypeSerial]
+	@RetVal int = NULL OUTPUT,
+	@Msg varchar(200) = NULL OUTPUT,
+	@SKU varchar(20),
+	@SerialNumber varchar(20)
+AS
+BEGIN
+
+DECLARE @__e int
+SET @__e = 0
+SET @RetVal = 1
+SET @Msg = ''
+
+SELECT
+	WidgetID
+	, SKU
+	, SerialNumber
+	, CurrentStatusID
+	, Cost
+	, BilledAmount
+	, LastUpdatedBy
+	, LastUpdatedDate
+FROM
+	[WTest].[Widget]
+WHERE
+	SKU = @SKU
+AND	SerialNumber = @SerialNumber;
+
+SELECT @__e = @@ERROR
+
+IF @__e <> 0
+BEGIN
+    IF @RetVal = 1
+    BEGIN
+        SET @RetVal = 3
+        SET @Msg = 'Widget retrieve by key failed with code ' + CONVERT(varchar, @__e)
+    END
+END
+
+END
+GO
+
+
+-- This is how it looks in source and would be executed in target
+/****** Object:  StoredProcedure [WTest].[up_Widget_TestCleanup]    Script Date: 5/13/2018 6:45:52 AM ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE WTest.[up_Widget_TestCleanup]
+	@RetVal int = NULL OUTPUT,
+	@Msg varchar(200) = NULL OUTPUT
+AS
+BEGIN
+
+DECLARE @__e int
+SET @__e = 0
+SET @RetVal = 1
+SET @Msg = ''
+
+-- Delete widget reviews
+UPDATE r
+SET isdeleted=1
+FROM WTest.WidgetReview r
+WHERE (r.SKU LIKE 'WX%' OR r.SKU LIKE 'A0%');
+
+-- Delete group items
+UPDATE i
+SET isdeleted=1
+FROM WTest.WidgetGroupItem i
+	JOIN WTest.Widget w
+		ON i.WidgetID = w.WidgetID
+WHERE (w.SKU LIKE 'WX%' OR w.SKU LIKE 'A0%');
+
+-- Delete receipts
+UPDATE r
+SET isdeleted=1
+FROM WTest.Receipt r
+	JOIN WTest.WidgetGroup wg
+		ON r.WidgetGroupID = wg.WidgetGroupID
+	JOIN WTest.Customer c
+		ON wg.CustomerID = c.CustomerID
+WHERE
+	c.NAME LIKE 'CustX%';
+
+-- Delete widget groups
+UPDATE wg
+SET isdeleted=1
+FROM WTest.WidgetGroup wg
+	JOIN WTest.Customer c
+		ON wg.CustomerID = c.CustomerID
+WHERE
+	c.NAME LIKE 'CustX%';
+
+-- Delete customers
+UPDATE c
+SET isdeleted=1
+FROM WTest.Customer c
+WHERE c.NAME LIKE 'CustX%';
+
+-- Delete widgets
+UPDATE w
+SET isdeleted=1
+FROM WTest.Widget w
+WHERE (w.SKU LIKE 'WX%' OR w.SKU LIKE 'A0%');
+
+SELECT @__e = @@ERROR
+
+IF @__e <> 0
+BEGIN
+    IF @RetVal = 1
+    BEGIN
+        SET @RetVal = 3
+        SET @Msg = 'Widget retrieve by key failed with code ' + CONVERT(varchar, @__e)
+    END
+END
+
+END
+GO
+
 /*********** REFERENCE DATA ************/
 
 SET IDENTITY_INSERT [CEFTest].[PhoneType] ON
