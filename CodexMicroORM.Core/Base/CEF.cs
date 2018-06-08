@@ -102,6 +102,25 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Creates a new connection scope that's transactional and tied to a specific service scope.
+        /// </summary>
+        /// <param name="relateTo"></param>
+        /// <returns></returns>
+        public static ConnectionScope NewTransactionScope(ServiceScope relateTo)
+        {
+            if (relateTo?.Settings == null)
+            {
+                throw new ArgumentNullException("relateTo");
+            }
+
+            var settings = new ConnectionScopeSettings();
+            settings.IsTransactional = true;
+            relateTo.Settings.ConnectionScopePerThread = false;
+
+            return NewConnectionScope(settings);
+        }
+
+        /// <summary>
         /// Creates a new connection scope (may or may not be transactional depending on settings).
         /// </summary>
         /// <param name="settings"></param>
@@ -117,7 +136,7 @@ namespace CodexMicroORM.Core
 
             var ss = CEF.CurrentServiceScope;
             var useLocal = ss.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread);
-            var cs = new ConnectionScope(settings.IsTransactional.GetValueOrDefault(Globals.UseTransactionsForNewScopes), settings.ConnectionStringOverride);
+            var cs = new ConnectionScope(settings.IsTransactional.GetValueOrDefault(Globals.UseTransactionsForNewScopes), settings.ConnectionStringOverride, settings.CommandTimeoutOverride);
 
             if (!useLocal)
             {
@@ -417,10 +436,14 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static T DBSave<T>(this T tosave, bool allRelated) where T : class, new()
         {
-            var settings = new DBSaveSettings();
-            settings.RootObject = tosave;
-            settings.IncludeRootChildren = allRelated;
-            settings.IncludeRootParents = allRelated;
+            var settings = new DBSaveSettings
+            {
+                RootObject = tosave,
+                IncludeRootChildren = allRelated,
+                IncludeRootParents = allRelated,
+                EntityPersistName = GetEntityPersistName<T>(tosave),
+                EntityPersistType = typeof(T)
+            };
 
             CurrentServiceScope.DBSave(settings);
             return tosave;
@@ -440,6 +463,8 @@ namespace CodexMicroORM.Core
                 settings = new DBSaveSettings();
             }
             settings.RootObject = tosave;
+            settings.EntityPersistName = settings.EntityPersistName ?? GetEntityPersistName<T>(tosave);
+            settings.EntityPersistType = typeof(T);
 
             CurrentServiceScope.DBSave(settings);
             return tosave;
@@ -459,6 +484,8 @@ namespace CodexMicroORM.Core
                 settings = new DBSaveSettings();
             }
             settings.RootObject = tosave;
+            settings.EntityPersistName = settings.EntityPersistName ?? GetEntityPersistName<T>(tosave);
+            settings.EntityPersistType = typeof(T);
 
             var res = CurrentServiceScope.DBSave(settings);
 
@@ -468,6 +495,16 @@ namespace CodexMicroORM.Core
             }
 
             return (ValidationErrorCode.None, null);
+        }
+
+        /// <summary>
+        /// Executes a raw command that returns no result set, in the database layer.
+        /// </summary>
+        /// <param name="cmdText"></param>
+        /// <param name="parms"></param>
+        public static void DBExecuteNoResult(CommandType cmdType, string cmdText, params object[] parms)
+        {
+            CEF.CurrentDBService().ExecuteNoResultSet(cmdType, cmdText, parms);
         }
 
         /// <summary>
@@ -875,6 +912,16 @@ namespace CodexMicroORM.Core
                         return svc;
                     }
                 }
+            }
+
+            return null;
+        }
+
+        internal static string GetEntityPersistName<T>(object tosave)
+        {
+            if (tosave is ICEFStorageNaming sn)
+            {
+                return sn.EntityPersistedName;
             }
 
             return null;

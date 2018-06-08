@@ -144,6 +144,12 @@ namespace CodexMicroORM.Providers
 
         #endregion
 
+        public int? CommandTimeout
+        {
+            get;
+            set;
+        } = null;
+
         public MSSQLProcBasedProvider(string connString, string name = "default", string defaultSchema = "dbo")
         {
             _csMap[name] = connString;
@@ -171,7 +177,7 @@ namespace CodexMicroORM.Providers
                 return (T)Convert.ChangeType(firstRow.First().Value.value, typeof(T));
             }
 
-            return default(T);
+            return default;
         }
 
         public void ExecuteRaw(ConnectionScope cs, string cmdText, bool doThrow = true, bool stopOnError = true)
@@ -202,9 +208,10 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        public IDBProviderConnection CreateOpenConnection(string config = "default", bool transactional = true, string connStringOverride = null)
+        public IDBProviderConnection CreateOpenConnection(string config = "default", bool transactional = true, string connStringOverride = null, int? timeoutOverride = null)
         {
             string cs = null;
+            CommandTimeout = timeoutOverride;
 
             if (connStringOverride == null && !_csMap.TryGetValue(config, out cs))
             {
@@ -212,6 +219,7 @@ namespace CodexMicroORM.Providers
             }
 
             var connString = connStringOverride ?? cs ?? throw new CEFInvalidOperationException($"Connection string {config} is not recognized / was not registered.");
+
             var conn = new SqlConnection(connString);
             conn.Open();
 
@@ -227,7 +235,7 @@ namespace CodexMicroORM.Providers
 
         private MSSQLCommand CreateRawCommand(MSSQLConnection conn, System.Data.CommandType cmdType, string cmdText, IList<object> parms)
         {
-            var cmd = new MSSQLCommand(conn, cmdText, cmdType);
+            var cmd = new MSSQLCommand(conn, cmdText, cmdType, CommandTimeout);
             return cmd.MapParameters(parms);
         }
 
@@ -262,7 +270,7 @@ namespace CodexMicroORM.Providers
                     break;
             }
 
-            var cmd = new MSSQLCommand(conn, proc, System.Data.CommandType.StoredProcedure);
+            var cmd = new MSSQLCommand(conn, proc, System.Data.CommandType.StoredProcedure, CommandTimeout);
 
             if (row != null)
             {
@@ -286,7 +294,7 @@ namespace CodexMicroORM.Providers
             using (DataTable dt = new DataTable())
             {
                 // Issue independent SELECT * to get schema from underlying table
-                using (var discoverConn = new SqlConnection(((MSSQLConnection)conn.CurrentConnection).CurrentConnection.ConnectionString))
+                using (var discoverConn = (SqlConnection)((ICloneable)((MSSQLConnection)conn.CurrentConnection).CurrentConnection).Clone())
                 {
                     discoverConn.Open();
 
@@ -378,6 +386,41 @@ namespace CodexMicroORM.Providers
             }
         }
 
+        IEnumerable<(string name, object value)> IDBProvider.ExecuteNoResultSet(ConnectionScope conn, System.Data.CommandType cmdType, string cmdText, params object[] parms)
+        {
+            var sn = MSSQLCommand.SplitIntoSchemaAndName(cmdText);
+
+            var schema = DefaultSchema ?? DEFAULT_DB_SCHEMA;
+
+            if (!string.IsNullOrEmpty(sn.schema))
+            {
+                schema = sn.schema;
+            }
+
+            IEnumerable<(string name, object value)> outVar = null;
+
+            if (cmdType == System.Data.CommandType.StoredProcedure)
+            {
+                outVar = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, CommandType.RetrieveByProc, schema, sn.name, null, parms).ExecuteNoResultSet().GetOutputValues();
+            }
+            else
+            {
+                outVar = CreateRawCommand((MSSQLConnection)conn.CurrentConnection, cmdType, cmdText, parms).ExecuteNoResultSet().GetOutputValues();
+            }
+
+            if (outVar != null)
+            {
+                conn.LastOutputVariables.Clear();
+
+                foreach (var (name, value) in outVar)
+                {
+                    conn.LastOutputVariables[name] = value;
+                }
+            }
+
+            return outVar;
+        }
+
         /// <summary>
         /// It's up to the caller to partition the rows into a saveable sequence (if there are multiple rows here, they can all be saved in parallel, it is assumed).
         /// </summary>
@@ -391,6 +434,8 @@ namespace CodexMicroORM.Providers
         {
             ConcurrentBag<(ICEFInfraWrapper row, string msg, int status)> rowsOut = new ConcurrentBag<(ICEFInfraWrapper row, string msg, int status)>();
             Exception stopEx = null;
+
+            conn.LastOutputVariables.Clear();
 
             var materialized = (from a in rows select new { Schema = a.schema ?? DefaultSchema ?? DEFAULT_DB_SCHEMA, Name = a.name, Row = a.row }).ToList();
 
@@ -407,17 +452,19 @@ namespace CodexMicroORM.Providers
                         var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(conn.IsTransactional);
                         List<(string name, object value)> toRB = new List<(string name, object value)>();
 
-                        foreach (var v in outVals)
+                        foreach (var (name, value) in outVals)
                         {
-                            if (string.Compare(v.name, ProcedureMessageParameter, true) == 0)
+                            conn.LastOutputVariables[name] = value;
+
+                            if (string.Compare(name, ProcedureMessageParameter, true) == 0)
                             {
-                                msg = v.value?.ToString();
+                                msg = value?.ToString();
                             }
                             else
                             {
-                                if (string.Compare(v.name, ProcedureRetValParameter, true) == 0)
+                                if (string.Compare(name, ProcedureRetValParameter, true) == 0)
                                 {
-                                    if (int.TryParse(v.value?.ToString(), out int retval))
+                                    if (int.TryParse(value?.ToString(), out int retval))
                                     {
                                         status = retval == 1 ? 0 : retval;
                                     }
@@ -426,10 +473,10 @@ namespace CodexMicroORM.Providers
                                 {
                                     if (!doAccept)
                                     {
-                                        toRB.Add((v.name, r.Row.GetValue(v.name)));
+                                        toRB.Add((name, r.Row.GetValue(name)));
                                     }
 
-                                    r.Row.SetValue(v.name, v.value);
+                                    r.Row.SetValue(name, value);
                                 }
                             }
                         }
@@ -577,8 +624,27 @@ namespace CodexMicroORM.Providers
 
             CEFDebug.DumpSQLCall(cmdText, sqlcmd.GetParameterValues());
 
+            bool fetchedOutput = false;
+
             foreach (var row in sqlcmd.ExecuteReadRows())
             {
+                if (!fetchedOutput)
+                {
+                    fetchedOutput = true;
+
+                    var outVals = sqlcmd.GetOutputValues();
+
+                    if (outVals != null)
+                    {
+                        conn.LastOutputVariables.Clear();
+
+                        foreach (var ov in outVals)
+                        {
+                            conn.LastOutputVariables[ov.name] = ov.value;
+                        }
+                    }
+                }
+
                 if (doWrap)
                 {
                     // If "the same" object exists in current scope, this will "merge" it with new values, avoids duplicating it in scope

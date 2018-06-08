@@ -53,7 +53,7 @@ namespace CodexMicroORM.Core
 
     public interface IDBProvider
     {
-        IDBProviderConnection CreateOpenConnection(string config, bool transactional, string connStringOverride);
+        IDBProviderConnection CreateOpenConnection(string config, bool transactional, string connStringOverride, int? timeoutOverride);
 
         IEnumerable<(ICEFInfraWrapper row, string msg, int status)> DeleteRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
         IEnumerable<(ICEFInfraWrapper row, string msg, int status)> InsertRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
@@ -65,6 +65,13 @@ namespace CodexMicroORM.Core
 
         void ExecuteRaw(ConnectionScope conn, string cmdText, bool doThrow = true, bool stopOnError = true);
         T ExecuteScalar<T>(ConnectionScope conn, string cmdText);
+
+        IEnumerable<(string name, object value)> ExecuteNoResultSet(ConnectionScope conn, System.Data.CommandType cmdType, string cmdText, params object[] parms);
+    }
+
+    public interface ICEFStorageNaming
+    {
+        string EntityPersistedName { get; set; }
     }
 
     public interface IDBProviderConnection : IDisposable
@@ -110,6 +117,8 @@ namespace CodexMicroORM.Core
         void ExecuteRaw(string cmdText, bool doThrow = true, bool stopOnError = true);
 
         T ExecuteScalar<T>(string cmdText);
+
+        void ExecuteNoResultSet(CommandType cmdType, string cmdText, params object[] args);
 
         IEnumerable<T> RetrieveAll<T>() where T : class, new();
 
@@ -193,7 +202,7 @@ namespace CodexMicroORM.Core
 
     public interface ICEFAuditHost : ICEFService
     {
-        ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, ObjectState state);
+        ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, ObjectState state, DBSaveSettings settings);
 
         Func<string> GetLastUpdatedBy
         {
@@ -272,6 +281,8 @@ namespace CodexMicroORM.Core
         void SetRowState(ObjectState rs);
 
         IDictionary<string, object> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false);
+
+        IDictionary<string, Type> GetAllPreferredTypes(bool onlyWriteable = false, bool onlySerializable = false);
 
         bool SetValue(string propName, object value, Type preferredType = null, bool isRequired = false);
 

@@ -175,6 +175,12 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = null;
+
+        public int? CommandTimeoutOverride
+        {
+            get;
+            set;
+        }
     }
 
     /// <summary>
@@ -238,6 +244,24 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = true;
+
+        public string EntityPersistName
+        {
+            get;
+            set;
+        } = null;
+
+        public Type EntityPersistType
+        {
+            get;
+            set;
+        } = null;
+
+        public string LastUpdatedBy
+        {
+            get;
+            set;
+        } = null;
 
         public bool IncludeRootParents
         {

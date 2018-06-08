@@ -24,6 +24,8 @@ using Newtonsoft.Json;
 using System.Text;
 using CodexMicroORM.Core.Helper;
 using System.Collections.Concurrent;
+using System.Data;
+using System.Linq;
 
 namespace CodexMicroORM.Core
 {
@@ -87,6 +89,46 @@ namespace CodexMicroORM.Core
             return i2;
         }
 
+        public static string Left(this string str, int count)
+        {
+            if (string.IsNullOrEmpty(str))
+            {
+                return str;
+            }
+
+            if (str.Length <= count)
+            {
+                return str;
+            }
+
+            return str.Substring(0, count);
+        }
+
+        public static string Right(this string str, int count)
+        {
+            if (string.IsNullOrEmpty(str))
+            {
+                return str;
+            }
+
+            if (str.Length <= count)
+            {
+                return str;
+            }
+
+            return str.Substring(str.Length - count, count);
+        }
+
+        public static string InnerTextSafe(this System.Xml.XmlNode xn, string defval = "")
+        {
+            if (xn == null)
+            {
+                return defval;
+            }
+
+            return xn.InnerText ?? defval;
+        }
+
         public static bool IsSame(this object o1, object o2, bool canCompareNull = true)
         {
             if (canCompareNull)
@@ -132,9 +174,50 @@ namespace CodexMicroORM.Core
             }
 
             settings.SourceList = toSave;
+            settings.EntityPersistName = settings.EntityPersistName ?? CEF.GetEntityPersistName<T>(toSave);
+            settings.EntityPersistType = typeof(T);
 
             CEF.DBSave(settings);
             return toSave;
+        }
+
+        public static void ValidateOrAssignMandatoryValue<T>(this EntitySet<T> toCheck, string field, object value) where T : class, new()
+        {
+            foreach (var t in toCheck)
+            {
+                var iw = t.AsInfraWrapped();
+                var ov = iw.GetValue(field);
+
+                if (string.Compare(value?.ToString(), ov?.ToString(), true) != 0)
+                {
+                    if (ov?.ToString().Length == 0 && value?.ToString().Length > 0)
+                    {
+                        iw.SetValue(field, value);
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException("Data is in an invalid data.");
+                    }
+                }
+            }
+
+            foreach (var to in CEF.CurrentServiceScope.GetAllTrackedByType(typeof(T)))
+            {
+                var iw = to.GetCreateInfra();
+
+                if (iw.GetRowState() == ObjectState.Deleted)
+                {
+                    var ov = iw.GetOriginalValue(field, false);
+
+                    if (string.Compare(value?.ToString(), ov?.ToString(), true) != 0)
+                    {
+                        if (ov?.ToString().Length != 0 || value?.ToString().Length == 0)
+                        {
+                            throw new InvalidOperationException("Data is in an invalid data.");
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -179,7 +262,24 @@ namespace CodexMicroORM.Core
 
             if (iw.HasProperty(propName))
             {
-                return (T?)iw.GetValue(propName);
+                var v = iw.GetValue(propName);
+
+                if (v == null)
+                {
+                    return null;
+                }
+
+                if (v is T?)
+                {
+                    return (T?)v;
+                }
+
+                if (v is T)
+                {
+                    return new T?((T)v);
+                }
+
+                throw new InvalidOperationException($"Invalid cast of type {typeof(T).Name}?.");
             }
 
             return null;
@@ -192,16 +292,28 @@ namespace CodexMicroORM.Core
         /// <param name="o"></param>
         /// <param name="propName"></param>
         /// <returns></returns>
-        public static T PropertyValue<T>(this object o, string propName) where T : class
+        public static T PropertyValue<T>(this object o, string propName)
         {
             var iw = o.AsInfraWrapped(true);
 
             if (iw.HasProperty(propName))
             {
-                return (T)iw.GetValue(propName);
+                var v = iw.GetValue(propName);
+
+                if (v == null)
+                {
+                    return default;
+                }
+
+                if (v is T)
+                {
+                    return (T)v;
+                }
+
+                throw new InvalidOperationException($"Invalid cast of type {typeof(T).Name}.");
             }
 
-            return null;
+            return default;
         }
 
         public static IEnumerable<ICEFInfraWrapper> AllAsInfraWrapped<T>(this IEnumerable<T> items) where T: class, new()
@@ -451,6 +563,77 @@ namespace CodexMicroORM.Core
                     iw2.AcceptChanges();
                 }
             });
+        }
+
+        public static DataTable DeepCopyDataTable<T>(this EntitySet<T> source) where T : class, new()
+        {
+            List<(string name, Type type, bool nullable)> columns = new List<(string name, Type type, bool nullable)>();
+
+            if (source.Any())
+            {
+                // Use first row's properties (could include extended props)
+                columns.AddRange(from a in source.First().AsInfraWrapped().GetAllPreferredTypes() select (a.Key, a.Value, a.Value.IsGenericType && a.Value.GetGenericTypeDefinition() == typeof(Nullable<>)));
+            }
+            else
+            {
+                // Use type's properties only
+                columns.AddRange(from a in typeof(T).GetProperties() select (a.Name, a.PropertyType, a.PropertyType.IsGenericType && a.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>)));
+            }
+
+            DataTable dt = new DataTable();
+
+            foreach (var (name, type, nullable) in columns)
+            {
+                if (nullable)
+                {
+                    dt.Columns.Add(name, Nullable.GetUnderlyingType(type));
+                }
+                else
+                {
+                    dt.Columns.Add(name, type);
+                }
+            }
+
+            foreach (var i in source)
+            {
+                var iw = i.AsInfraWrapped();
+                var rs = iw.GetRowState();
+
+                if (rs != ObjectState.Deleted && rs != ObjectState.Unlinked)
+                {
+                    var dr = dt.NewRow();
+
+                    if (rs == ObjectState.Modified)
+                    {
+                        dr.AcceptChanges();
+                    }
+
+                    foreach (var v in iw.GetAllValues())
+                    {
+                        if (v.Value != null && dt.Columns.Contains(v.Key))
+                        {
+                            dr[v.Key] = v.Value;
+                        }
+                    }
+
+                    dt.Rows.Add(dr);
+
+                    if (rs == ObjectState.Unchanged)
+                    {
+                        dr.AcceptChanges();
+                    }
+                }
+            }
+
+            return dt;
+        }
+
+        public static DataView DeepCopyDataView<T>(this EntitySet<T> source, string sort = null, string filter = null) where T : class, new()
+        {
+            var dv = DeepCopyDataTable(source).DefaultView;
+            dv.Sort = sort;
+            dv.RowFilter = filter;
+            return dv;
         }
 
         /// <summary>

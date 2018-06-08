@@ -18,11 +18,20 @@ Major Changes:
 ***********************************************************************/
 using System;
 using System.Data;
+using System.Threading.Tasks;
 using CodexMicroORM.Core;
 using CodexMicroORM.Core.Services;
 
 namespace CodexMicroORM.DemoObjects
 {
+    public class PhoneSet : EntitySet<Phone>
+    {
+        public void RetrieveAllForFamily(int ParentPersonID)
+        {
+            this.DBRetrieveByQuery(CommandType.StoredProcedure, "CEFTest.up_Phone_AllForFamily", ParentPersonID);
+        }
+    }
+
     /// <summary>
     /// The intent of this class is to illustrate what *should* be code generated based on the shape of the result sets from any custom stored procedures in a given database source.
     /// Doing so means we get compile-time errors if signatures change, which is good!

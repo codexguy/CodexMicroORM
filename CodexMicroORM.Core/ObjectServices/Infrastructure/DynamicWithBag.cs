@@ -71,6 +71,11 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
+        public override string ToString()
+        {
+            return $"DynamicWithBag (for {_source?.GetType().Name}, {string.Join("/", (from a in this.GetAllValues() select $"{a.Key}={a.Value}").ToArray())})";
+        }
+
         public override bool Equals(object obj)
         {
             if (_source != null)
@@ -490,6 +495,29 @@ namespace CodexMicroORM.Core.Services
 
             _serializableCahce[t] = can;
             return can;
+        }
+
+        public IDictionary<string, Type> GetAllPreferredTypes(bool onlyWriteable = false, bool onlySerializable = false)
+        {
+            Dictionary<string, Type> info = new Dictionary<string, Type>(Globals.DefaultDictionaryCapacity);
+
+            using (new ReaderLock(_lock))
+            {
+                foreach (var v in (from pi in _source.FastGetAllProperties(true)
+                                   where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
+                                   select new { Key = pi.name, Type = pi.type }).
+                    Concat(from a in _preferredType
+                           where (!onlySerializable || IsTypeSerializable(a.Value))
+                           select new { a.Key, Type = a.Value }))
+                {
+                    if (!info.ContainsKey(v.Key))
+                    {
+                        info[v.Key] = v.Type;
+                    }
+                }
+            }
+
+            return info;
         }
 
         public IDictionary<string, object> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false)

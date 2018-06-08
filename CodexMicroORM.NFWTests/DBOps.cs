@@ -1111,6 +1111,10 @@ GO
                 var es1 = new EntitySet<Person>().DBRetrieveSummaryForParents(20);
                 Assert.AreEqual(2, (from a in es1 where a.Name == newName select a).First().AsDynamic().FamilyPhones);
                 Assert.AreEqual(p1.PersonID, (from a in es1 where a.Name == newName select a).First().PersonID);
+
+                var dv = es1.DeepCopyDataView(filter: $@"Name='{newName}'");
+                Assert.AreEqual(1, dv.Count);
+                Assert.AreEqual(1, dv[0]["FemaleChildren"]);
             }
         }
     }

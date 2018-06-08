@@ -86,11 +86,11 @@ namespace CodexMicroORM.Core.Services
             GetLastUpdatedDate = getLastUpdatedDate;
         }
 
-        public ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, ObjectState state)
+        public ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, ObjectState state, DBSaveSettings settings)
         {
             if (!IsLastUpdatedByDBAssigned && !string.IsNullOrEmpty(LastUpdatedByField))
             {
-                saving.SetValue(LastUpdatedByField, (ss.Settings.GetLastUpdatedBy ?? GetLastUpdatedBy).Invoke());
+                saving.SetValue(LastUpdatedByField, settings?.LastUpdatedBy ?? (ss.Settings.GetLastUpdatedBy ?? GetLastUpdatedBy).Invoke());
             }
 
             if (!IsLastUpdatedDateDBAssigned && !string.IsNullOrEmpty(LastUpdatedDateField))

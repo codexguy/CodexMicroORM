@@ -41,11 +41,11 @@ namespace CodexMicroORM.Providers
             _paramCache.Clear();
         }
 
-        public MSSQLCommand(MSSQLConnection conn, string cmdText, CommandType cmdType)
+        public MSSQLCommand(MSSQLConnection conn, string cmdText, CommandType cmdType, int? timeoutOverride)
         {
             _cmd = new SqlCommand(cmdText, conn.CurrentConnection);
             _cmd.CommandType = cmdType;
-            _cmd.CommandTimeout = Globals.CommandTimeoutSeconds.GetValueOrDefault(conn.CurrentConnection.ConnectionTimeout);
+            _cmd.CommandTimeout = timeoutOverride.GetValueOrDefault(Globals.CommandTimeoutSeconds.GetValueOrDefault(conn.CurrentConnection.ConnectionTimeout));
             _cmd.Transaction = conn.CurrentTransaction;
         }
 
@@ -87,7 +87,7 @@ namespace CodexMicroORM.Providers
         private void DiscoverParameters()
         {
             // Would like to use SqlCommandBuilder.DeriveParameters but not available in netstandard2.0 - we will assume sql 2012 at least
-            using (var discoverConn = new SqlConnection(_cmd.Connection.ConnectionString))
+            using (var discoverConn = (SqlConnection)((ICloneable)_cmd.Connection).Clone())
             {
                 discoverConn.Open();
 

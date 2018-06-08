@@ -25,6 +25,7 @@ using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
 using CodexMicroORM.Core.Helper;
+using CodexMicroORM.Providers;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -407,6 +408,16 @@ namespace CodexMicroORM.Core.Services
         {
             List<(object item, string message, int status)> results = new List<(object item, string message, int status)>();
 
+            string schemaOverride = null;
+            string nameOverride = null;
+
+            if (!string.IsNullOrEmpty(settings.EntityPersistName))
+            {
+                var (schema, name) = MSSQLCommand.SplitIntoSchemaAndName(settings.EntityPersistName);
+                schemaOverride = schema;
+                nameOverride = name;
+            }
+
             var cs = CEF.CurrentConnectionScope;
             var aud = CEF.CurrentAuditService();
             var ks = CEF.CurrentKeyService();
@@ -426,17 +437,17 @@ namespace CodexMicroORM.Core.Services
 
                     if (uw != null && (settings.LimitToSingleType == null || settings.LimitToSingleType.Equals(bt)))
                     {
-                        var sp = (settings.RowSavePreview == null ? (true, null) : settings.RowSavePreview.Invoke(a));
-                        var rs = sp.treatas.GetValueOrDefault(a.GetRowState());
+                        var (cansave, treatas) = (settings.RowSavePreview == null ? (true, null) : settings.RowSavePreview.Invoke(a));
+                        var rs = treatas.GetValueOrDefault(a.GetRowState());
 
-                        if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && sp.cansave && (cs.ToAcceptList?.Count == 0 || !cs.ToAcceptList.Contains(a)))
+                        if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && cansave && (cs.ToAcceptList?.Count == 0 || !cs.ToAcceptList.Contains(a)))
                         {
                             var w = a.GetWrappedObject() as ICEFWrapper;
                             var prov = GetProviderForType(bt);
                             var level = settings.LimitToSingleType != null ? 1 : ks.GetObjectNestLevel(uw);
-                            var schema = w?.GetSchemaName() ?? GetSchemaNameByType(bt);
-                            var name = GetEntityNameByType(bt, w);
-                            var row = (aud == null ? a : aud.SavePreview(ss, a, rs));
+                            var schema = (settings.EntityPersistType == bt ? schemaOverride : null) ?? w?.GetSchemaName() ?? GetSchemaNameByType(bt);
+                            var name = (settings.EntityPersistType == bt ? nameOverride : null) ?? GetEntityNameByType(bt, w);
+                            var row = (aud == null ? a : aud.SavePreview(ss, a, rs, settings));
 
                             lock (tempList)
                             {
@@ -643,6 +654,13 @@ namespace CodexMicroORM.Core.Services
             var res = _defaultProvider.ExecuteScalar<T>(cs, cmdText);
             cs.DoneWork();
             return res;
+        }
+
+        public void ExecuteNoResultSet(CommandType cmdType, string cmdText, params object[] args)
+        {
+            var cs = CEF.CurrentConnectionScope;
+            var res = _defaultProvider.ExecuteNoResultSet(cs, cmdType, cmdText, args);
+            cs.DoneWork();
         }
 
         public void ExecuteRaw(string command, bool doThrow = true, bool stopOnError = true)

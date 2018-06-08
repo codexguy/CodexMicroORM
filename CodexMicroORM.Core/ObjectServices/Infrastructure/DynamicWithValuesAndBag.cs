@@ -23,6 +23,7 @@ using System.ComponentModel;
 using System.Data;
 using Newtonsoft.Json;
 using CodexMicroORM.Core.Helper;
+using System.Linq;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -48,6 +49,11 @@ namespace CodexMicroORM.Core.Services
                 AcceptChanges();
                 SetRowState(irs);
             }
+        }
+
+        public override string ToString()
+        {
+            return $"DynamicWithValuesAndBag (for {_source?.GetType().Name}, {_rowState}, {string.Join("/", (from a in this.GetAllValues() select $"{a.Key}={a.Value}").ToArray())})";
         }
 
         public override ObjectState GetRowState()

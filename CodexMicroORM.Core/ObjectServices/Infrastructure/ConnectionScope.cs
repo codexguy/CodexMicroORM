@@ -28,20 +28,27 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class ConnectionScope : IDisposable
     {
-        private IDBProvider _provider = null;
+        private readonly IDBProvider _provider = null;
         private IDBProviderConnection _conn = null;
         private bool _canCommit = false;
-        private string _connStringOverride = null;
-        private object _sync = new object();
+        private readonly string _connStringOverride = null;
+        private readonly object _sync = new object();
 
-        public ConnectionScope(bool tx = true, string connStringOverride = null)
+        public ConnectionScope(bool tx = true, string connStringOverride = null, int? timeoutOverride = null)
         {
             _provider = DBService.DefaultProvider;
             _connStringOverride = connStringOverride;
+            TimeoutOverride = timeoutOverride;
             IsTransactional = tx;
         }
 
         #region "Properties"
+
+        public IDictionary<string, object> LastOutputVariables
+        {
+            get;
+            private set;
+        } = new Dictionary<string, object>();
 
         public bool IsStandalone
         {
@@ -54,6 +61,12 @@ namespace CodexMicroORM.Core.Services
             get;
             internal set;
         } = true;
+
+        public int? TimeoutOverride
+        {
+            get;
+            internal set;
+        } = null;
 
         public IDBProvider Provider => _provider;
 
@@ -86,7 +99,7 @@ namespace CodexMicroORM.Core.Services
                         return _conn;
                     }
 
-                    _conn = Provider.CreateOpenConnection("default", IsTransactional, _connStringOverride);
+                    _conn = Provider.CreateOpenConnection("default", IsTransactional, _connStringOverride, null);
                     return _conn;
                 }
             }

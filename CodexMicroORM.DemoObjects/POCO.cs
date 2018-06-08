@@ -17,11 +17,14 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 01/2018    0.2.4   Next set of objects to test with (widgets) (Joel Champagne)
 ***********************************************************************/
+using CodexMicroORM.Core;
+using CodexMicroORM.Core.Services;
 using System;
 using System.Collections.Generic;
 
 namespace CodexMicroORM.DemoObjects
 {
+    //[EntityRelationships("Person|ParentPersonID")]
     public class Person
     {
         public int PersonID { get; set; }

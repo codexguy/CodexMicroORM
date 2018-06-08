@@ -299,11 +299,11 @@ namespace CodexMicroORM.Core
 
                                 foreach (var row in saveList)
                                 {
-                                    var valstate = valsvc.GetObjectMessage(row.AsUnwrapped()).AsString(vcheck);
+                                    var (code, message) = valsvc.GetObjectMessage(row.AsUnwrapped()).AsString(vcheck);
 
-                                    if (valstate.code != 0)
+                                    if (code != 0)
                                     {
-                                        fails.Add((valstate.code, valstate.message, row));
+                                        fails.Add((code, message, row));
                                     }
                                 }
 
@@ -523,6 +523,11 @@ namespace CodexMicroORM.Core
             return InternalCreateAddBase(initial, false, null, props, null, null);
         }
 
+        public object IncludeObjectNonGeneric(object initial, IDictionary<string, object> props, ObjectState state)
+        {
+            return InternalCreateAddBase(initial, false, state, props, null, null);
+        }
+
         public INotifyPropertyChanged GetNotifyFriendlyFor(object o)
         {
             if (o == null)
@@ -587,6 +592,19 @@ namespace CodexMicroORM.Core
             }
 
             return sb.ToString();
+        }
+
+        public void CopyPropertyValues(IDictionary<string, object> props, ICEFInfraWrapper iw)
+        {
+            foreach (var prop in props)
+            {
+                var (setter, type) = GetSetter(iw, prop.Key);
+
+                if (setter != null)
+                {
+                    setter.Invoke(prop.Value);
+                }
+            }
         }
 
         #endregion
@@ -1260,6 +1278,7 @@ namespace CodexMicroORM.Core
                                 if (props != null)
                                 {
                                     var iw = pkto.GetInfraWrapperTarget();
+                                    var aiw = iw as ICEFInfraWrapper;
 
                                     // Since we have properties in hand, option to update the existing object (default is to do this, other option is to fail if any values differ)
                                     foreach (var prop in props)
@@ -1287,13 +1306,15 @@ namespace CodexMicroORM.Core
                                         }
                                     }
 
-                                    if (initState.HasValue)
+                                    if (initState.HasValue && aiw != null)
                                     {
-                                        if (iw is ICEFInfraWrapper aiw)
-                                        {
-                                            aiw.SetRowState(initState.Value);
-                                        }
+                                        aiw.SetRowState(initState.Value);
                                     }
+                                }
+
+                                if (!_scopeObjects.Contains(pkto))
+                                {
+                                    _scopeObjects.Add(pkto);
                                 }
 
                                 return pkto.GetWrapperTarget();
