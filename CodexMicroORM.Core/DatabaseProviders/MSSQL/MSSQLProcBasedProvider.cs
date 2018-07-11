@@ -170,7 +170,7 @@ namespace CodexMicroORM.Providers
 
         public T ExecuteScalar<T>(ConnectionScope cs, string cmdText)
         {
-            var firstRow = CreateRawCommand((MSSQLConnection)cs.CurrentConnection, System.Data.CommandType.Text, cmdText, null).ExecuteReadRows().FirstOrDefault();
+            var firstRow = CreateRawCommand((MSSQLConnection)cs.CurrentConnection, System.Data.CommandType.Text, cmdText, null, cs.TimeoutOverride).ExecuteReadRows().FirstOrDefault();
 
             if (firstRow != null && firstRow.Count > 0)
             {
@@ -189,7 +189,7 @@ namespace CodexMicroORM.Providers
             {
                 try
                 {
-                    CreateRawCommand((MSSQLConnection)cs.CurrentConnection, System.Data.CommandType.Text, mat.Groups["t"].Value, null).ExecuteNoResultSet();
+                    CreateRawCommand((MSSQLConnection)cs.CurrentConnection, System.Data.CommandType.Text, mat.Groups["t"].Value, null, cs.TimeoutOverride).ExecuteNoResultSet();
                 }
                 catch (Exception ex)
                 {
@@ -233,13 +233,13 @@ namespace CodexMicroORM.Providers
             return new MSSQLConnection(conn, tx);
         }
 
-        private MSSQLCommand CreateRawCommand(MSSQLConnection conn, System.Data.CommandType cmdType, string cmdText, IList<object> parms)
+        private MSSQLCommand CreateRawCommand(MSSQLConnection conn, System.Data.CommandType cmdType, string cmdText, IList<object> parms, int? timeoutOverride)
         {
-            var cmd = new MSSQLCommand(conn, cmdText, cmdType, CommandTimeout);
+            var cmd = new MSSQLCommand(conn, cmdText, cmdType, timeoutOverride ?? CommandTimeout);
             return cmd.MapParameters(parms);
         }
 
-        private MSSQLCommand CreateProcCommand(MSSQLConnection conn, CommandType cmdType, string schemaName, string objName, ICEFInfraWrapper row, IList<object> parms)
+        private MSSQLCommand CreateProcCommand(MSSQLConnection conn, CommandType cmdType, string schemaName, string objName, ICEFInfraWrapper row, IList<object> parms, int? timeoutOverride)
         {
             string proc = "";
 
@@ -270,7 +270,7 @@ namespace CodexMicroORM.Providers
                     break;
             }
 
-            var cmd = new MSSQLCommand(conn, proc, System.Data.CommandType.StoredProcedure, CommandTimeout);
+            var cmd = new MSSQLCommand(conn, proc, System.Data.CommandType.StoredProcedure, timeoutOverride ?? CommandTimeout);
 
             if (row != null)
             {
@@ -401,11 +401,11 @@ namespace CodexMicroORM.Providers
 
             if (cmdType == System.Data.CommandType.StoredProcedure)
             {
-                outVar = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, CommandType.RetrieveByProc, schema, sn.name, null, parms).ExecuteNoResultSet().GetOutputValues();
+                outVar = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, CommandType.RetrieveByProc, schema, sn.name, null, parms, conn.TimeoutOverride).ExecuteNoResultSet().GetOutputValues();
             }
             else
             {
-                outVar = CreateRawCommand((MSSQLConnection)conn.CurrentConnection, cmdType, cmdText, parms).ExecuteNoResultSet().GetOutputValues();
+                outVar = CreateRawCommand((MSSQLConnection)conn.CurrentConnection, cmdType, cmdText, parms, conn.TimeoutOverride).ExecuteNoResultSet().GetOutputValues();
             }
 
             if (outVar != null)
@@ -448,7 +448,7 @@ namespace CodexMicroORM.Providers
 
                     try
                     {
-                        var outVals = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, cmdType, r.Schema, r.Name, r.Row, null).ExecuteNoResultSet().GetOutputValues();
+                        var outVals = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, cmdType, r.Schema, r.Name, r.Row, null, conn.TimeoutOverride).ExecuteNoResultSet().GetOutputValues();
                         var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(conn.IsTransactional);
                         List<(string name, object value)> toRB = new List<(string name, object value)>();
 
@@ -603,7 +603,7 @@ namespace CodexMicroORM.Providers
 
             if (type == CommandType.RetrieveByText)
             {
-                sqlcmd = CreateRawCommand((MSSQLConnection)conn.CurrentConnection, System.Data.CommandType.Text, cmdText, parms);
+                sqlcmd = CreateRawCommand((MSSQLConnection)conn.CurrentConnection, System.Data.CommandType.Text, cmdText, parms, conn.TimeoutOverride);
             }
             else
             {
@@ -619,7 +619,7 @@ namespace CodexMicroORM.Providers
                     name = sn.name;
                 }
 
-                sqlcmd = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, type, schema, name, null, parms);
+                sqlcmd = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, type, schema, name, null, parms, conn.TimeoutOverride);
             }
 
             CEFDebug.DumpSQLCall(cmdText, sqlcmd.GetParameterValues());

@@ -1084,6 +1084,17 @@ GO
         }
 
         [TestMethod]
+        public void CompatGenericSet()
+        {
+            using (CEF.NewServiceScope())
+            {
+                CodeXFramework.BaseEntity.GenericSet gs = new CodeXFramework.BaseEntity.GenericSet();
+                Assert.AreEqual(1, gs.RetrieveByQuery("CEFTest.[up_PhoneType_ByKey]", 1));
+                Assert.AreEqual("Home", gs.GetItem<string>(0, "PhoneTypeDesc"));
+            }
+        }
+
+        [TestMethod]
         public void GenericBindableSetLoading()
         {
             var tag = Regex.Replace(Guid.NewGuid().ToString(), @"\W", "").Substring(0, 8);

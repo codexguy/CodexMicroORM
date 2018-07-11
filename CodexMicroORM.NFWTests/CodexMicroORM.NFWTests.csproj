@@ -221,6 +221,10 @@
       <Project>{9698510f-6393-43a8-9d71-504fac6a5332}</Project>
       <Name>CodexMicroORM.BindingSupport</Name>
     </ProjectReference>
+    <ProjectReference Include="..\CodexMicroORM.CodexV1CompatLayer\CodexMicroORM.CodexV1CompatLayer\CodexMicroORM.CodexV1CompatLayer.csproj">
+      <Project>{070c267e-e5c0-4570-a65f-f40e772c13f9}</Project>
+      <Name>CodexMicroORM.CodexV1CompatLayer</Name>
+    </ProjectReference>
     <ProjectReference Include="..\CodexMicroORM.Core\CodexMicroORM.Core.csproj">
       <Project>{0be418f4-b416-4945-b664-b052b9bf4947}</Project>
       <Name>CodexMicroORM.Core</Name>

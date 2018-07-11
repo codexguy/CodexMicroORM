@@ -359,12 +359,14 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 * 0.6.5 - May 2018
     * Addition of ResolveForArbitraryLoadOrder global setting, slight refactoring for support of ZableDB
 * 0.7.0 - June 2018
-    * Transaction scope improvements, ICEFStorageNaming/EntityPersistedName added, DBExecuteNoResult added, individual command timeout override via settings, LastOutputVariables added to connection scope, added DeepCopyDataView, added GetAllPreferredTypes
+    * Transaction scope improvements, ICEFStorageNaming/EntityPersistedName added, DBExecuteNoResult added, LastOutputVariables added to connection scope, added DeepCopyDataView, added GetAllPreferredTypes
 	* Inclusion of some features of CodeXFramework V1 such as ValidateOrAssignMandatoryValue functionality (extension methods), new assembly to support v1 compatibility ([CodexMicroORM.CodexV1CompatLayer](https://codexenterprisesllc-my.sharepoint.com/:p:/r/personal/sqlheroguy_codexenterprisesllc_onmicrosoft_com/_layouts/15/Doc.aspx?sourcedoc=%7Baa304451-ab00-46d8-90bc-600402bb5570%7D&action=default))
 	* New [SQL-Hero templates](https://codexenterprisesllc-my.sharepoint.com/:f:/g/personal/sqlheroguy_codexenterprisesllc_onmicrosoft_com/Ev2xZ7PXBrJFpD4NeJIbRagBDb5Fwn7s0e6hMYleSMnhXg?e=WVMf6r) to support code generation of entities / wrappers for CEF
 	* AttributeInitializer.Apply() to leverage generated code (when using attributes) to register keys, relationships, etc. with a single line of code on startup
-	* Stable release, included in production code
 	* Minor fixes
+* 0.7.1 - July 2018
+    * GenericSet in legacy compatibility assembly
+	* Individual command timeout override via settings
 
 ## Roadmap / Plans
 Look for in coming releases:
