@@ -565,6 +565,101 @@ namespace CodexMicroORM.Core
             });
         }
 
+        public static string DictionaryKeyFromColumns(this ICEFInfraWrapper iw, IEnumerable<string> cols)
+        {
+            StringBuilder sb = new StringBuilder(128);
+
+            foreach (var c in cols)
+            {
+                if (sb.Length > 0)
+                {
+                    sb.Append("~");
+                }
+
+                sb.Append(iw.GetValue(c));
+            }
+
+            return sb.ToString();
+        }
+
+        public static object CoerceType(this string source, Type prefType)
+        {
+            if (source == null)
+                return default;
+
+            if (prefType == typeof(string))
+            {
+                return source;
+            }
+
+            if (Nullable.GetUnderlyingType(prefType) != null)
+            {
+                if (string.IsNullOrEmpty(source))
+                {
+                    return Activator.CreateInstance(prefType);
+                }
+
+                return Activator.CreateInstance(prefType, Convert.ChangeType(source, Nullable.GetUnderlyingType(prefType)));
+            }
+
+            if (prefType.IsEnum)
+            {
+                return Enum.Parse(prefType, source);
+            }
+
+            if (source is IConvertible)
+            {
+                return Convert.ChangeType(source, prefType);
+            }
+
+            if (!source.GetType().IsValueType)
+            {
+                return source;
+            }
+
+            throw new InvalidCastException("Cannot coerce type.");
+        }
+
+        public static T CoerceType<T>(this string source)
+        {
+            if (source == null)
+            {
+                return default;
+            }
+
+            if (typeof(T) == typeof(string))
+            {
+                return (T)(object)source;
+            }
+
+            if (Nullable.GetUnderlyingType(typeof(T)) != null)
+            {
+                if (string.IsNullOrEmpty(source))
+                {
+                    return (T)Activator.CreateInstance(typeof(T));
+                }
+
+                return (T)Activator.CreateInstance(typeof(T), Convert.ChangeType(source, Nullable.GetUnderlyingType(typeof(T))));
+            }
+
+            if (typeof(T).IsEnum)
+            {
+                return (T)Enum.Parse(typeof(T), source);
+            }
+
+            if (source is IConvertible)
+            {
+                return (T)Convert.ChangeType(source, typeof(T));
+            }
+
+            if (!source.GetType().IsValueType)
+            {
+                return (T)(object)source;
+            }
+
+            throw new InvalidCastException("Cannot coerce type.");
+        }
+
         public static DataTable DeepCopyDataTable<T>(this EntitySet<T> source) where T : class, new()
         {
             List<(string name, Type type, bool nullable)> columns = new List<(string name, Type type, bool nullable)>();

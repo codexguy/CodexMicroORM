@@ -18,6 +18,7 @@ Major Changes:
 ***********************************************************************/
 using CodexMicroORM.Core.Services;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 
@@ -95,7 +96,7 @@ namespace CodexMicroORM.Core
             private set;
         }
 
-        private static Dictionary<string, Type> _typeCache = new Dictionary<string, Type>();
+        private static ConcurrentDictionary<string, Type> _typeCache = new ConcurrentDictionary<string, Type>();
 
         private Type FindTypeByName(string name)
         {

@@ -367,6 +367,9 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 * 0.7.1 - July 2018
     * GenericSet in legacy compatibility assembly
 	* Individual command timeout override via settings
+* 0.7.2 - July 2018
+    * Portable JSON support
+	* Minor enhancements (e.g. ToDictionary)
 
 ## Roadmap / Plans
 Look for in coming releases:

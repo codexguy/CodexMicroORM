@@ -33,5 +33,44 @@ namespace CodeXFramework.BaseEntity
             target.DBRetrieveByKey(args);
         }
 
+        public static DateTime? ConvertToTimezone(this DateTime? dt, string tzid)
+        {
+            if (dt.HasValue && !string.IsNullOrEmpty(tzid))
+            {
+                if (dt.Value.Kind == DateTimeKind.Local)
+                    dt = dt.Value.ToUniversalTime();
+
+                var tzi = TimeZoneInfo.FindSystemTimeZoneById(tzid);
+
+                if (tzi != null)
+                    return dt.Value.AddMinutes(tzi.BaseUtcOffset.TotalMinutes);
+            }
+
+            return dt;
+        }
+
+        public static string Format(this DateTime? dt, string fmt)
+        {
+            if (dt.HasValue)
+                return dt.Value.ToString(fmt);
+
+            return string.Empty;
+        }
+
+        public static DateTime ConvertToTimezone(this DateTime dt, string tzid)
+        {
+            if (!string.IsNullOrEmpty(tzid))
+            {
+                if (dt.Kind == DateTimeKind.Local)
+                    dt = dt.ToUniversalTime();
+
+                var tzi = TimeZoneInfo.FindSystemTimeZoneById(tzid);
+
+                if (tzi != null)
+                    return dt.AddMinutes(tzi.BaseUtcOffset.TotalMinutes);
+            }
+
+            return dt;
+        }
     }
 }

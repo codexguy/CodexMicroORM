@@ -226,7 +226,8 @@ namespace CodexMicroORM.Core.Services
 
             if (Nullable.GetUnderlyingType(targetType) != null)
             {
-                return Activator.CreateInstance(targetType, source);
+                var srcAsTarg = Convert.ChangeType(source, Nullable.GetUnderlyingType(targetType));
+                return Activator.CreateInstance(targetType, srcAsTarg);
             }
 
             if (targetType.IsEnum)
@@ -244,7 +245,7 @@ namespace CodexMicroORM.Core.Services
                 return source;
             }
 
-            return Convert.ChangeType(source.ToString(), targetType);
+            throw new InvalidCastException("Cannot coerce type.");
         }
 
         public void SetPreferredType(string propName, Type preferredType, bool isRequired = false)

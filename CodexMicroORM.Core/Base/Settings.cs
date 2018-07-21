@@ -343,4 +343,81 @@ namespace CodexMicroORM.Core
         } = false;
     }
 
+    public sealed class PortableSerializationOptions
+    {
+        public PortableSerializationOptions()
+        {
+        }
+
+        public PortableSerializationOptions(params string[] cols)
+        {
+            ExcludeColumns = cols;
+        }
+
+        public SerializationMode? Mode
+        {
+            get;
+            set;
+        } = null;
+
+        public IEnumerable<string> IncludeColumns
+        {
+            get;
+            set;
+        } = null;
+
+        public IEnumerable<string> ExcludeColumns
+        {
+            get;
+            set;
+        } = null;
+
+        public bool? AreColumnsExcluded
+        {
+            get;
+            set;
+        } = null;
+
+        public bool? ExcludeAudit
+        {
+            get;
+            set;
+        } = null;
+
+        public bool? OnlyWriteable
+        {
+            get;
+            set;
+        } = null;
+
+        public bool? IncludeExtended
+        {
+            get;
+            set;
+        } = null;
+
+        public int? ExtendedPropertySampleSize
+        {
+            get;
+            set;
+        } = null;
+
+        public DateConversionMode? ConvertDates
+        {
+            get;
+            set;
+        } = null;
+
+        public Func<ICEFInfraWrapper, object> SortSpec
+        {
+            get;
+            set;
+        }
+
+        public Func<ICEFInfraWrapper, bool> FilterSpec
+        {
+            get;
+            set;
+        }
+    }
 }

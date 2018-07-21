@@ -116,10 +116,8 @@ namespace CodexMicroORM.Core.Helper
             return exp();
         }
 
-        public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this object o, bool? canRead = null, bool? canWrite = null, string name = null)
+        public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this Type t, bool? canRead = null, bool? canWrite = null, string name = null)
         {
-            var t = o?.GetType() ?? throw new ArgumentNullException("o");
-
             if (!_allProps.TryGetValue(t, out var pnmap))
             {
                 pnmap = new ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>(
@@ -138,7 +136,7 @@ namespace CodexMicroORM.Core.Helper
                 {
                     return new(string name, Type type, bool readable, bool writeable)[] { (name, info.type, info.readable, info.writeable) };
                 }
-                
+
                 return new(string name, Type type, bool readable, bool writeable)[] { };
             }
             else
@@ -148,6 +146,11 @@ namespace CodexMicroORM.Core.Helper
                             && (!canWrite.HasValue || canWrite.Value == a.Value.writeable)
                         select (a.Key, a.Value.type, a.Value.readable, a.Value.writeable));
             }
+        }
+
+        public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this object o, bool? canRead = null, bool? canWrite = null, string name = null)
+        {
+            return FastGetAllProperties(o?.GetType() ?? throw new ArgumentNullException("o"), canRead, canWrite, name);
         }
 
         public static (bool readable, object value) FastPropertyReadableWithValue(this object o, string propName)

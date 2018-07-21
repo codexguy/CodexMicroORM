@@ -204,7 +204,22 @@ namespace CodexMicroORM.Providers
             {
                 if (p.Parm.Direction != ParameterDirection.ReturnValue && string.Compare(p.Name, MSSQLProcBasedProvider.ProcedureMessageParameter, true) != 0 && string.Compare(p.Name, MSSQLProcBasedProvider.ProcedureRetValParameter,true) != 0)
                 {
-                    p.Parm.Value = parms[idx];
+                    if (p.Parm.IsNullable)
+                    {
+                        p.Parm.Value = parms[idx];
+                    }
+                    else
+                    {
+                        if (parms[idx] == null)
+                        {
+                            p.Parm.Value = DBNull.Value;
+                        }
+                        else
+                        {
+                            p.Parm.Value = parms[idx];
+                        }
+                    }
+
                     idx++;
                 }
             }

@@ -152,4 +152,11 @@ namespace CodexMicroORM.Core
         SetNull = 2,
         Fail = 3
     }
+
+    public enum DateConversionMode
+    {
+        None = 0,
+        ToGMTAlways = 1,
+        ToGMTWhenHasTime = 2
+    }
 }

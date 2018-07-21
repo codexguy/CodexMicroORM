@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 04/2018    0.6     Fairly major rework: removed use of ObservableCollection as base
+07/2018    0.7     Updates for portable json, etc.
 ***********************************************************************/
 using System;
 using System.Collections.Generic;
@@ -31,6 +32,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using CodexMicroORM.Core.Collections;
+using CodexMicroORM.Core.Helper;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -121,6 +123,39 @@ namespace CodexMicroORM.Core.Services
             return (from b in (from a in this let iw = a.AsInfraWrapped() where iw != null select iw.GetRowState()) where b != ObjectState.Unchanged select b).Any();
         }
 
+        /// <summary>
+        /// Marks all collection items as unchanged. Items marked deleted are removed from the collection.
+        /// </summary>
+        /// <returns></returns>
+        public int AcceptChanges()
+        {
+            int cnt = 0;
+
+            foreach (var i in this)
+            {
+                var iw = i.AsInfraWrapped();
+
+                if (iw != null)
+                {
+                    var rs = iw.GetRowState();
+
+                    if (rs == ObjectState.Added || rs == ObjectState.Modified)
+                    {
+                        iw.AcceptChanges();
+                        ++cnt;
+                    }
+                }
+            }
+
+            foreach (var i in (from a in this let iw = a.AsInfraWrapped() let rs = iw?.GetRowState() where rs == ObjectState.Deleted || rs == ObjectState.Unlinked select a).ToArray())
+            {
+                this.Remove(i);
+                ++cnt;
+            }
+
+            return cnt;
+        }
+
         public void PopulateFromSerializationText(string json, JsonSerializationSettings jss = null)
         {
             if (jss == null)
@@ -143,6 +178,366 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
+        public Dictionary<string, T> ToDictionary(IEnumerable<string> cols)
+        {
+            if (cols == null)
+            {
+                throw new ArgumentNullException("cols");
+            }
+
+            Dictionary<string, T> ret = new Dictionary<string, T>();
+
+            foreach (T i in this)
+            {
+                var iw = i.AsInfraWrapped();
+                var key = iw.DictionaryKeyFromColumns(cols);
+
+                if (!Globals.AssumeSafe && ret.ContainsKey(key))
+                {
+                    throw new InvalidOperationException("Proposed key does not provide unique values in collection.");
+                }
+
+                ret[key] = i;
+            }
+
+            return ret;
+        }
+
+        /// <summary>
+        /// Once client-side changes have been made to portable serialization text, the typical process should be on submission to a) re-retrieve the original entity set from the database, b) apply changes to the set using this method, c) save changes to the database.
+        /// When the method is finished, you should have entity data in a state that reflects what happened on the client: insertions, updates and deletions depending on the incoming JSON.
+        /// This process is only "relatively stateless": our database is really our persistent state - things like additional caching are possible but the responsibility of framework users, not the framework itself.
+        /// </summary>
+        /// <param name="json"></param>
+        /// <returns>A shallow copy of the set being acted upon, where deleted rows are *not* present. (They remain in the acted on set, to support "saving by set".)</returns>
+        public EntitySet<T> ApplyChangesFromPortableText(string json)
+        {
+            EntitySet<T> retVal = new EntitySet<T>();
+
+            if (string.IsNullOrWhiteSpace(json) || json.Length > 100000000)
+            {
+                throw new ArgumentException("Incoming data is too short or too long.");
+            }
+
+            var kdef = KeyService.ResolveKeyDefinitionForType(typeof(T));
+
+            if (kdef?.Count == 0)
+            {
+                throw new InvalidOperationException("Cannot apply changes without a primary key defined for type.");
+            }
+
+            using (var jr = new Newtonsoft.Json.JsonTextReader(new StringReader(json)))
+            {
+                var jq = Newtonsoft.Json.Linq.JObject.Load(jr);
+
+                var sourceCols = new List<string>();
+                var sourceTypes = new List<string>();
+                var keyIndexes = new List<int>();
+                var idx = 0;
+
+                foreach (Newtonsoft.Json.Linq.JObject scol in jq.Value<Newtonsoft.Json.Linq.JArray>("schema"))
+                {
+                    var cn = scol.Property("cn").Value.ToString();
+                    sourceCols.Add(cn);
+                    var dt = scol.Property("dt").Value.ToString();
+                    sourceTypes.Add(dt);
+
+                    if (kdef.Contains(cn))
+                    {
+                        keyIndexes.Add(idx);
+                    }
+
+                    idx++;
+                }
+
+                // An indexed view in this case can be a dictionary for fast lookup
+                var index = ToDictionary(kdef);
+                HashSet<T> sourceVisits = new HashSet<T>();
+
+                foreach (Newtonsoft.Json.Linq.JArray row in jq.Value<Newtonsoft.Json.Linq.JArray>("rows"))
+                {
+                    var keyval = new StringBuilder(128);
+
+                    foreach (var c in kdef)
+                    {
+                        if (keyval.Length > 0)
+                        {
+                            keyval.Append("~");
+                        }
+
+                        var kloc = sourceCols.IndexOf(c);
+                        keyval.Append(row[kloc].ToString());
+                    }
+
+                    bool isnew = false;
+
+                    if (!index.TryGetValue(keyval.ToString(), out T target))
+                    {
+                        target = new T();
+                        this.Add(target);
+                        isnew = true;
+                    }
+                    else
+                    {
+                        sourceVisits.Add(target);
+                        retVal.Add(target);
+                    }
+
+                    var tiw = target.AsInfraWrapped();
+                    var prefTypes = tiw.GetAllPreferredTypes();
+
+                    for (int i = 0; i < sourceCols.Count; ++i)
+                    {
+                        if (!keyIndexes.Contains(i) || isnew)
+                        {
+                            var v = row[i].ToString();
+
+                            if (!string.IsNullOrEmpty(v))
+                            {
+                                var scn = sourceCols[i];
+                                var oldval = tiw.GetValue(scn)?.ToString();
+
+                                if (string.Compare(sourceTypes[i], "datetime") == 0)
+                                {
+                                    if (long.TryParse(v, out long ld))
+                                    {
+                                        v = (new DateTime((ld * 10000L) + 621355968000000000L, DateTimeKind.Utc)).ToString("O");
+                                    }
+
+                                    if (!string.IsNullOrEmpty(oldval))
+                                    {
+                                        oldval = Convert.ToDateTime(oldval).ToString("O");
+                                    }
+                                }
+
+                                if (string.Compare(oldval, v, false) != 0)
+                                {
+                                    if (prefTypes.TryGetValue(scn, out Type pt))
+                                    {
+                                        tiw.SetValue(scn, v.CoerceType(pt));
+                                    }
+                                    else
+                                    {
+                                        tiw.SetValue(scn, v);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                foreach (T i in index.Values)
+                {
+                    if (!sourceVisits.Contains(i))
+                    {
+                        CEF.DeleteObject(i);
+                        this.Remove(i);
+                    }
+                }
+            }
+
+            return retVal;
+        }
+
+        /// <summary>
+        /// Portable serialization text is intended to be usable to send complete objects to a web client where we can have client-side JS framework awareness of the format, etc.
+        /// We send back extended details including schema details that would not normally be necessary as such, hence the "portability". (Without this, we would need to know the schema ahead of time.)
+        /// Options on this method support serializing a subset of properties, among other things that would be relevant when working with client-side logic.
+        /// Notably things like row-state are *not* included which differs from some over-wire strategies - we expect to pair use of this method with ApplyChangesFromPortableText() in order to "apply changes" against a re-retrieved set, which has value for security, for example.
+        /// The Portable being called out in the name is intended to be more explicit than making an option on the non-Portable function.
+        /// </summary>
+        /// <param name="mode"></param>
+        /// <returns></returns>
+        public string GetPortableText(PortableSerializationOptions options = null)
+        {
+            if (options == null)
+            {
+                options = new PortableSerializationOptions();
+            }
+
+            StringBuilder sb = new StringBuilder(4096);
+            var actmode = options.Mode.GetValueOrDefault(Globals.PortableJSONMode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode));
+
+            CEF.CurrentServiceScope.ReconcileModifiedState(null);
+
+            using (var jw = new JsonTextWriter(new StringWriter(sb)))
+            {
+                jw.FloatFormatHandling = FloatFormatHandling.DefaultValue;
+
+                // All contained within an object
+                jw.WriteStartObject();
+
+                jw.WritePropertyName("schema");
+                jw.WriteStartArray();
+
+                var c = typeof(T).FastGetAllProperties(true, (actmode & SerializationMode.IncludeReadOnlyProps) == 0 ? true : new bool?()).ToList();
+
+                // Use a top x sample of entries in collection to determine if there are any extended properties to serialize
+                if (options.IncludeExtended.GetValueOrDefault(Globals.PortableJSONIncludeExtended) && options.ExtendedPropertySampleSize.GetValueOrDefault(Globals.PortableJSONExtendedPropertySampleSize) > 0)
+                {
+                    foreach (T i in this.Take(options.ExtendedPropertySampleSize.GetValueOrDefault(Globals.PortableJSONExtendedPropertySampleSize)))
+                    {
+                        c = c.Union(from a in i.AsInfraWrapped().GetAllPreferredTypes() select (a.Key, a.Value, true, true)).ToList();
+                    }
+                }
+
+                // Explicitly remove audit if needed
+                if (options.ExcludeAudit.GetValueOrDefault(Globals.PortableJSONExcludeAudit))
+                {
+                    if (!string.IsNullOrEmpty(CEF.CurrentAuditService()?.LastUpdatedByField))
+                    {
+                        var trem = (from a in c where string.Compare(a.name, CEF.CurrentAuditService()?.LastUpdatedByField, true) == 0 select a);
+
+                        if (trem.Any())
+                        {
+                            c.Remove(trem.First());
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(CEF.CurrentAuditService()?.LastUpdatedDateField))
+                    {
+                        var trem = (from a in c where string.Compare(a.name, CEF.CurrentAuditService()?.LastUpdatedDateField, true) == 0 select a);
+
+                        if (trem.Any())
+                        {
+                            c.Remove(trem.First());
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(CEF.CurrentAuditService()?.IsDeletedField))
+                    {
+                        var trem = (from a in c where string.Compare(a.name, CEF.CurrentAuditService()?.IsDeletedField, true) == 0 select a);
+
+                        if (trem.Any())
+                        {
+                            c.Remove(trem.First());
+                        }
+                    }
+                }
+
+                // Apply column name filters if needed
+                if (options.IncludeColumns != null)
+                {
+                    c = (from a in c where (from b in options.IncludeColumns where string.Compare(a.name, b, true) == 0 select b).Any() select a).ToList();
+                }
+
+                if (options.ExcludeColumns != null)
+                {
+                    c = (from a in c where !(from b in options.ExcludeColumns where string.Compare(a.name, b, true) == 0 select b).Any() select a).ToList();
+                }
+
+                // Get any available key for this type
+                var keydef = KeyService.ResolveKeyDefinitionForType(typeof(T));
+
+                List<string> finalName = new List<string>();
+                List<Type> finalType = new List<Type>();
+
+                // Actual schema write based on distinct list of columns and types
+                foreach (var prop in (from n in (from a in c select a.name).Distinct() select new { Name = n, Type = (from t in c where string.Compare(t.name, n, true) == 0 orderby (t.type == null ? 1 : 0) select t.type).First() }))
+                {
+                    var restype = prop.Type;
+                    var req = !(prop.Type.IsGenericType && prop.Type.GetGenericTypeDefinition() == typeof(Nullable<>));
+
+                    if (!req)
+                    {
+                        restype = Nullable.GetUnderlyingType(prop.Type);
+                    }
+
+                    jw.WriteStartObject();
+                    jw.WritePropertyName("cn");
+                    jw.WriteValue(prop.Name);
+
+                    if ((actmode & SerializationMode.IncludeType) != 0)
+                    {
+                        jw.WritePropertyName("dt");
+                        jw.WriteValue(restype.Name.ToLower().Replace("system.", ""));
+                        jw.WritePropertyName("key");
+                        jw.WriteValue((from a in keydef where string.Compare(a, prop.Name, true) == 0 select a).Any());
+                        jw.WritePropertyName("req");
+                        jw.WriteValue(req);
+                    }
+
+                    jw.WriteEndObject();
+
+                    finalName.Add(prop.Name);
+                    finalType.Add(restype);
+                }
+
+                // end schema
+                jw.WriteEndArray();
+
+                // Start data
+                jw.WritePropertyName("rows");
+                jw.WriteStartArray();
+
+                var cdates = options.ConvertDates.GetValueOrDefault(Globals.PortableJSONConvertDates);
+
+                IEnumerable<ICEFInfraWrapper> list = this.AllAsInfraWrapped();
+
+                if (options.SortSpec != null)
+                {
+                    list = list.OrderBy(options.SortSpec);
+                }
+
+                if (options.FilterSpec != null)
+                {
+                    list = list.Where(options.FilterSpec);
+                }
+
+                foreach (var iw in list)
+                {
+                    if ((actmode & SerializationMode.OnlyChanged) == 0 || iw.GetRowState() != ObjectState.Unchanged)
+                    {
+                        jw.WriteStartArray();
+
+                        for (int i = 0; i < finalName.Count; ++i)
+                        {
+                            var cv = iw.GetValue(finalName[i]);
+
+                            if (cv == null)
+                            {
+                                string s = null;
+                                jw.WriteValue(s);
+                            }
+                            else
+                            {
+                                if (finalType[i] == typeof(DateTime))
+                                {
+                                    var asdate = Convert.ToDateTime(cv);
+
+                                    if (cdates == DateConversionMode.ToGMTAlways || (cdates == DateConversionMode.ToGMTWhenHasTime && asdate.TimeOfDay.Seconds > 0))
+                                    {
+                                        asdate = asdate.ToUniversalTime();
+                                    }
+
+                                    var d = Convert.ToInt64(asdate.Ticks - 621355968000000000L) / 10000L;
+                                    jw.WriteValue(d);
+                                }
+                                else
+                                {
+                                    jw.WriteValue(cv);
+                                }
+                            }
+                        }
+
+                        jw.WriteEndArray();
+                    }
+                }
+
+                // end data
+                jw.WriteEndArray();
+                jw.WriteEndObject();
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Serialization text on the EntitySet level turns into a JSON array, composed of individual object-per-collection member.
+        /// The output format is lighter-weight than the portable format (no schema).
+        /// </summary>
+        /// <param name="mode"></param>
+        /// <returns></returns>
         public string GetSerializationText(SerializationMode? mode = null)
         {
             StringBuilder sb = new StringBuilder(4096);

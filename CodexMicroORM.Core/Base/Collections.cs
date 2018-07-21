@@ -697,7 +697,16 @@ namespace CodexMicroORM.Core.Collections
 
         public void CopyTo(T[] array, int arrayIndex)
         {
-            throw new NotSupportedException();
+            if ((array ?? throw new ArgumentNullException("array")).Length + arrayIndex < this.Count)
+            {
+                throw new ArgumentException("Target array is too small.");
+            }
+
+            foreach (var t in this)
+            {
+                array[arrayIndex] = t;
+                ++arrayIndex;
+            }
         }
 
         public IEnumerator<T> GetEnumerator()

@@ -521,6 +521,12 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
+        public static bool AssumeSafe
+        {
+            get;
+            set;
+        } = false;
+
         /// <summary>
         /// The reason the default is true is this lets us manage connection scopes that cross multiple sevice scopes. We can override this at a service scope level.
         /// </summary>
@@ -535,6 +541,36 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = true;
+
+        public static bool PortableJSONExcludeAudit
+        {
+            get;
+            set;
+        } = false;
+
+        public static SerializationMode? PortableJSONMode
+        {
+            get;
+            set;
+        } = SerializationMode.IncludeNull | SerializationMode.IncludeReadOnlyProps | SerializationMode.IncludeType | SerializationMode.SingleLevel;
+
+        public static DateConversionMode PortableJSONConvertDates
+        {
+            get;
+            set;
+        } = DateConversionMode.None;
+
+        public static bool PortableJSONIncludeExtended
+        {
+            get;
+            set;
+        } = true;
+
+        public static int PortableJSONExtendedPropertySampleSize
+        {
+            get;
+            set;
+        } = 5;
 
         public static StringComparer CurrentStringComparer
         {
