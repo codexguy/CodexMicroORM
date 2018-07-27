@@ -59,6 +59,23 @@ namespace CodexMicroORM.Core.Services
         }
 
         /// <summary>
+        /// For a given type and property name, return whether it was registered as a required property.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <param name="propName"></param>
+        /// <returns></returns>
+        public static bool? GetRequiredFor(Type t, string propName)
+        {
+            if (_typePropRequired.TryGetValue(t, out var rvl))
+            {
+                var l = (from a in rvl where string.Compare(a.prop, propName) == 0 select a);
+                return l.Any();
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Registers a global validation for a specific type / specific property, indicating it is a required field.
         /// </summary>
         /// <typeparam name="T"></typeparam>
@@ -133,6 +150,27 @@ namespace CodexMicroORM.Core.Services
 
             vl.Add((propName, (object p) => validator.Invoke((T)p)));
             _typeCustomValidator[typeof(T)] = vl;
+        }
+
+        /// <summary>
+        /// Returns a registered maximum length for a type/property.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <param name="propName"></param>
+        /// <returns></returns>
+        public static int? GetMaxLengthFor(Type t, string propName)
+        {
+            if (_typePropMaxLength.TryGetValue(t, out var mlv))
+            {
+                var l = (from a in mlv where string.Compare(a.prop, propName) == 0 select a);
+
+                if (l.Any())
+                {
+                    return l.First().maxlength;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

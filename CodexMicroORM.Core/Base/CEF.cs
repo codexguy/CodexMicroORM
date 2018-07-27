@@ -26,6 +26,7 @@ using System.Threading;
 using CodexMicroORM.Core.Collections;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
+using System.Collections;
 
 namespace CodexMicroORM.Core
 {
@@ -462,7 +463,16 @@ namespace CodexMicroORM.Core
             {
                 settings = new DBSaveSettings();
             }
-            settings.RootObject = tosave;
+
+            if (tosave != null && tosave is IEnumerable)
+            {
+                settings.SourceList = ((IEnumerable)tosave).Cast<object>();
+            }
+            else
+            {
+                settings.RootObject = tosave;
+            }
+
             settings.EntityPersistName = settings.EntityPersistName ?? GetEntityPersistName<T>(tosave);
             settings.EntityPersistType = typeof(T);
 

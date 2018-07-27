@@ -443,24 +443,44 @@ namespace CodexMicroORM.Core.Services
                         restype = Nullable.GetUnderlyingType(prop.Type);
                     }
 
-                    jw.WriteStartObject();
-                    jw.WritePropertyName("cn");
-                    jw.WriteValue(prop.Name);
+                    var rp = ValidationService.GetRequiredFor(typeof(T), prop.Name);
 
-                    if ((actmode & SerializationMode.IncludeType) != 0)
+                    if (rp.HasValue)
                     {
-                        jw.WritePropertyName("dt");
-                        jw.WriteValue(restype.Name.ToLower().Replace("system.", ""));
-                        jw.WritePropertyName("key");
-                        jw.WriteValue((from a in keydef where string.Compare(a, prop.Name, true) == 0 select a).Any());
-                        jw.WritePropertyName("req");
-                        jw.WriteValue(req);
+                        req = rp.Value;
                     }
 
-                    jw.WriteEndObject();
+                    // Ignore non-primative ref types - things like property classes in generated code should interop with the base instance
+                    if (restype.IsPrimitive || restype.IsValueType || restype.IsSerializable)
+                    {
+                        jw.WriteStartObject();
+                        jw.WritePropertyName("cn");
+                        jw.WriteValue(prop.Name);
 
-                    finalName.Add(prop.Name);
-                    finalType.Add(restype);
+                        if ((actmode & SerializationMode.IncludeType) != 0)
+                        {
+                            jw.WritePropertyName("dt");
+                            jw.WriteValue(restype.Name.ToLower().Replace("system.", ""));
+                            jw.WritePropertyName("key");
+                            jw.WriteValue((from a in keydef where string.Compare(a, prop.Name, true) == 0 select a).Any());
+                            jw.WritePropertyName("req");
+                            jw.WriteValue(req);
+
+                            // If there's a maxlength setting available, write it
+                            var ml = ValidationService.GetMaxLengthFor(typeof(T), prop.Name);
+
+                            if (ml.HasValue)
+                            {
+                                jw.WritePropertyName("maxlen");
+                                jw.WriteValue(ml);
+                            }
+                        }
+
+                        jw.WriteEndObject();
+
+                        finalName.Add(prop.Name);
+                        finalType.Add(restype);
+                    }
                 }
 
                 // end schema
@@ -515,7 +535,13 @@ namespace CodexMicroORM.Core.Services
                                 }
                                 else
                                 {
-                                    jw.WriteValue(cv);
+                                    var cvt = cv.GetType();
+
+                                    // For non-primative ref types, need to "flatten" properties
+                                    if (cvt.IsValueType || cvt.IsPrimitive || cvt.IsSerializable)
+                                    {
+                                        jw.WriteValue(cv);
+                                    }
                                 }
                             }
                         }

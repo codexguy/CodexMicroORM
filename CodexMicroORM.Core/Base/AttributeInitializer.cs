@@ -19,6 +19,7 @@ Major Changes:
 using CodexMicroORM.Core.Services;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
@@ -43,7 +44,14 @@ namespace CodexMicroORM.Core
 
                     if (pkAttr != null)
                     {
-                        typeof(KeyService).GetMethod("RegisterKey").MakeGenericMethod(t).Invoke(null, new object[] { pkAttr.Fields });
+                        if (pkAttr.ShadowType != null)
+                        {
+                            typeof(KeyService).GetMethod("RegisterKeyWithType").MakeGenericMethod(t).Invoke(null, new object[] { pkAttr.Fields.First(), pkAttr.ShadowType });
+                        }
+                        else
+                        {
+                            typeof(KeyService).GetMethod("RegisterKey").MakeGenericMethod(t).Invoke(null, new object[] { pkAttr.Fields });
+                        }
 
                         foreach (var prop in t.GetProperties())
                         {
@@ -58,7 +66,14 @@ namespace CodexMicroORM.Core
 
                             if (defValAttr != null)
                             {
-                                typeof(DBService).GetMethod("RegisterDefault").MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name, Convert.ChangeType(defValAttr.Value, prop.PropertyType) });
+                                typeof(DBService).GetMethod("RegisterDefault").MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name, defValAttr.Value.CoerceType(prop.PropertyType) });
+                            }
+
+                            var reqValAttr = prop.GetCustomAttribute<EntityRequiredAttribute>();
+
+                            if (reqValAttr != null)
+                            {
+                                typeof(ValidationService).GetMethod("RegisterRequired", new Type[] { typeof(string) }).MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name });
                             }
                         }
                     }

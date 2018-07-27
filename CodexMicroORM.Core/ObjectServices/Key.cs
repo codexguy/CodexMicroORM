@@ -40,6 +40,7 @@ namespace CodexMicroORM.Core.Services
 
         // Populated during startup, represents all object primary keys we track - should be eastablished prior to relationships!
         private static ConcurrentDictionary<Type, IList<string>> _primaryKeys = new ConcurrentDictionary<Type, IList<string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, Type> _keyKnownTypes = new ConcurrentDictionary<Type, Type>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Populated during startup, represents all object relationships we track
         private static ConcurrentIndexedList<TypeChildRelationship> _relations = new ConcurrentIndexedList<TypeChildRelationship>(
@@ -96,6 +97,23 @@ namespace CodexMicroORM.Core.Services
                 throw new ArgumentException("Fields must be non-blank.");
 
             _primaryKeys[typeof(T)] = fields;
+
+            CEF.RegisterForType<T>(new KeyService());
+        }
+
+        /// <summary>
+        /// For type T, register a specific field with a known data type as its primary key.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="field"></param>
+        /// <param name="knownType"></param>
+        public static void RegisterKeyWithType<T>(string field, Type knownType)
+        {
+            if (string.IsNullOrEmpty(field))
+                throw new ArgumentException("Field must be non-blank.");
+
+            _primaryKeys[typeof(T)] = new string[] { field };
+            _keyKnownTypes[typeof(T)] = knownType;
 
             CEF.RegisterForType<T>(new KeyService());
         }
@@ -331,22 +349,47 @@ namespace CodexMicroORM.Core.Services
 
             var pkFields = ResolveKeyDefinitionForType(uw.GetBaseType());
 
+            Type prefKeyType = null;
+            bool needsKeyAssign = false;
+
+            // Case where not "new" row but still missing a key value - still need to generate it as such, for uniqueness!
+            if (!isNew)
+            {
+                if (pkFields?.Count == 1)
+                {
+                    if (!props.ContainsKey(pkFields[0]))
+                    {
+                        _keyKnownTypes.TryGetValue(uw.GetBaseType(), out prefKeyType);
+
+                        if (prefKeyType != null)
+                        {
+                            needsKeyAssign = true;
+                        }
+                    }
+                }
+            }
+
             // Assign keys - new or not, we rely on unqiue values
-            if (isNew)
+            if (isNew || needsKeyAssign)
             {
                 foreach (var k in pkFields)
                 {
                     // Don't overwrite properties that we may have copied!
                     if (props == null || !props.ContainsKey(k))
                     {
-                        var ks = ss.GetSetter(uw, k);
+                        var (setter, type) = ss.GetSetter(uw, k);
+
+                        if (type == null)
+                        {
+                            type = prefKeyType;
+                        }
 
                         // Shadow props in use, we rely on the above for the data type, but we'll be updating the shadow prop instead
-                        var kssp = (!Globals.UseShadowPropertiesForNew || (ks.type != null && ks.type.Equals(typeof(Guid))) ? (null, null) : ss.GetSetter(uw, SHADOW_PROP_PREFIX + k));
+                        var kssp = (!Globals.UseShadowPropertiesForNew || (type != null && type.Equals(typeof(Guid))) ? (null, null) : ss.GetSetter(uw, SHADOW_PROP_PREFIX + k));
 
-                        if ((kssp.setter ?? ks.setter) != null)
+                        if ((kssp.setter ?? setter) != null)
                         {
-                            var keyType = (ks.type ?? kssp.type);
+                            var keyType = (type ?? kssp.type);
 
                             if (keyType == null)
                             {
@@ -355,13 +398,13 @@ namespace CodexMicroORM.Core.Services
 
                             if (keyType.Equals(typeof(int)))
                             {
-                                (kssp.setter ?? ks.setter).Invoke(System.Threading.Interlocked.Increment(ref _lowIntKey));
+                                (kssp.setter ?? setter).Invoke(System.Threading.Interlocked.Increment(ref _lowIntKey));
                             }
                             else
                             {
                                 if (keyType.Equals(typeof(long)))
                                 {
-                                    (kssp.setter ?? ks.setter).Invoke(System.Threading.Interlocked.Increment(ref _lowLongKey));
+                                    (kssp.setter ?? setter).Invoke(System.Threading.Interlocked.Increment(ref _lowLongKey));
                                 }
                                 else
                                 {
@@ -376,7 +419,7 @@ namespace CodexMicroORM.Core.Services
                                         {
                                             if (cv == null || Guid.Empty.Equals(cv))
                                             {
-                                                (kssp.setter ?? ks.setter).Invoke(Guid.NewGuid());
+                                                (kssp.setter ?? setter).Invoke(Guid.NewGuid());
                                             }
                                         }
                                         else
@@ -385,7 +428,7 @@ namespace CodexMicroORM.Core.Services
                                             {
                                                 if (cv == null || string.Empty.Equals(cv))
                                                 {
-                                                    (kssp.setter ?? ks.setter).Invoke(Guid.NewGuid());
+                                                    (kssp.setter ?? setter).Invoke(Guid.NewGuid());
                                                 }
                                             }
                                         }

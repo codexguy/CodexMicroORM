@@ -32,6 +32,7 @@ using System.IO;
 using System.Threading.Tasks;
 using CodexMicroORM.Core.Helper;
 using System.Threading;
+using System.Collections;
 
 namespace CodexMicroORM.Core
 {
@@ -1038,6 +1039,13 @@ namespace CodexMicroORM.Core
         private HashSet<object> GetFilterRows(DBSaveSettings settings)
         {
             HashSet<object> filterRows = new HashSet<object>();
+
+            // If the root object is actually a collection, treat as a source list instead
+            if (settings.RootObject != null && settings.RootObject is IEnumerable)
+            {
+                settings.SourceList = ((IEnumerable)settings.RootObject).Cast<object>();
+                settings.RootObject = null;
+            }
 
             if (settings.RootObject != null)
             {

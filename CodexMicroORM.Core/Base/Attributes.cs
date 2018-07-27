@@ -33,9 +33,26 @@ namespace CodexMicroORM.Core
             private set;
         }
 
+        public Type ShadowType
+        {
+            get;
+            private set;
+        }
+
         public EntityPrimaryKeyAttribute(params string[] fields)
         {
             Fields = fields;
+        }
+
+        /// <summary>
+        /// This overload supports initialization of an entity with a field that might not exist as a property and instead should be implemented using a shadow property of a specific desired type.
+        /// </summary>
+        /// <param name="field"></param>
+        /// <param name="datatype"></param>
+        public EntityPrimaryKeyAttribute(string field, Type datatype)
+        {
+            ShadowType = datatype;
+            Fields = new string[] { field };
         }
     }
 
@@ -51,6 +68,14 @@ namespace CodexMicroORM.Core
         public EntitySchemaNameAttribute(string name)
         {
             Name = name;
+        }
+    }
+
+    [AttributeUsage(AttributeTargets.Property)]
+    public class EntityRequiredAttribute : Attribute
+    {
+        public EntityRequiredAttribute()
+        {
         }
     }
 

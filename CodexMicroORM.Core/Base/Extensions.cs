@@ -609,6 +609,31 @@ namespace CodexMicroORM.Core
 
             if (source is IConvertible)
             {
+                // Special conversion possibilities for booleans
+                if (prefType == typeof(bool))
+                {
+                    if (source == "0")
+                    {
+                        return false;
+                    }
+                    if (source == "-1")
+                    {
+                        return true;
+                    }
+                    if (source == "1")
+                    {
+                        return true;
+                    }
+                    if (string.Compare(source, "false", true) == 0)
+                    {
+                        return false;
+                    }
+                    if (string.Compare(source, "true", true) == 0)
+                    {
+                        return true;
+                    }
+                }
+
                 return Convert.ChangeType(source, prefType);
             }
 
