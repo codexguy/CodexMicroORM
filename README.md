@@ -176,7 +176,9 @@ KeyService.RegisterRelationship<Person>(TypeChildRelationship.Create<Person>("Pa
 KeyService.RegisterRelationship<Person>(TypeChildRelationship.Create<Phone>().MapsToParentProperty(nameof(Phone.Owner)).MapsToChildProperty(nameof(Person.Phones)));
 ```
 
-This code is something that we can ideally eventually generate, as opposed to writing it by hand.
+This code is something that we can ideally eventually generate, as opposed to writing it by hand. *Update* (as of approximately 8/1/18): [XS Tool Suite](https://www.xskrape.com/Home/XSSuite) will be generally available and includes templates that support generation of C# code from existing databases, including the ability to decorate
+generated code with keys, relationships, defaults, and more - along with strongly-typed stored procedure wrappers and enumerations. All of that can be "applied" with one line of code: AttributeInitializer.Apply(). I'll be providing more details on this in an up-coming [blog](https://www.xskrape.com/Home/Articles) post.
+(The current release (0.7.3) of CEF is needed to take advantage of these new templates.)
 
 In terms of the SQL to support these examples: a .sql script is included in both the test and demo projects. This script will create a new database called CodexMicroORMTest that includes all the necessary schema objects to support the examples. You may need to adjust the DB\_SERVER constant to match your own SQL Server instance name.
 
@@ -184,7 +186,7 @@ The SQL that's included is a combination of hand-written stored procedures and c
 
 Of note, the audit history template used here has an advantage over temporal tables found in SQL 2014: you can identify *who* deleted records, which (unfortunately) can be quite useful! CodexMicroORM plays well with the data layer, providing support for LastUpdatedBy, LastUpdatedDate, and IsDeleted (logical delete) fields in the database.
 
-Is SQL-Hero the primary means by which I plan to offer "value add" for the framework (such as code generation)? Maybe, maybe not. I do have a SQL-Hero template enhancement that will be released in Q1 2018 that offers a *40% CRUD performance improvement* for SQL audit (history queries are slower but also used much less often in practice). However, keep watch for new tool support as a Visual Studio extension which can merge metadata from both database and existing CLR objects to create effective wrappers and all of your initialization logic.
+Is SQL-Hero the primary means by which I plan to offer "value add" for the framework (such as code generation)? Maybe, maybe not. I do have a SQL-Hero template enhancement that will be released in Q1 2018 that offers a *40% CRUD performance improvement* for SQL audit (history queries are slower but also used much less often in practice). However, keep watch for tool support: [XS Tool Suite](https://www.xskrape.com/Home/XSSuite) will support merging metadata from both database and existing CLR objects to create effective wrappers and all of your initialization logic.
 
 ## Performance Benchmarks
 In release 0.2.1, I've enhanced the WPF demo to include a benchmark suite that tests CodexMicroORM, Entity Framework, nHibernate and Dapper. I selected these other frameworks on the expectation that they've "worked out the kinks" and we should be able to judge both performance and maintainability (code size).
@@ -361,7 +363,7 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 * 0.7.0 - June 2018
     * Transaction scope improvements, ICEFStorageNaming/EntityPersistedName added, DBExecuteNoResult added, LastOutputVariables added to connection scope, added DeepCopyDataView, added GetAllPreferredTypes
 	* Inclusion of some features of CodeXFramework V1 such as ValidateOrAssignMandatoryValue functionality (extension methods), new assembly to support v1 compatibility ([CodexMicroORM.CodexV1CompatLayer](https://codexenterprisesllc-my.sharepoint.com/:p:/r/personal/sqlheroguy_codexenterprisesllc_onmicrosoft_com/_layouts/15/Doc.aspx?sourcedoc=%7Baa304451-ab00-46d8-90bc-600402bb5570%7D&action=default))
-	* New [SQL-Hero templates](https://codexenterprisesllc-my.sharepoint.com/:f:/g/personal/sqlheroguy_codexenterprisesllc_onmicrosoft_com/Ev2xZ7PXBrJFpD4NeJIbRagBDb5Fwn7s0e6hMYleSMnhXg?e=WVMf6r) to support code generation of entities / wrappers for CEF
+	* New XS Tool Suite templates to support code generation of entities / wrappers for CEF
 	* AttributeInitializer.Apply() to leverage generated code (when using attributes) to register keys, relationships, etc. with a single line of code on startup
 	* Minor fixes
 * 0.7.1 - July 2018
@@ -370,6 +372,10 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 * 0.7.2 - July 2018
     * Portable JSON support
 	* Minor enhancements (e.g. ToDictionary)
+* 0.7.3 - July 2018
+    * Minor fixes/enhancements to support latest [XS Tool Suite](https://www.xskrape.com/Home/XSSuite) code-gen templates
+* 0.7.4 - Aug 2018
+    * Minor fixes (type conversions, etc.) (FYI - the [xskrape.com web site](https://www.xskrape.com) uses CEF)
 
 ## Roadmap / Plans
 Look for in coming releases:

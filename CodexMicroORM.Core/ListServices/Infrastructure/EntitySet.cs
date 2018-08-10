@@ -625,6 +625,15 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
+        /// <summary>
+        /// Adds a new item to the collection, returning it. Adds in "inserted" state.
+        /// </summary>
+        /// <returns></returns>
+        public T Add()
+        {
+            return CEF.NewObject<T>();
+        }
+
         private void StartToAddWorkers()
         {
             if (Interlocked.Read(ref _toAddWorkers) == 0 && _toAdd.Count > 0)

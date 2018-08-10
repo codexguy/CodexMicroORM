@@ -224,10 +224,26 @@ namespace CodexMicroORM.Core.Services
             if (source.GetType() == targetType)
                 return source;
 
-            if (Nullable.GetUnderlyingType(targetType) != null)
+            var ntt = Nullable.GetUnderlyingType(targetType);
+
+            if (ntt != null)
             {
-                var srcAsTarg = Convert.ChangeType(source, Nullable.GetUnderlyingType(targetType));
-                return Activator.CreateInstance(targetType, srcAsTarg);
+                if (ntt == source.GetType())
+                {
+                    return Activator.CreateInstance(targetType, source);
+                }
+
+                if (ntt.IsEnum)
+                {
+                    return Activator.CreateInstance(targetType, Enum.Parse(ntt, source.ToString()));
+                }
+
+                if (source is IConvertible)
+                {
+                    return Activator.CreateInstance(targetType, Convert.ChangeType(source, ntt));
+                }
+
+                throw new InvalidCastException("Cannot coerce type.");
             }
 
             if (targetType.IsEnum)
@@ -285,13 +301,20 @@ namespace CodexMicroORM.Core.Services
                         {
                             if (value.GetType() != pt && (!isnull || value.GetType() != Nullable.GetUnderlyingType(pt)))
                             {
-                                if (isnull)
+                                if (value is IConvertible)
                                 {
-                                    value = Convert.ChangeType(value, Nullable.GetUnderlyingType(pt));
+                                    if (isnull)
+                                    {
+                                        value = Convert.ChangeType(value, Nullable.GetUnderlyingType(pt));
+                                    }
+                                    else
+                                    {
+                                        value = Convert.ChangeType(value, pt);
+                                    }
                                 }
                                 else
                                 {
-                                    value = Convert.ChangeType(value, pt);
+                                    throw new InvalidCastException("Cannot coerce type.");
                                 }
                             }
                         }
