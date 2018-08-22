@@ -23,7 +23,7 @@ The work done with CodexMicroORM leads naturally into some related tool work, in
 ## Design Goals
 Diving more deeply, what does CodexMicroORM try to do *better* than other frameworks? What are the guiding principles that have influenced it to date? (Too much detail if you're skimming? Feel free to skip forward, but check back here from time to time as this list will be updated to reflect any new base concepts that CEF will address.)
 
-* Entities can be *any* POCO object, period. Why is this important? Going database-first can sometimes lead to bad object models. Similarly, going model-first can lead to bad database (storage) design. Why not express the *best* format in both worlds and explain how they relate using "simple one-liners" (configuration). In CEF's case, the configuration is expressed through simple registration statements.
+* Entities can be *any* POCO object, period. Why is this important? Going database-first can sometimes lead to bad object models. Similarly, going model-first can lead to bad database (storage) design. Why not express the *best* format in both worlds and explain how they relate using "simple one-liners" (configuration). In CEF's case, the configuration is expressed through simple registration statements. *Update*: we now support declarative attributes that cover all the major bases. Attributes make sense for code generation where you're "ok" with decorating your business objects. (Where you *aren't* or want to do something fancy with run-time configuration, registration statements still work.)
 * Entities do not need to have any special "database-centric" properties (if they don't want - many will want them). In our example model, note that Phone doesn't have a PhoneID as one example.
 * Entities should be able to carry "extra" details that come from the database (aka "extended properties") - but these should be "non-obtrusive" against the bare POCO objects being used.
 * Entities can be nested in what would be considered a normal object model (e.g. "IList&lt;Person&gt; Children" as a property on Person vs. a nullable ParentID which is a database/storage concept - but the DB way should be supported too!).
@@ -182,11 +182,11 @@ generated code with keys, relationships, defaults, and more - along with strongl
 
 In terms of the SQL to support these examples: a .sql script is included in both the test and demo projects. This script will create a new database called CodexMicroORMTest that includes all the necessary schema objects to support the examples. You may need to adjust the DB\_SERVER constant to match your own SQL Server instance name.
 
-The SQL that's included is a combination of hand-written stored procedures and code generated objects, including procedures (CRUD) and triggers. The code generator I've used is [SQL-Hero](http://www.codexframework.com/About/SQLHero), but you can use whatever tool you like. The generated SQL is based on declarative settings that identify: a) what type of optimistic concurrency you need (if any), b) what kind of audit history you need (if any).
+The SQL that's included is a combination of hand-written stored procedures and code generated objects, including procedures (CRUD) and triggers. The code generator I've used is [XS Tool Suite](https://www.xskrape.com/Home/XSSuite), but you can use whatever tool you like. The generated SQL is based on declarative settings that identify: a) what type of optimistic concurrency you need (if any), b) what kind of audit history you need (if any).
 
-Of note, the audit history template used here has an advantage over temporal tables found in SQL 2014: you can identify *who* deleted records, which (unfortunately) can be quite useful! CodexMicroORM plays well with the data layer, providing support for LastUpdatedBy, LastUpdatedDate, and IsDeleted (logical delete) fields in the database.
+Of note, the audit history template used here has an advantage over temporal tables found in SQL 2014: you can identify *who* deleted records, which (unfortunately) can be quite useful! CodexMicroORM plays well with the data layer, providing support for LastUpdatedBy, LastUpdatedDate, and IsDeleted (logical delete) fields in the database. *Update*: I've published a blog article that gets into detail on this topic of [SQL data auditing](https://www.xskrape.com/home/article/Data-Change-Audit--Winning-on-Performance--and-XS-Tool-Suite).
 
-Is SQL-Hero the primary means by which I plan to offer "value add" for the framework (such as code generation)? Maybe, maybe not. I do have a SQL-Hero template enhancement that will be released in Q1 2018 that offers a *40% CRUD performance improvement* for SQL audit (history queries are slower but also used much less often in practice). However, keep watch for tool support: [XS Tool Suite](https://www.xskrape.com/Home/XSSuite) will support merging metadata from both database and existing CLR objects to create effective wrappers and all of your initialization logic.
+*Update*: deeper tool support has arrived with [XS Tool Suite 2018 Volume 1](https://www.xskrape.com/Home/XSSuite). This version includes templates that can generate your business object layer (with settings via attributes), do your SQL data audit + CRUD procedures, and more!
 
 ## Performance Benchmarks
 In release 0.2.1, I've enhanced the WPF demo to include a benchmark suite that tests CodexMicroORM, Entity Framework, nHibernate and Dapper. I selected these other frameworks on the expectation that they've "worked out the kinks" and we should be able to judge both performance and maintainability (code size).
@@ -380,11 +380,9 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 ## Roadmap / Plans
 Look for in coming releases:
 
+* Some initial code-gen support (*DONE*, as of 0.7)
 * Support for more complex types of object mapping
-* Some initial code-gen support (CHECK, as of 0.7)
 * Full-on demo app that uses everything end-to-end; on-line and/or PDF documentation
-
-Clearly tool support such as for code generation could prove *very* useful - watch for that offered as "add-on" products and likely offered initially through [SQL-Hero](http://www.codexframework.com/About/SQLHero) given that some existing templates can likely be tweaked to get a quick win for CodexMicroORM.
 
 Come and subscribe to [blog updates](https://www.xskrape.com/Home/Articles).
 
