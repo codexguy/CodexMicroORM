@@ -139,7 +139,7 @@ namespace CodexMicroORM.Core.Services
                 {
                     var rs = iw.GetRowState();
 
-                    if (rs == ObjectState.Added || rs == ObjectState.Modified)
+                    if (rs == ObjectState.Added || rs == ObjectState.Modified || rs == ObjectState.ModifiedPriority)
                     {
                         iw.AcceptChanges();
                         ++cnt;
@@ -180,7 +180,7 @@ namespace CodexMicroORM.Core.Services
 
         public Dictionary<string, T> ToDictionary(IEnumerable<string> cols)
         {
-            if (cols == null)
+            if (cols?.Count() == 0)
             {
                 throw new ArgumentNullException("cols");
             }
@@ -631,7 +631,9 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public T Add()
         {
-            return CEF.NewObject<T>();
+            var t = CEF.NewObject<T>();
+            Add(t);
+            return t;
         }
 
         private void StartToAddWorkers()
@@ -691,13 +693,34 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public bool AddWrappedItem(object o)
+        public bool AddWrappedItem(object o, bool allowLinking = true)
         {
             if (o is T cast)
             {
                 if (!_contains.Contains(cast))
                 {
-                    this.Add(cast);
+                    WriterLock wl = null;
+                    var wasEnableLinked = EnableLinking;
+
+                    try
+                    {
+                        if (!allowLinking && EnableLinking)
+                        {
+                            wl = new WriterLock(_lock);
+                            EnableLinking = false;
+                        }
+
+                        this.Add(cast);
+                    }
+                    finally
+                    {
+                        if (wl != null)
+                        {
+                            EnableLinking = wasEnableLinked;
+                            wl.Dispose();
+                        }
+                    }
+
                     return true;
                 }
             }
@@ -714,6 +737,12 @@ namespace CodexMicroORM.Core.Services
         }
 
         public bool EnableIntegration
+        {
+            get;
+            set;
+        } = true;
+
+        public bool EnableLinking
         {
             get;
             set;
@@ -857,7 +886,7 @@ namespace CodexMicroORM.Core.Services
                 _contains.Remove(oi);
             }
 
-            if (!EnableIntegration)
+            if (!EnableIntegration || !EnableLinking)
             {
                 return;
             }
@@ -934,7 +963,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            if (ParentContainer != null)
+            if (ParentContainer != null && EnableLinking)
             {
                 foreach (var ni in niCopy)
                 {

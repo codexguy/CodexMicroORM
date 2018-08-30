@@ -139,6 +139,11 @@ namespace CodexMicroORM.Core
             set;
         }
 
+        /// <summary>
+        /// Returns a wrapper object if one is available for the input object.
+        /// </summary>
+        /// <param name="o"></param>
+        /// <returns></returns>
         public ICEFWrapper GetWrapperFor(object o)
         {
             if (o == null)
@@ -150,6 +155,15 @@ namespace CodexMicroORM.Core
             return _scopeObjects.GetFirstByName(nameof(TrackedObject.Target), o.AsUnwrapped())?.GetWrapper();
         }
 
+        /// <summary>
+        /// The passed object is included in the service scope, added with an optional explicit state and additional (potentially extended) properties to assign.
+        /// The passed list of properties includes an explicit preferred property type.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="toAdd"></param>
+        /// <param name="drs"></param>
+        /// <param name="props"></param>
+        /// <returns></returns>
         public T IncludeObjectWithType<T>(T toAdd, ObjectState? drs = null, Dictionary<string, (object value, Type type)> props = null) where T : class, new()
         {
             Dictionary<string, object> propVals = null;
@@ -170,11 +184,26 @@ namespace CodexMicroORM.Core
             return InternalCreateAdd(toAdd, drs.GetValueOrDefault(ObjectState.Unchanged) == ObjectState.Added ? true : false, drs, propVals, propTypes);
         }
 
+        /// <summary>
+        /// The passed object is included in the service scope, added with an optional explicit state and additional (potentially extended) properties to assign.
+        /// No preferred property type is assumed based on the passed property dictionary.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="toAdd"></param>
+        /// <param name="drs"></param>
+        /// <param name="props"></param>
+        /// <returns></returns>
         public T IncludeObject<T>(T toAdd, ObjectState? drs = null, IDictionary<string, object> props = null) where T : class, new()
         {
             return InternalCreateAdd(toAdd, drs.GetValueOrDefault(ObjectState.Unchanged) == ObjectState.Added ? true : false, drs, props, null);
         }
 
+        /// <summary>
+        /// Returns a specific service based on type T, either identified globally from the scope, or an optional passed object.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="forObject"></param>
+        /// <returns></returns>
         public T GetService<T>(object forObject = null) where T :ICEFService
         {
             ICEFService service = null;
@@ -256,6 +285,11 @@ namespace CodexMicroORM.Core
             }
         }
 
+        /// <summary>
+        /// Performs a database save operation for all objects with a changed state in the service scope. The object graph is traversed in a way to ensure saving can be done successfully.
+        /// </summary>
+        /// <param name="settings"></param>
+        /// <returns></returns>
         public IList<(object item, string message, int status)> DBSave(DBSaveSettings settings = null)
         {
             var ss = CEF.CurrentServiceScope;
@@ -738,7 +772,6 @@ namespace CodexMicroORM.Core
 
                 foreach (var itemText in kvp.Value.json)
                 {
-                    //lw.AddWrappedItem(InternalDeserialize(itemType, itemText, visits));
                     InternalDeserialize(itemType, itemText, visits);
                 }
 
@@ -1475,6 +1508,49 @@ namespace CodexMicroORM.Core
                 foreach (var co in CEF.CurrentKeyService()?.GetChildObjects(this, root))
                 {
                     InternalDelete(co.AsUnwrapped(), visits, action);
+                }
+            }
+            else
+            {
+                if (action == DeleteCascadeAction.SetNull)
+                {
+                    var ks = CEF.CurrentKeyService(root);
+
+                    if (ks != null)
+                    {
+                        var top = GetTrackedByWrapperOrTarget(root.AsUnwrapped());
+                        var rbt = root.GetBaseType();
+
+                        foreach (var co in ks.GetChildObjects(this, root).ToArray())
+                        {
+                            var toc = GetTrackedByWrapperOrTarget(co);
+
+                            var bt = co.GetBaseType();
+
+                            foreach (var k in ks.GetRelationsForChild(bt))
+                            {
+                                if (k.ParentType == rbt)
+                                {
+                                    if (toc != null)
+                                    {
+                                        if (ks.RemoveFK(this, k, top, toc, top.GetNotifyFriendly(), true) == null)
+                                        {
+                                            continue;
+                                        }
+                                    }
+
+                                    // We use modified priority to ensure on save, unlinks happen before deletions
+                                    var iw = co.AsInfraWrapped();
+                                    var rs = iw.GetRowState();
+                                    
+                                    if (rs == ObjectState.Modified)
+                                    {
+                                        iw.SetRowState(ObjectState.ModifiedPriority);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

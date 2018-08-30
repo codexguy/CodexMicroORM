@@ -645,6 +645,27 @@ namespace CodexMicroORM.Core
             throw new InvalidCastException("Cannot coerce type.");
         }
 
+        public static object CoerceDBNullableType(this object source, Type prefType)
+        {
+            if (source == null || DBNull.Value.Equals(source))
+            {
+                return null;
+            }
+
+            // Avoid casting to string if the types match
+            if (source.GetType() == prefType)
+            {
+                return source;
+            }
+
+            if (source.GetType() == typeof(DateTime))
+            {
+                return ((DateTime)source).ToString("O").CoerceType(prefType);
+            }
+
+            return source.ToString().CoerceType(prefType);
+        }
+
         public static T CoerceType<T>(this string source)
         {
             if (source == null)
@@ -685,6 +706,72 @@ namespace CodexMicroORM.Core
             throw new InvalidCastException("Cannot coerce type.");
         }
 
+        public static void ReconcileDataViewToEntitySet<T>(this DataView source, EntitySet<T> target) where T : class, new()
+        {
+            // A natural key must be available!
+            var key = KeyService.ResolveKeyDefinitionForType(typeof(T));
+
+            if (key?.Count == 0)
+            {
+                throw new ArgumentException($"Type {typeof(T).Name} does not have a key defined.");
+            }
+
+            var nonKeyCol = (from a in source.Table.Columns.Cast<DataColumn>() where !(from b in key where b == a.ColumnName select b).Any() select a);
+            var ss = CEF.CurrentServiceScope;
+
+            // Build a dictionary for faster lookup
+            var setData = target.ToDictionary(key);
+
+            // First pass for inserts, updates
+            foreach (DataRowView drv in source)
+            {
+                StringBuilder sb = new StringBuilder(128);
+
+                foreach (var k in key)
+                {
+                    if (sb.Length > 0)
+                    {
+                        sb.Append("~");
+                    }
+                    sb.Append(drv[k]);
+                }
+
+                if (!setData.TryGetValue(sb.ToString(), out T entRow))
+                {
+                    entRow = target.Add();
+                }
+
+                var iw = entRow.AsInfraWrapped();
+
+                foreach (DataColumn dc in nonKeyCol)
+                {
+                    var setter = ss.GetSetter(iw, dc.ColumnName);
+                    setter.setter.Invoke(drv[dc.ColumnName].CoerceDBNullableType(setter.type ?? dc.DataType));
+                }
+            }
+
+            // Second pass for deletes - use a separate DV we can sort for fast lookup
+            using (DataView dv = new DataView(source.Table, source.RowFilter, string.Join(",", key.ToArray()), source.RowStateFilter))
+            {
+                foreach (var kvp in setData.ToList())
+                {
+                    var iw = kvp.Value.AsInfraWrapped();
+
+                    if (dv.Find((from a in key select iw.GetValue(a)).ToArray()) < 0)
+                    {
+                        CEF.DeleteObject(kvp.Value);
+                        target.Remove(kvp.Value);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates a DataTable with the same structure as the source EntitySet collection. Columns are determined based on properties (CLR and extended). Changes to the DataTable do NOT reflect back to the EntitySet instance.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="source"></param>
+        /// <returns></returns>
         public static DataTable DeepCopyDataTable<T>(this EntitySet<T> source) where T : class, new()
         {
             List<(string name, Type type, bool nullable)> columns = new List<(string name, Type type, bool nullable)>();
@@ -692,11 +779,15 @@ namespace CodexMicroORM.Core
             if (source.Any())
             {
                 // Use first row's properties (could include extended props)
-                columns.AddRange(from a in source.First().AsInfraWrapped().GetAllPreferredTypes() select (a.Key, a.Value, a.Value.IsGenericType && a.Value.GetGenericTypeDefinition() == typeof(Nullable<>)));
+                var iw = source.First().AsInfraWrapped();
+
+                columns.AddRange(from a in iw.GetAllValues(false, true)
+                                 let pt = (from b in iw.GetAllPreferredTypes(false, true) where b.Key == a.Key select b.Value).FirstOrDefault() ?? (a.Value == null ? typeof(object) : a.Value.GetType())
+                                 select (a.Key, pt, pt.IsGenericType && pt.GetGenericTypeDefinition() == typeof(Nullable<>)));
             }
             else
             {
-                // Use type's properties only
+                // Use type's properties only, nothing else to go on
                 columns.AddRange(from a in typeof(T).GetProperties() select (a.Name, a.PropertyType, a.PropertyType.IsGenericType && a.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>)));
             }
 
@@ -723,12 +814,12 @@ namespace CodexMicroORM.Core
                 {
                     var dr = dt.NewRow();
 
-                    if (rs == ObjectState.Modified)
+                    if (rs == ObjectState.Modified || rs == ObjectState.ModifiedPriority)
                     {
                         dr.AcceptChanges();
                     }
 
-                    foreach (var v in iw.GetAllValues())
+                    foreach (var v in iw.GetAllValues(true))
                     {
                         if (v.Value != null && dt.Columns.Contains(v.Key))
                         {
@@ -748,6 +839,14 @@ namespace CodexMicroORM.Core
             return dt;
         }
 
+        /// <summary>
+        /// Creates a DataView with the same structure as the source EntitySet collection. Columns are determined based on properties (CLR and extended). Changes to the DataView do NOT reflect back to the EntitySet instance.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="source"></param>
+        /// <param name="sort"></param>
+        /// <param name="filter"></param>
+        /// <returns></returns>
         public static DataView DeepCopyDataView<T>(this EntitySet<T> source, string sort = null, string filter = null) where T : class, new()
         {
             var dv = DeepCopyDataTable(source).DefaultView;

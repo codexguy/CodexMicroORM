@@ -170,6 +170,13 @@ namespace CodexMicroORM.Core.Services
 
         private static IEnumerable<object> InternalGetParentObjects(KeyServiceState state, ServiceScope ss, object o, RelationTypes types, HashSet<object> visits)
         {
+            if (state == null)
+                throw new ArgumentNullException("state");
+            if (ss == null)
+                throw new ArgumentNullException("ss");
+            if (o == null)
+                throw new ArgumentNullException("o");
+
             var uw = o.AsUnwrapped();
 
             if (visits.Contains(uw))
@@ -215,6 +222,13 @@ namespace CodexMicroORM.Core.Services
 
         private static IEnumerable<object> InternalGetChildObjects(KeyServiceState state, ServiceScope ss, object o, RelationTypes types, HashSet<object> visits)
         {
+            if (state == null)
+                throw new ArgumentNullException("state");
+            if (ss == null)
+                throw new ArgumentNullException("ss");
+            if (o == null)
+                throw new ArgumentNullException("o");
+
             var uw = o.AsUnwrapped();
 
             if (visits.Contains(uw))
@@ -476,6 +490,11 @@ namespace CodexMicroORM.Core.Services
             LinkByValuesInScope(to, ss, keystate, isNew);
         }
 
+        public object RemoveFK(ServiceScope ss, TypeChildRelationship key, ServiceScope.TrackedObject parent, ServiceScope.TrackedObject child, INotifyPropertyChanged parentWrapped, bool nullifyChild)
+        {
+            return ss.GetServiceState<KeyServiceState>()?.RemoveFK(ss, key, parent, child, parentWrapped, nullifyChild);
+        }
+
         public IEnumerable<object> GetParentObjects(ServiceScope ss, object o, RelationTypes types = RelationTypes.None)
         {
             return InternalGetParentObjects(ss.GetServiceState<KeyServiceState>(), ss, o, types, new HashSet<object>());
@@ -520,6 +539,7 @@ namespace CodexMicroORM.Core.Services
                 var w = to.GetWrapper();
 
                 bool didLink = false;
+                bool didAdd = false;
 
                 var childRels = _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), uw.GetBaseType()).ToArray();
 
@@ -537,6 +557,7 @@ namespace CodexMicroORM.Core.Services
                         if (testParent != null)
                         {
                             objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false);
+                            didAdd = true;
                         }
                         else
                         {
@@ -554,6 +575,7 @@ namespace CodexMicroORM.Core.Services
                         {
                             iw.SetValue(rel.ParentPropertyName, testParent.GetWrapperTarget());
                             objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false);
+                            didAdd = true;
                         }
                         else
                         {
@@ -593,7 +615,7 @@ namespace CodexMicroORM.Core.Services
 
                                 if (parVal is ICEFList asCefList)
                                 {
-                                    asCefList.AddWrappedItem(w ?? uw);
+                                    asCefList.AddWrappedItem(w ?? uw, !didAdd);
                                 }
 
                                 didLink = true;

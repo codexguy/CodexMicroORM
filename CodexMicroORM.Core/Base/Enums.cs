@@ -62,7 +62,8 @@ namespace CodexMicroORM.Core
         Modified = 1,
         Added = 2,
         Deleted = 3,
-        Unlinked = 4
+        Unlinked = 4,
+        ModifiedPriority = 5
     }
 
     [Flags]

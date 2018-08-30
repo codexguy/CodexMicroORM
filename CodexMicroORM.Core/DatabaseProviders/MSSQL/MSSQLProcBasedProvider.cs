@@ -284,6 +284,18 @@ namespace CodexMicroORM.Providers
                 }
             }
 
+            if (Globals.DeepLogger != null)
+            {
+                try
+                {
+                    Globals.DeepLogger(cmd.ToString());
+                }
+                catch
+                {
+                    // Not ideal, but logging failures should not blow up whole app!
+                }
+            }
+
             return cmd;
         }
 

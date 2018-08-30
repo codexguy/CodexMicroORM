@@ -484,6 +484,71 @@ namespace CodexMicroORM.NFWTests
         }
 
         [TestMethod]
+        public void CascadeSetToNull()
+        {
+            int pid;
+            int phid;
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                var p1 = CEF.NewObject<PersonWrapped>();
+                p1.Name = "Joe";
+                p1.Age = 22;
+                p1.Gender = "M";
+                var ph1 = CEF.NewObject(new Phone() { Number = "111-2222", PhoneTypeID = PhoneType.Home, Owner = p1 });
+                CEF.DBSave();
+                Assert.AreEqual(1, CEF.CurrentKeyService()?.GetChildObjects(CEF.CurrentServiceScope, p1, RelationTypes.Children).Count());
+                pid = p1.PersonID;
+                phid = ph1.AsDynamic().PhoneID;
+
+                CEF.DeleteObject(p1, DeleteCascadeAction.SetNull);
+                CEF.DBSave();
+            }
+
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                var pes = new EntitySet<Person>().DBRetrieveByKey(pid);
+                Assert.AreEqual(0, pes.Count());
+
+                var phes = new EntitySet<Phone>().DBRetrieveByKey(phid);
+                Assert.AreEqual(1, phes.Count());
+                Assert.AreEqual(null, phes.First().Owner);
+                Assert.AreEqual(null, phes.First().AsDynamic().PersonID);
+            }
+        }
+
+        [TestMethod]
+        public void CreateDataViewFromSavedEntityChangeReconcileBackToEntitySetSave()
+        {
+            using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
+            {
+                var es = new EntitySet<Phone>
+                {
+                    CEF.NewObject(new Phone() { Number = "767-2323", PhoneTypeID = PhoneType.Home }),
+                    CEF.NewObject(new Phone() { Number = "767-2324", PhoneTypeID = PhoneType.Home }),
+                    CEF.NewObject(new Phone() { Number = "767-2325", PhoneTypeID = PhoneType.Home })
+                };
+                es.DBSave();
+
+                var dv = es.DeepCopyDataView();
+                dv[0]["Number"] = "767-2329";
+                dv[1].Delete();
+                var drv = dv.AddNew();
+                drv["Number"] = "788-1010";
+                drv["PhoneTypeID"] = 2;
+
+                dv.ReconcileDataViewToEntitySet(es);
+                Assert.AreEqual(3, es.Count());
+                Assert.AreEqual(1, (from a in CEF.CurrentServiceScope.GetAllTracked() where a.GetRowState() == ObjectState.Added select a).Count());
+                Assert.AreEqual(1, (from a in CEF.CurrentServiceScope.GetAllTracked() where a.GetRowState() == ObjectState.Modified select a).Count());
+                Assert.AreEqual(1, (from a in CEF.CurrentServiceScope.GetAllTracked() where a.GetRowState() == ObjectState.Unchanged select a).Count());
+                Assert.AreEqual(1, (from a in CEF.CurrentServiceScope.GetAllTracked() where a.GetRowState() == ObjectState.Deleted select a).Count());
+                es.DBSave();
+                Assert.AreEqual(3, (from a in CEF.CurrentServiceScope.GetAllTracked() where a.GetRowState() == ObjectState.Unchanged select a).Count());
+            }
+        }
+
+        [TestMethod]
         public void UseInitNullCollectionsAddAndSave()
         {
             using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))

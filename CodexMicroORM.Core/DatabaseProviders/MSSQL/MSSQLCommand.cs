@@ -25,6 +25,7 @@ using System.Text.RegularExpressions;
 using CodexMicroORM.Core;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
 
 namespace CodexMicroORM.Providers
 {
@@ -36,6 +37,12 @@ namespace CodexMicroORM.Providers
         private static ConcurrentDictionary<string, IEnumerable<SqlParameter>> _paramCache = new ConcurrentDictionary<string, IEnumerable<SqlParameter>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultLargerDictionaryCapacity, Globals.CurrentStringComparer);
         private SqlCommand _cmd;
 
+        public static bool UseNullForMissingValues
+        {
+            get;
+            set;
+        } = true;
+
         public static void FlushCaches()
         {
             _paramCache.Clear();
@@ -43,10 +50,38 @@ namespace CodexMicroORM.Providers
 
         public MSSQLCommand(MSSQLConnection conn, string cmdText, CommandType cmdType, int? timeoutOverride)
         {
-            _cmd = new SqlCommand(cmdText, conn.CurrentConnection);
-            _cmd.CommandType = cmdType;
-            _cmd.CommandTimeout = timeoutOverride.GetValueOrDefault(Globals.CommandTimeoutSeconds.GetValueOrDefault(conn.CurrentConnection.ConnectionTimeout));
-            _cmd.Transaction = conn.CurrentTransaction;
+            _cmd = new SqlCommand(cmdText, conn.CurrentConnection)
+            {
+                CommandType = cmdType,
+                CommandTimeout = timeoutOverride.GetValueOrDefault(Globals.CommandTimeoutSeconds.GetValueOrDefault(conn.CurrentConnection.ConnectionTimeout)),
+                Transaction = conn.CurrentTransaction
+            };
+        }
+
+        public override string ToString()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append(_cmd.CommandText);
+            sb.Append("?");
+            bool first = true;
+
+            foreach (SqlParameter p in _cmd.Parameters)
+            {
+                if (!first)
+                {
+                    sb.Append("&");
+                }
+
+                first = false;
+                sb.Append(p.ParameterName);
+                sb.Append("=");
+                sb.Append(p.Value);
+                sb.Append(" (");
+                sb.Append(p.Size);
+                sb.Append(")");
+            }
+
+            return sb.ToString();
         }
 
         public IDictionary<string, object> GetParameterValues()
@@ -132,11 +167,19 @@ namespace CodexMicroORM.Providers
                                     break;
                             }
 
-                            int.TryParse(dr["CHARACTER_MAXIMUM_LENGTH"].ToString(), out int len);
-
-                            if (len > 0)
+                            if (int.TryParse(dr["CHARACTER_MAXIMUM_LENGTH"].ToString(), out int len))
                             {
-                                p.Size = len;
+                                if (len > 0)
+                                {
+                                    p.Size = len;
+                                }
+                                else
+                                {
+                                    if (len <= 0)
+                                    {
+                                        p.Size = -1;
+                                    }
+                                }
                             }
 
                             byte.TryParse(dr["NUMERIC_PRECISION"].ToString(), out byte prec);
@@ -210,14 +253,7 @@ namespace CodexMicroORM.Providers
                     }
                     else
                     {
-                        if (parms[idx] == null)
-                        {
-                            p.Parm.Value = DBNull.Value;
-                        }
-                        else
-                        {
-                            p.Parm.Value = parms[idx];
-                        }
+                        p.Parm.Value = parms[idx] ?? DBNull.Value;
                     }
 
                     idx++;
@@ -237,7 +273,8 @@ namespace CodexMicroORM.Providers
             foreach (var p in (from a in _cmd.Parameters.Cast<SqlParameter>()
                                let sn = a.ParameterName.StartsWith("@") ? a.ParameterName.Substring(1) : a.ParameterName
                                let pn = db?.GetPropertyNameFromStorageName(baseType, sn) ?? sn
-                               where parms.ContainsKey(pn) select new { Parm = a, Value = parms[pn] }))
+                               let hasVal = parms.ContainsKey(pn)
+                               where hasVal || UseNullForMissingValues select new { Parm = a, Value = hasVal ? parms[pn] : null }))
             {
                 p.Parm.Value = p.Value ?? DBNull.Value;
             }

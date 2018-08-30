@@ -463,6 +463,35 @@ namespace CodexMicroORM.Core.Services
                           into g
                           select new { g.Key.Provider, g.Key.Level, g.Key.RowState, Rows = (from asp in g select (asp.schema, asp.name, asp.basetype, asp.row)) };
 
+            if ((settings.AllowedOperations & DBSaveSettings.Operations.Update) != 0)
+            {
+                foreach (var prov in (from a in ordRows select a.Provider).Distinct())
+                {
+                    // Perform for any parent rows, if applicable
+                    var parentRows = (from a in ordRows
+                                      where a.Provider == prov && a.RowState == ObjectState.ModifiedPriority
+                                      from r in a.Rows
+                                      where _typeParentSave.ContainsKey(r.basetype)
+                                      group r by a.Level into g
+                                      select (g.Key, (from b in g let pn = _typeParentSave[b.basetype] select (pn.schema ?? b.schema, pn.name, b.basetype, b.row))));
+
+                    if (parentRows.Any())
+                    {
+                        try
+                        {
+                            settings.NoAcceptChanges = true;
+                            prov.UpdateRows(cs, parentRows, settings);
+                        }
+                        finally
+                        {
+                            settings.NoAcceptChanges = false;
+                        }
+                    }
+
+                    results.AddRange(from a in prov.UpdateRows(cs, (from a in ordRows where a.RowState == ObjectState.ModifiedPriority select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
+                }
+            }
+
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Delete) != 0)
             {
                 foreach (var prov in (from a in ordRows select a.Provider).Distinct())

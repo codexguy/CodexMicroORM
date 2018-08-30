@@ -20,6 +20,7 @@ using CodexMicroORM.Core.Services;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Data;
 using System.Threading.Tasks;
 
@@ -150,6 +151,8 @@ namespace CodexMicroORM.Core
         int GetObjectNestLevel(object o);
 
         IEnumerable<TypeChildRelationship> GetRelationsForChild(Type childType);
+
+        object RemoveFK(ServiceScope ss, TypeChildRelationship key, ServiceScope.TrackedObject parent, ServiceScope.TrackedObject child, INotifyPropertyChanged parentWrapped, bool nullifyChild);
     }
 
     public interface ICEFPersistenceHost : ICEFService
@@ -308,7 +311,7 @@ namespace CodexMicroORM.Core
     /// </summary>
     public interface ICEFList
     {
-        bool AddWrappedItem(object o);
+        bool AddWrappedItem(object o, bool allowLinking = true);
 
         void Initialize(ServiceScope ss, object parentContainer, string parentTypeName, string parentFieldName);
 

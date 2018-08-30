@@ -35,7 +35,7 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 * *Anything* beyond simple POCO is considered a *service*.
 * Entities can (and should) have "defaults" for what services they want to have supporting them:
 	* Defaults can be set globally at AppDomain level.
-	* Defaults can be set per entity based on code - not attributes like I've done in CodeXFramework v1 since in code can still be code-genned, can be called on "start" in most cases - attributes would force changing the nature of the POCO classes potentially (perhaps they aren't in partial classes, perhaps even if were partial classes, need to reference from external assemblies, etc.). Most of what you'd run on startup to configure the framework should be a) mostly generated from your model, b) fast (mainly just registration), c) self-contained (can go in a file / partial class).
+	* Defaults can be set per entity based on code, or using attributes.
 	* Defaults can be overridden, per instance, both opting in and out of services.
 * Not every object needs every service, support the minimum overhead solution as much as possible.
 * Some services might need to target .NET Framework, not .NET Standard, where the support does not exist: but this should be "ok" - if you want to use a service that relies on .NET Framework, you simply need to implement your solution there (or in a client-server scenario, you can implement a different set of services in each tier, if you like!)
@@ -51,7 +51,7 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 	* Persistence and change tracking (PCT) - can identify "original values", "row states", and enough detail to serialize "differences" across process boundaries. (*Update* - as of 0.2.2, serialization support has been added, including the ability to send only changes over the wire.)
 	* Audit - manages "last updated" fields, logical deletion, etc. Things like Last Updated fields should have framework support so we don't have to worry about managing these beyond high level settings.
 	* Database Persistence:
-		* Supports stored procedure mapping such that can leverage existing SQL audit templates that do a good job of building a CRUD layer, optimistic concurrency and temporal tables "done right" (i.e. determine *who* deleted a record!! - not something you can do natively with SQL2014 temporal tables).
+		* Supports stored procedure mapping such that can leverage existing SQL audit templates that do a good job of building a CRUD layer, optimistic concurrency and temporal tables "done right" (i.e. determine *who* deleted a record!! - not something you can do natively with SQL2016 temporal tables).
 		* Supports parameter mapping such that can still read and write from objects that are strictly "proc-based", where needed. (I.e. having tables behind it is not necessary).
 		* Understands connection management / transaction participation, etc. - see below.
 		* The full .Save() type of functionality for single records, isolated collections and complete object graphs.
@@ -76,6 +76,7 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 * Registration process should support multiple code gens - for example you could generate 3 different registration methods for 3 different databases.
 * All of the setup code we see should be generated from models: be it a database, or even an ERD. The end goal is you identify some logical model you want to work with, map it (visually, ideally), and then plumbing is created for you - start using objects and away you go.
 * Sensitive to your preferences: for example, if your standard is to use integer primary keys versus longs, we should let you do that easily. The same is true with your naming conventions (although name mapping is more of a vnext feature).
+* Ability to interop with DataTable/DataView. This is not my suggested approach, but given the familiarity many have with these, we can offer some useful extension methods to offer copying, merging, etc.
 
 I'll dive deeper on the various design goals in [blog postings](https://www.xskrape.com/Home/Articles?SearchCategory=CodexMicroORM).
 
@@ -184,7 +185,7 @@ In terms of the SQL to support these examples: a .sql script is included in both
 
 The SQL that's included is a combination of hand-written stored procedures and code generated objects, including procedures (CRUD) and triggers. The code generator I've used is [XS Tool Suite](https://www.xskrape.com/Home/XSSuite), but you can use whatever tool you like. The generated SQL is based on declarative settings that identify: a) what type of optimistic concurrency you need (if any), b) what kind of audit history you need (if any).
 
-Of note, the audit history template used here has an advantage over temporal tables found in SQL 2014: you can identify *who* deleted records, which (unfortunately) can be quite useful! CodexMicroORM plays well with the data layer, providing support for LastUpdatedBy, LastUpdatedDate, and IsDeleted (logical delete) fields in the database. *Update*: I've published a blog article that gets into detail on this topic of [SQL data auditing](https://www.xskrape.com/home/article/Data-Change-Audit--Winning-on-Performance--and-XS-Tool-Suite).
+Of note, the audit history template used here has an advantage over temporal tables found in SQL 2016: you can identify *who* deleted records, which (unfortunately) can be quite useful! CodexMicroORM plays well with the data layer, providing support for LastUpdatedBy, LastUpdatedDate, and IsDeleted (logical delete) fields in the database. *Update*: I've published a blog article that gets into detail on this topic of [SQL data auditing](https://www.xskrape.com/home/article/Data-Change-Audit--Winning-on-Performance--and-XS-Tool-Suite).
 
 *Update*: deeper tool support has arrived with [XS Tool Suite 2018 Volume 1](https://www.xskrape.com/Home/XSSuite). This version includes templates that can generate your business object layer (with settings via attributes), do your SQL data audit + CRUD procedures, and more!
 
@@ -376,11 +377,13 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
     * Minor fixes/enhancements to support latest [XS Tool Suite](https://www.xskrape.com/Home/XSSuite) code-gen templates
 * 0.7.4 - Aug 2018
     * Minor fixes (type conversions, etc.) (FYI - the [xskrape.com web site](https://www.xskrape.com) uses CEF)
+* 0.8.0 - Aug 2018
+    * Fix related to varchar(max) handling; other fixes/refactorings in Keys service (update importance: high)
+	* Addition of: DeepLogger, new ObjectState (ModifiedPriority) to support DeleteCascadeAction.SetNull (implemented), ReconcileDataViewToEntitySet, UseNullForMissingValues (solves insert-save-update-save issue)
 
 ## Roadmap / Plans
 Look for in coming releases:
 
-* Some initial code-gen support (*DONE*, as of 0.7)
 * Support for more complex types of object mapping
 * Full-on demo app that uses everything end-to-end; on-line and/or PDF documentation
 

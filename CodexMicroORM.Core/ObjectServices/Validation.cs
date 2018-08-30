@@ -304,7 +304,9 @@ namespace CodexMicroORM.Core.Services
 
                 foreach (var v in vl2b)
                 {
-                    if (iw.GetRowState() == ObjectState.Modified)
+                    var rs = iw.GetRowState();
+
+                    if (rs == ObjectState.Modified || rs == ObjectState.ModifiedPriority)
                     {
                         if (!iw.GetOriginalValue(v, false).IsSame(iw.GetValue(v)))
                         {
@@ -399,7 +401,9 @@ namespace CodexMicroORM.Core.Services
 
                 var pmatch = (from a in vl2b where string.Compare(propName, a, !Globals.CaseSensitiveDictionaries) == 0 select a).FirstOrDefault();
 
-                if (!string.IsNullOrEmpty(pmatch) && iw.GetRowState() == ObjectState.Modified && !iw.GetOriginalValue(pmatch, false).IsSame(iw.GetValue(pmatch)))
+                var rs = iw.GetRowState();
+
+                if (!string.IsNullOrEmpty(pmatch) && (rs == ObjectState.Modified || rs == ObjectState.ModifiedPriority) && !iw.GetOriginalValue(pmatch, false).IsSame(iw.GetValue(pmatch)))
                 {
                     messages.Add((ValidationErrorCode.IllegalUpdate, BuildMessageForProperty(IllegalUpdateMessage, pmatch)));
                 }

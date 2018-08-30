@@ -44,6 +44,15 @@ namespace CodexMicroORM.Core
         #endregion
 
         /// <summary>
+        /// Mainly intended for debugging purposes, allows certain very low-level operations to be logged. (Use sparingly!)
+        /// </summary>
+        public static Action<string> DeepLogger
+        {
+            get;
+            set;
+        } = null;
+
+        /// <summary>
         /// Rather than the default of "3" for standard dictionary initialization, offers a different starting capacity for most dictionaries managed by the framework.
         /// </summary>
         public static int DefaultDictionaryCapacity
