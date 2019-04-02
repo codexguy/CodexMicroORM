@@ -18,15 +18,25 @@ Major Changes:
 4/2018     0.5     Addition of locking helpers
 ***********************************************************************/
 using System;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace CodexMicroORM.Core
 {
+    public sealed class SerializationVisitTracker
+    {
+        public HashSet<object> Objects { get; } = new HashSet<object>();
+
+        public HashSet<Type> Types { get; } = new HashSet<Type>();
+    }
+
     /// <summary>
     /// Mainly intended for internal use by lock classes implemented here.
     /// </summary>
+    [Serializable]
     public sealed class RWLockInfo
     {
+        [NonSerialized]
         public ReaderWriterLockSlim Lock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
 
 #if DEBUG

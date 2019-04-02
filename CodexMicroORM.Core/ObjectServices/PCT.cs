@@ -45,11 +45,11 @@ namespace CodexMicroORM.Core.Services
         /// <param name="mode"></param>
         /// <param name="visits"></param>
         /// <returns></returns>
-        public bool SaveContents(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits)
+        public bool SaveContents(JsonTextWriter tw, object o, SerializationMode mode, SerializationVisitTracker visits)
         {
-            if (visits.ContainsKey(o))
+            if (visits.Objects.Contains(o))
             {
-                return visits[o];
+                return true;
             }
 
             bool include = true;
@@ -65,7 +65,14 @@ namespace CodexMicroORM.Core.Services
                 WriteSerializationText(tw, o, mode, visits);
             }
 
-            visits[o] = true;
+            visits.Objects.Add(o);
+
+            var wot = o.AsInfraWrapped().GetWrappedObject()?.GetType() ?? o.GetBaseType();
+
+            if (!visits.Types.Contains(wot))
+            {
+                visits.Types.Add(wot);
+            }
 
             return include;
         }
@@ -85,7 +92,7 @@ namespace CodexMicroORM.Core.Services
 
                         foreach (var i in setArray.Children())
                         {
-                            if (i.First.Type == JTokenType.Object)
+                            if (i.Type == JTokenType.Object)
                             {
                                 yield return CEF.Deserialize<T>(i.ToString());
                             }
@@ -171,7 +178,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private void WriteSerializationText(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits)
+        private void WriteSerializationText(JsonTextWriter tw, object o, SerializationMode mode, SerializationVisitTracker visits)
         {
             var iw = o.AsInfraWrapped(false);
 
@@ -190,7 +197,8 @@ namespace CodexMicroORM.Core.Services
                     tw.WriteValue(o.GetType().AssemblyQualifiedName);
                 }
 
-                foreach (var kvp in iw.GetAllValues())
+                // Attempt to push enumerable types to the "end"
+                foreach (var kvp in (from a in iw.GetAllValues() orderby a.Value is IEnumerable ? 1 : 0 select a))
                 {
                     // If it's enumerable, recurse each item
                     // TODO - better way to detect primitive type like string w/o hardcoding??
@@ -251,6 +259,41 @@ namespace CodexMicroORM.Core.Services
                         }
                         else
                         {
+                            if ((mode & SerializationMode.ExtendedInfoAsShadowProps) != 0)
+                            {
+                                var rs = iw.GetRowState();
+
+                                if (rs == ObjectState.Modified || rs == ObjectState.ModifiedPriority)
+                                {
+                                    var ov = iw.GetOriginalValue(kvp.Key, false);
+
+                                    if (ov != null)
+                                    {
+                                        tw.WritePropertyName("\\\\" + kvp.Key);
+                                        tw.WriteValue(ov);
+                                    }
+                                }
+
+                                // We write out schema metadata only when see a type for the first time
+                                if (!visits.Types.Contains(wot))
+                                {
+                                    var pb = wot.GetProperty(kvp.Key);
+
+                                    // Preferred data type
+                                    var pt = (from a in iw.GetAllPreferredTypes() where a.Key == kvp.Key select a.Value).FirstOrDefault() ?? pb?.PropertyType;
+
+                                    if (pt != null)
+                                    {
+                                        tw.WritePropertyName("\\+" + kvp.Key);
+                                        tw.WriteValue(pt.AssemblyQualifiedName);
+
+                                        // Is writeable
+                                        tw.WritePropertyName("\\-" + kvp.Key);
+                                        tw.WriteValue(pb?.CanWrite);
+                                    }
+                                }
+                            }
+
                             if (kvp.Value != null || (mode & SerializationMode.IncludeNull) != 0)
                             {
                                 if (((mode & SerializationMode.IncludeReadOnlyProps) != 0) || (wot.GetProperty(kvp.Key)?.CanWrite).GetValueOrDefault(true))
@@ -294,6 +337,12 @@ namespace CodexMicroORM.Core.Services
                             }
                         }
                     }
+                }
+
+                if ((mode & SerializationMode.ExtendedInfoAsShadowProps) != 0)
+                {
+                    tw.WritePropertyName("_ot_");
+                    tw.WriteValue(wot.Name);
                 }
 
                 // Allows for inclusion of object state, etc.
@@ -390,7 +439,7 @@ namespace CodexMicroORM.Core.Services
             return false;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate)
         {
         }
 
@@ -408,7 +457,9 @@ namespace CodexMicroORM.Core.Services
 
         IList<Type> ICEFService.RequiredServices()
         {
-            return new Type[] { typeof(ICEFKeyHost) };
+            // TODO - verify this is ok! I see no reason to hold this dependency at this point.
+            return null;
+            //return new Type[] { typeof(ICEFKeyHost) };
         }
 
         public void Disposing(ServiceScope ss)

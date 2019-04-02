@@ -24,7 +24,6 @@ using System.Data;
 using System.Text.RegularExpressions;
 using CodexMicroORM.Core;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text;
 
 namespace CodexMicroORM.Providers
@@ -130,18 +129,18 @@ namespace CodexMicroORM.Providers
                 {
                     discoverCmd.CommandType = CommandType.StoredProcedure;
 
-                    var sn = SplitIntoSchemaAndName(_cmd.CommandText);
+                    var (schema, name) = SplitIntoSchemaAndName(_cmd.CommandText);
 
-                    if (string.IsNullOrEmpty(sn.name))
+                    if (string.IsNullOrEmpty(name))
                     {
                         throw new CEFInvalidOperationException($"Unable to determine stored procedure name from {_cmd.CommandText}.");
                     }
 
-                    discoverCmd.Parameters.AddWithValue("@procedure_name", sn.name);
+                    discoverCmd.Parameters.AddWithValue("@procedure_name", name);
 
-                    if (!string.IsNullOrEmpty(sn.schema))
+                    if (!string.IsNullOrEmpty(schema))
                     {
-                        discoverCmd.Parameters.AddWithValue("@procedure_schema", sn.schema);
+                        discoverCmd.Parameters.AddWithValue("@procedure_schema", schema);
                     }
 
                     using (var da = new SqlDataAdapter(discoverCmd))
@@ -179,6 +178,17 @@ namespace CodexMicroORM.Providers
                                     {
                                         p.Size = -1;
                                     }
+                                }
+                            }
+                            else
+                            {
+                                switch (dr["TYPE_NAME"].ToString().ToLower())
+                                {
+                                    case "xml":
+                                    case "sql_variant":
+                                    case "binary":
+                                        p.Size = -1;
+                                        break;
                                 }
                             }
 
@@ -274,7 +284,8 @@ namespace CodexMicroORM.Providers
                                let sn = a.ParameterName.StartsWith("@") ? a.ParameterName.Substring(1) : a.ParameterName
                                let pn = db?.GetPropertyNameFromStorageName(baseType, sn) ?? sn
                                let hasVal = parms.ContainsKey(pn)
-                               where hasVal || UseNullForMissingValues select new { Parm = a, Value = hasVal ? parms[pn] : null }))
+                               where hasVal || UseNullForMissingValues
+                               select new { Parm = a, Value = hasVal ? parms[pn] : null }))
             {
                 p.Parm.Value = p.Value ?? DBNull.Value;
             }

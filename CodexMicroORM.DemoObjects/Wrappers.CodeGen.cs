@@ -37,6 +37,7 @@ namespace CodexMicroORM.DemoObjects
     /// Ideally it would be sourced from class metadata (Person) and the underlying database store.
     /// This compliments the startup code which should also be code generated based on DB schema and/or logical model definition.
     /// </summary>
+    [Serializable]
     public class PersonWrapped : Person, INotifyPropertyChanged, ICEFWrapper
     {
         #region "ICEFWrapper-specific"

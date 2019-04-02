@@ -31,6 +31,11 @@ namespace CodexMicroORM.BindingSupport
             return new GenericBindableSet(from a in list let d = a.AsInfraWrapped() as DynamicWithBag where d != null select new DynamicBindable(d));
         }
 
+        public static GenericBindableSet AsDynamicBindable(this System.Collections.IEnumerable list)
+        {
+            return new GenericBindableSet(from a in list.Cast<object>() let d = a.AsInfraWrapped() as DynamicWithBag where d != null select new DynamicBindable(d));
+        }
+
         public static GenericBindableSet AsDynamicBindable<T>(this EntitySet<T> list) where T : class, new()
         {
             return new GenericBindableSet(from a in list let d = a.AsInfraWrapped() as DynamicWithBag where d != null select new DynamicBindable(d));

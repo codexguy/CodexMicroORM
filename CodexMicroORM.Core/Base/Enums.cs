@@ -37,6 +37,7 @@ namespace CodexMicroORM.Core
         OnlyCLRProperties = 32,
         IncludeType = 64,
         SingleLevel = 128,
+        ExtendedInfoAsShadowProps = 256,
         Default = 9,
         OverWire = 25,
         OverWireOnlyChanges = 27

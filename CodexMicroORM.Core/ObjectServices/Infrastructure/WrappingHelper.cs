@@ -217,7 +217,7 @@ namespace CodexMicroORM.Core.Services
                                 }
                                 else
                                 {
-                                    wrapped = ss.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, visits);
+                                    wrapped = ss.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, visits, true);
                                 }
 
                                 wrappedCol.AddWrappedItem(wrapped);
@@ -251,7 +251,7 @@ namespace CodexMicroORM.Core.Services
                                 }
                                 else
                                 {
-                                    wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, null, visits);
+                                    wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, null, visits, true);
                                 }
 
                                 if (wrapped != null)

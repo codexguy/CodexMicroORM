@@ -579,7 +579,7 @@ namespace CodexMicroORM.Core.Services
         {
             using (new ReaderLock(_lock))
             {
-                return (CEF.CurrentPCTService()?.SaveContents(tw, this, mode, new Dictionary<object, bool>(Globals.DefaultDictionaryCapacity))).GetValueOrDefault();
+                return (CEF.CurrentPCTService()?.SaveContents(tw, this, mode, new SerializationVisitTracker())).GetValueOrDefault();
             }
         }
 
@@ -607,6 +607,11 @@ namespace CodexMicroORM.Core.Services
             }
 
             return sb.ToString();
+        }
+
+        public virtual void SetOriginalValue(string propName, object value)
+        {
+            throw new NotSupportedException();
         }
 
         public virtual object GetOriginalValue(string propName, bool throwIfNotSet)

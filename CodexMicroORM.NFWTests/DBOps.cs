@@ -256,10 +256,13 @@ namespace CodexMicroORM.NFWTests
 
             using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
             {
-                var w1 = CEF.NewObject(new Widget() { SKU = "A001", Cost = 100 });
+                var w1 = CEF.NewObject<Widget>();
 
                 // Verify used default for status
                 Assert.AreEqual(WidgetStatusValues.PEND, w1.CurrentStatus);
+
+                w1.SKU = "A001";
+                w1.Cost = 100;
 
                 // Identify that the serial number is missing (required field)
                 var valstate = w1.AsInfraWrapped().GetValidationState();
@@ -327,7 +330,8 @@ namespace CodexMicroORM.NFWTests
                 Assert.IsTrue(riw.GetRowState() == ObjectState.Modified);
 
                 // Create a third widget which is not rooted to the receipt (should not save)
-                var w3 = CEF.NewObject(new Widget() { SKU = "A001", Cost = 99, SerialNumber = "G232AS23" });
+                var w3 = CEF.NewObject(new Widget() { SKU = "A001", Cost = 99, SerialNumber = "G232AS23", CurrentStatus = WidgetStatusValues.PEND });
+                w2.CurrentStatus = WidgetStatusValues.PEND;
 
                 // Add the 2 widgets created above to the Receipt and save - also tests compound keys
                 // We leverage the previously retrieved WidgetGroupID, next test should try to do it when everything is unsaved

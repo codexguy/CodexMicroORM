@@ -354,12 +354,17 @@ namespace CodexMicroORM.Core.Services
             return need;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate)
         {
             var uw = to.GetTarget();
 
             if (uw == null)
                 return;
+
+            if (props == null)
+            {
+                props = new Dictionary<string, object>();
+            }
 
             var pkFields = ResolveKeyDefinitionForType(uw.GetBaseType());
 
@@ -792,7 +797,7 @@ namespace CodexMicroORM.Core.Services
                                     {
                                         var toAdd = sValEnum.Current;
                                         var toAddWrapped = ss.GetDynamicWrapperFor(toAdd, false);
-                                        var toAddTracked = ss.InternalCreateAddBase(toAdd, toAddWrapped != null && toAddWrapped.GetRowState() == ObjectState.Added, null, null, null, null);
+                                        var toAddTracked = ss.InternalCreateAddBase(toAdd, toAddWrapped != null && toAddWrapped.GetRowState() == ObjectState.Added, null, null, null, null, true);
 
                                         if (!asCefList.ContainsItem(toAddTracked))
                                         {

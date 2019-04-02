@@ -76,7 +76,7 @@ Diving more deeply, what does CodexMicroORM try to do *better* than other framew
 * Registration process should support multiple code gens - for example you could generate 3 different registration methods for 3 different databases.
 * All of the setup code we see should be generated from models: be it a database, or even an ERD. The end goal is you identify some logical model you want to work with, map it (visually, ideally), and then plumbing is created for you - start using objects and away you go.
 * Sensitive to your preferences: for example, if your standard is to use integer primary keys versus longs, we should let you do that easily. The same is true with your naming conventions (although name mapping is more of a vnext feature).
-* Ability to interop with DataTable/DataView. This is not my suggested approach, but given the familiarity many have with these, we can offer some useful extension methods to offer copying, merging, etc.
+* Ability to interop with DataTable/DataView. This is not my suggested approach, but given the familiarity many have with these, we can offer some useful extension methods to support copying, merging, etc.
 
 I'll dive deeper on the various design goals in [blog postings](https://www.xskrape.com/Home/Articles?SearchCategory=CodexMicroORM).
 
@@ -380,6 +380,10 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 * 0.8.0 - Aug 2018
     * Fix related to varchar(max) handling; other fixes/refactorings in Keys service (update importance: high)
 	* Addition of: DeepLogger, new ObjectState (ModifiedPriority) to support DeleteCascadeAction.SetNull (implemented), ReconcileDataViewToEntitySet, UseNullForMissingValues (solves insert-save-update-save issue)
+* 0.8.1 - Sep 2018
+    * Fix related to defaults
+* 0.8.2 - Apr 2019
+	* Minor fixes
 
 ## Roadmap / Plans
 Look for in coming releases:

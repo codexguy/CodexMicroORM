@@ -26,6 +26,7 @@ namespace CodexMicroORM.Core.Services
     /// Why separate connection scopes from service scopes? You could for example have a need for a tx that spans service scopes. You could have a need for different connections within the same service scope.
     /// A requirement: never penalize someone for forgetting to create a connection scope - we can create one-offs that act like short-lived connections (usually for the duration of a save).
     /// </summary>
+    [Serializable]
     public class ConnectionScope : IDisposable
     {
         private readonly IDBProvider _provider = null;

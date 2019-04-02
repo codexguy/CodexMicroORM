@@ -44,14 +44,21 @@ namespace CodexMicroORM.Core.Services
     /// thread-safe for the executing thread (cross-thread, we still use r/w locks but some key operations that were slow such as bulk adding rows should be much faster).
     /// </summary>
     /// <typeparam name="T"></typeparam>
+    [Serializable]
     public class EntitySet<T> : ConcurrentObservableCollection<T>, ICEFList, ICEFSerializable, ISupportInitializeNotification where T : class, new()
     {
         #region "Private state"
 
+        [NonSerialized]
         private RWLockInfo _lock = new RWLockInfo();
 
+        [NonSerialized]
         private SlimConcurrentDictionary<T, bool> _contains;
+
+        [NonSerialized]
         private long _init = 1;
+
+        [NonSerialized]
         private List<T> _toWire = new List<T>();
 
         #endregion
@@ -568,6 +575,7 @@ namespace CodexMicroORM.Core.Services
         {
             StringBuilder sb = new StringBuilder(4096);
             var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode);
+            var st = new SerializationVisitTracker();
 
             CEF.CurrentServiceScope.ReconcileModifiedState(null);
 
@@ -582,7 +590,7 @@ namespace CodexMicroORM.Core.Services
 
                     if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
                     {
-                        CEF.CurrentPCTService()?.SaveContents(jw, i, actmode, new Dictionary<object, bool>(Globals.DefaultDictionaryCapacity));
+                        CEF.CurrentPCTService()?.SaveContents(jw, i, actmode, st);
                     }
                 }
 
@@ -930,7 +938,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         if (ni != null)
                         {
-                            if (BoundScope.InternalCreateAddBase(ni, true, null, null, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity)) is ICEFWrapper w)
+                            if (BoundScope.InternalCreateAddBase(ni, true, null, null, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), true) is ICEFWrapper w)
                             {
                                 var cast = w as T;
 

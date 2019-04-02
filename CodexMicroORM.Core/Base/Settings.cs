@@ -27,6 +27,7 @@ namespace CodexMicroORM.Core
     /// <summary>
     /// Settings applicable to service scopes.
     /// </summary>
+    [Serializable]
     public sealed class ServiceScopeSettings
     {
         public bool EntitySetUsesUnwrapped
@@ -156,6 +157,7 @@ namespace CodexMicroORM.Core
     /// <summary>
     /// Settings applicable to connection scopes.
     /// </summary>
+    [Serializable]
     public sealed class ConnectionScopeSettings
     {
         public ScopeMode? ScopeMode

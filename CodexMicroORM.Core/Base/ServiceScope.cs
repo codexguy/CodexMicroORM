@@ -15,6 +15,7 @@ limitations under the License.
 
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
+8/2018     0.8     Support for SetNull on deletes
 ***********************************************************************/
 using System;
 using System.Collections.Generic;
@@ -42,6 +43,7 @@ namespace CodexMicroORM.Core
     /// Managed objects can use services, and the scope is responsible for tracking the use of these services.
     /// Scopes are typically thread-bound, where inter-thread/process use of scope data would be typically carried out via a presisting service.
     /// </summary>
+    [Serializable]
     public sealed partial class ServiceScope : IDisposable
     {
         #region "Private state"
@@ -257,6 +259,11 @@ namespace CodexMicroORM.Core
             return (T)service;
         }
 
+        /// <summary>
+        /// Returns cache behavior for a given type, if one has been set.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <returns></returns>
         public CacheBehavior ResolvedCacheBehaviorForType(Type t)
         {
             if (_cacheBehaviorByType.TryGetValue(t, out CacheBehavior cb))
@@ -267,6 +274,11 @@ namespace CodexMicroORM.Core
             return Settings.CacheBehavior.GetValueOrDefault(Globals.DefaultCacheBehavior);
         }
 
+        /// <summary>
+        /// Returns cache duration for a given type, if one has been set.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <returns></returns>
         public int ResolvedCacheDurationForType(Type t)
         {
             if (_cacheDurByType.TryGetValue(t, out int dur))
@@ -277,6 +289,10 @@ namespace CodexMicroORM.Core
             return Settings.GlobalCacheDuration.GetValueOrDefault(Globals.DefaultGlobalCacheIntervalSeconds);
         }
 
+        /// <summary>
+        /// Registers a service for local use by just this service scope (local use).
+        /// </summary>
+        /// <param name="service"></param>
         public void AddLocalService(ICEFService service)
         {
             lock (_localServices)
@@ -346,14 +362,14 @@ namespace CodexMicroORM.Core
                                 {
                                     if (settings.ValidationFailureIsException.GetValueOrDefault(Globals.ValidationFailureIsException))
                                     {
-                                        throw new CEFValidationException(fails.Count() > 1 ? "Multiple validation failures." : "Validation failure.", (from a in fails select ((ValidationErrorCode)(-a.error), a.message)));
+                                        throw new CEFValidationException(fails.Count() > 1 ? $"Multiple validation failures. (First: {fails.First().message})" : $"Validation failure. ({fails.First().message})", (from a in fails select ((ValidationErrorCode)(-a.error), a.message)));
                                     }
                                     else
                                     {
-                                        foreach (var f in fails)
+                                        foreach (var (error, message, row) in fails)
                                         {
-                                            retVal.Add(((object)f.row, f.message, f.error));
-                                            saveList.Remove(f.row);
+                                            retVal.Add(((object)row, message, error));
+                                            saveList.Remove(row);
                                         }
                                     }
                                 }
@@ -391,6 +407,12 @@ namespace CodexMicroORM.Core
             return retVal;
         }
 
+        /// <summary>
+        /// Returns an infrastructure wrapper for an input object, registering it in the this service scope. The wrapper returned inherits from System.DynamicObject, allowing for dynamic property access.
+        /// </summary>
+        /// <param name="o"></param>
+        /// <param name="canCreate"></param>
+        /// <returns></returns>
         public DynamicWithBag GetDynamicWrapperFor(object o, bool canCreate = true)
         {
             if (o == null)
@@ -429,12 +451,20 @@ namespace CodexMicroORM.Core
             return dwb;
         }
 
+        /// <summary>
+        /// Marks an object for deletion. Cascading behavior to related objects is specified explicitly.
+        /// </summary>
+        /// <param name="root"></param>
+        /// <param name="action"></param>
         public void Delete(object root, DeleteCascadeAction action)
         {
             HashSet<object> visits = new HashSet<object>();
             InternalDelete(root, visits, action);
         }
 
+        /// <summary>
+        /// Marks all objects contained in service scope as unmodified.
+        /// </summary>
         public void AcceptAllChanges()
         {
             foreach (var to in _scopeObjects)
@@ -446,6 +476,11 @@ namespace CodexMicroORM.Core
             }
         }
 
+        /// <summary>
+        /// Returns all tracked objects in the service scope which match the input type.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <returns></returns>
         public IEnumerable<TrackedObject> GetAllTrackedByType(Type t)
         {
             foreach (var to in _scopeObjects)
@@ -457,6 +492,10 @@ namespace CodexMicroORM.Core
             }
         }
 
+        /// <summary>
+        /// Retuns all tracked objects in the service scope.
+        /// </summary>
+        /// <returns></returns>
         public IEnumerable<ICEFInfraWrapper> GetAllTracked()
         {
             foreach (var to in _scopeObjects)
@@ -468,11 +507,23 @@ namespace CodexMicroORM.Core
             }
         }
 
+        /// <summary>
+        /// Adds an object to the service scope in an "added" state, optionally specifying a "template" object or list of explicit properties.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="initial"></param>
+        /// <param name="props"></param>
+        /// <returns></returns>
         public T NewObject<T>(T initial = null, Dictionary<string, object> props = null) where T : class, new()
         {
             return InternalCreateAdd(initial, true, null, props, null);
         }
 
+        /// <summary>
+        /// Takes a service scope level format JSON string and rehydrates corresponding objects in the service scope.
+        /// </summary>
+        /// <param name="json"></param>
+        /// <returns>The number of objects that were rehydrated.</returns>
         public int DeserializeScope(string json)
         {
             // Must be an array...
@@ -500,6 +551,12 @@ namespace CodexMicroORM.Core
             return visits.Count;
         }
 
+        /// <summary>
+        /// Takes a single object format JSON string and rehydrates that instance in the service scope, also returning the rehydrated object.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="json"></param>
+        /// <returns></returns>
         public T Deserialize<T>(string json) where T : class, new()
         {
             // Must be an object...
@@ -511,6 +568,12 @@ namespace CodexMicroORM.Core
             return InternalDeserialize(typeof(T), json, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity)) as T;
         }
 
+        /// <summary>
+        /// Takes an EntitySet format JSON string and rehydrates that set in the service scope, also returning the rehydrated set.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="json"></param>
+        /// <returns></returns>
         public EntitySet<T> DeserializeSet<T>(string json) where T : class, new()
         {
             // Must be an array...
@@ -555,12 +618,12 @@ namespace CodexMicroORM.Core
 
         public object IncludeObjectNonGeneric(object initial, IDictionary<string, object> props)
         {
-            return InternalCreateAddBase(initial, false, null, props, null, null);
+            return InternalCreateAddBase(initial, false, null, props, null, null, initial != null);
         }
 
         public object IncludeObjectNonGeneric(object initial, IDictionary<string, object> props, ObjectState state)
         {
-            return InternalCreateAddBase(initial, false, state, props, null, null);
+            return InternalCreateAddBase(initial, false, state, props, null, null, initial != null);
         }
 
         public INotifyPropertyChanged GetNotifyFriendlyFor(object o)
@@ -597,7 +660,7 @@ namespace CodexMicroORM.Core
         {
             ReconcileModifiedState(null);
 
-            Dictionary<object, bool> visits = new Dictionary<object, bool>(Globals.DefaultDictionaryCapacity);
+            SerializationVisitTracker visits = new SerializationVisitTracker();
             StringBuilder sb = new StringBuilder(16384);
             var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode) | SerializationMode.SingleLevel;
 
@@ -607,7 +670,7 @@ namespace CodexMicroORM.Core
 
                 foreach (var to in _scopeObjects)
                 {
-                    if (to.IsAlive && !visits.ContainsKey(to.GetWrapperTarget()))
+                    if (to.IsAlive && !visits.Objects.Contains(to.GetWrapperTarget()))
                     {
                         var iw = to.GetInfra();
 
@@ -651,9 +714,11 @@ namespace CodexMicroORM.Core
             var copyFrom = JObject.Parse(json);
 
             Dictionary<string, object> props = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
+            Dictionary<string, object> origProps = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
             Dictionary<string, (Type type, IEnumerable<string> json)> lists = new Dictionary<string, (Type type, IEnumerable<string> json)>(Globals.DefaultDictionaryCapacity);
             Dictionary<string, (Type type, string json)> objs = new Dictionary<string, (Type type, string json)>(Globals.DefaultDictionaryCapacity);
             ObjectState rs = ObjectState.Unchanged;
+            bool anyOrig = false;
 
             foreach (var c in (from a in copyFrom.Children() where a.Type == JTokenType.Property select a))
             {
@@ -675,76 +740,141 @@ namespace CodexMicroORM.Core
                 }
                 else
                 {
+                    var propNameRaw = propName;
+
+                    var isOrig = propName.StartsWith("\\\\");
+
+                    if (isOrig)
+                    {
+                        propName = propName.Substring(2);
+                        anyOrig = true;
+                    }
+
                     switch (c.First.Type)
                     {
                         case JTokenType.Array:
                             {
-                                var lp = type.GetProperty(propName);
-
-                                // Can't deal with enumerations as bag properties (yet)
-                                if (lp != null && lp.CanWrite && lp.PropertyType.IsGenericType && WrappingHelper.IsWrappableListType(lp.PropertyType, null))
+                                if (!isOrig)
                                 {
-                                    List<string> itemData = new List<string>();
+                                    var lp = type.GetProperty(propNameRaw);
 
-                                    foreach (var cc in c.First.Children())
+                                    // Can't deal with enumerations as bag properties (yet)
+                                    if (lp != null && lp.CanWrite && lp.PropertyType.IsGenericType && WrappingHelper.IsWrappableListType(lp.PropertyType, null))
                                     {
-                                        itemData.Add(cc.ToString());
-                                    }
+                                        List<string> itemData = new List<string>();
 
-                                    lists[propName] = (lp.PropertyType, itemData);
-                                }
-                                else
-                                {
-                                    throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                                        foreach (var cc in c.First.Children())
+                                        {
+                                            itemData.Add(cc.ToString());
+                                        }
+
+                                        lists[propName] = (lp.PropertyType, itemData);
+                                    }
+                                    else
+                                    {
+                                        throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                                    }
                                 }
                             }
                             break;
 
                         case JTokenType.Object:
                             {
-                                var lp = type.GetProperty(propName);
+                                if (!isOrig)
+                                {
+                                    var lp = type.GetProperty(propNameRaw);
 
-                                // Can't deal with objects as bag properties (yet)
-                                if (lp != null && lp.CanWrite)
-                                {
-                                    objs[propName] = (lp.PropertyType, c.ToString());
-                                }
-                                else
-                                {
-                                    throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                                    // Can't deal with objects as bag properties (yet)
+                                    if (lp != null && lp.CanWrite)
+                                    {
+                                        objs[propName] = (lp.PropertyType, c.ToString());
+                                    }
+                                    else
+                                    {
+                                        throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                                    }
                                 }
                             }
                             break;
 
                         case JTokenType.Boolean:
-                            props[propName] = c.First.Value<bool>();
+                            if (isOrig)
+                            {
+                                origProps[propName] = c.First.Value<bool>();
+                            }
+                            else
+                            {
+                                props[propName] = c.First.Value<bool>();
+                            }
                             break;
 
                         case JTokenType.Date:
-                            props[propName] = c.First.Value<DateTime>();
+                            if (isOrig)
+                            {
+                                origProps[propName] = c.First.Value<DateTime>();
+                            }
+                            else
+                            {
+                                props[propName] = c.First.Value<DateTime>();
+                            }
                             break;
 
                         case JTokenType.Float:
-                            props[propName] = c.First.Value<decimal>();
+                            if (isOrig)
+                            {
+                                origProps[propName] = c.First.Value<decimal>();
+                            }
+                            else
+                            {
+                                props[propName] = c.First.Value<decimal>();
+                            }
                             break;
 
                         case JTokenType.Guid:
-                            props[propName] = c.First.Value<Guid>();
+                            if (isOrig)
+                            {
+                                origProps[propName] = c.First.Value<Guid>();
+                            }
+                            else
+                            {
+                                props[propName] = c.First.Value<Guid>();
+                            }
                             break;
 
                         case JTokenType.Integer:
-                            props[propName] = c.First.Value<int>();
+                            if (isOrig)
+                            {
+                                origProps[propName] = c.First.Value<int>();
+                            }
+                            else
+                            {
+                                props[propName] = c.First.Value<int>();
+                            }
                             break;
 
                         case JTokenType.String:
-                            if (string.Compare(propName, Globals.SerializationTypePropertyName) != 0)
+                            if (string.Compare(propNameRaw, Globals.SerializationTypePropertyName) != 0)
                             {
-                                props[propName] = c.First.ToString();
+                                if (isOrig)
+                                {
+                                    origProps[propName] = c.First.ToString();
+                                }
+                                else
+                                {
+                                    props[propName] = c.First.ToString();
+                                }
                             }
                             break;
 
                         case JTokenType.Null:
-                            props[propName] = null;
+                            if (isOrig)
+                            {
+                                origProps[propName] = null;
+                            }
+                            else
+                            {
+                                props[propName] = null;
+                            }
                             break;
 
                         default:
@@ -753,7 +883,7 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            var constructed = CEF.CurrentServiceScope.InternalCreateAddBase(type.FastCreateNoParm(), rs == ObjectState.Added, rs, props, null, visits);
+            var constructed = CEF.CurrentServiceScope.InternalCreateAddBase(type.FastCreateNoParm(), rs == ObjectState.Added, rs, props, null, visits, true);
 
             var iw = constructed.AsInfraWrapped();
 
@@ -780,6 +910,15 @@ namespace CodexMicroORM.Core
 
             iw.AcceptChanges();
             iw.SetRowState(rs);
+
+            // Any original values implies a need to set them all now in infrawrapper - will only do with property vals (for now)
+            if (anyOrig)
+            {
+                foreach (var kvp in origProps)
+                {
+                    iw.SetOriginalValue(kvp.Key, kvp.Value);
+                }
+            }
 
             return constructed;
         }
@@ -1266,7 +1405,7 @@ namespace CodexMicroORM.Core
             return tosave;
         }
 
-        internal object InternalCreateAddBase(object initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits)
+        internal object InternalCreateAddBase(object initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits, bool initFromTemplate)
         {
             if (initial == null)
                 throw new ArgumentNullException("initial");
@@ -1461,7 +1600,7 @@ namespace CodexMicroORM.Core
                     _serviceState.TryGetValue(svcStateType, out state);
                 }
 
-                svc.FinishSetup(to, this, isNew, props, state);
+                svc.FinishSetup(to, this, isNew, props, state, initFromTemplate);
             }
 
             if (!isNew && infra != null)
@@ -1519,13 +1658,12 @@ namespace CodexMicroORM.Core
                     if (ks != null)
                     {
                         var top = GetTrackedByWrapperOrTarget(root.AsUnwrapped());
-                        var rbt = root.GetBaseType();
+                        var rbt = top.BaseType;
 
                         foreach (var co in ks.GetChildObjects(this, root).ToArray())
                         {
                             var toc = GetTrackedByWrapperOrTarget(co);
-
-                            var bt = co.GetBaseType();
+                            var bt = toc.BaseType;
 
                             foreach (var k in ks.GetRelationsForChild(bt))
                             {
@@ -1539,7 +1677,7 @@ namespace CodexMicroORM.Core
                                         }
                                     }
 
-                                    // We use modified priority to ensure on save, unlinks happen before deletions
+                                    // We use modified priority to ensure on save, unlinks happen before deletions of parents
                                     var iw = co.AsInfraWrapped();
                                     var rs = iw.GetRowState();
                                     
@@ -1557,7 +1695,7 @@ namespace CodexMicroORM.Core
 
         internal T InternalCreateAdd<T>(T initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types) where T : class, new()
         {
-            var v = InternalCreateAddBase(initial ?? new T(), isNew, initState, props, types, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity));
+            var v = InternalCreateAddBase(initial ?? new T(), isNew, initState, props, types, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), initial != null);
             return v as T;
         }
 

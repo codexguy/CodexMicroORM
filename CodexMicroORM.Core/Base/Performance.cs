@@ -178,14 +178,22 @@ namespace CodexMicroORM.Core.Helper
 
                 MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-                var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
-                using (new WriterLock(_lock))
+                try
                 {
-                    _getterCache[key] = asCast;
-                }
+                    var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
-                return (true, asCast(o));
+                    using (new WriterLock(_lock))
+                    {
+                        _getterCache[key] = asCast;
+                    }
+
+                    return (true, asCast(o));
+                }
+                catch (TargetInvocationException)
+                {
+                    return (true, o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, new object[] { }));
+                }
             }
             catch (Exception)
             {
@@ -219,10 +227,18 @@ namespace CodexMicroORM.Core.Helper
 
                 MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-                var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
-                _getterCache[key] = asCast;
-                return (true, asCast(o));
+                try
+                {
+                    var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+
+                    _getterCache[key] = asCast;
+                    return (true, asCast(o));
+                }
+                catch (TargetInvocationException)
+                {
+                    return (true, o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, new object[] { }));
+                }
             }
             catch (Exception)
             {
@@ -256,11 +272,18 @@ namespace CodexMicroORM.Core.Helper
 
                 MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-                var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
-                using (new WriterLock(_lock))
+                try
                 {
-                    _getterCache[key] = asCast;
+                    var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+
+                    using (new WriterLock(_lock))
+                    {
+                        _getterCache[key] = asCast;
+                    }
+                }
+                catch (TargetInvocationException)
+                {
                 }
 
                 return true;
@@ -297,9 +320,17 @@ namespace CodexMicroORM.Core.Helper
 
                 MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-                var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
-                _getterCache[key] = asCast;
+                try
+                {
+                    var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+
+                    _getterCache[key] = asCast;
+                }
+                catch (TargetInvocationException)
+                {
+                }
+
                 return true;
             }
             catch (Exception)
@@ -321,14 +352,22 @@ namespace CodexMicroORM.Core.Helper
             var pi = o.GetType().GetProperty(propName);
             MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-            var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
-            using (new WriterLock(_lock))
+            try
             {
-                _getterCache[key] = asCast;
-            }
+                var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
-            return asCast(o);
+                using (new WriterLock(_lock))
+                {
+                    _getterCache[key] = asCast;
+                }
+
+                return asCast(o);
+            }
+            catch (TargetInvocationException)
+            {
+                return o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, new object[] { });
+            }
         }
 
         public static object FastGetValueNoLock(this object o, string propName)
@@ -343,11 +382,18 @@ namespace CodexMicroORM.Core.Helper
             var pi = o.GetType().GetProperty(propName);
             MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-            var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
 
-            _getterCache[key] = asCast;
-
-            return asCast(o);
+            try
+            {
+                var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+                _getterCache[key] = asCast;
+                return asCast(o);
+            }
+            catch (TargetInvocationException)
+            {
+                // Fallback - to investigate some cases where the above can fail (todo)
+                return o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, new object[] { });
+            }
         }
 
         private static Func<object, object> InternalGet<TTarget, TReturn>(MethodInfo method)
@@ -381,11 +427,18 @@ namespace CodexMicroORM.Core.Helper
 
                 MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-                var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
-                using (new WriterLock(_lock))
+                try
                 {
-                    _setterCache[key] = asCast;
+                    var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+
+                    using (new WriterLock(_lock))
+                    {
+                        _setterCache[key] = asCast;
+                    }
+                }
+                catch (TargetInvocationException)
+                {
                 }
 
                 return true;
@@ -422,9 +475,17 @@ namespace CodexMicroORM.Core.Helper
 
                 MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-                var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
-                _setterCache[key] = asCast;
+                try
+                {
+                    var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+
+                    _setterCache[key] = asCast;
+                }
+                catch (TargetInvocationException)
+                {
+                }
+
                 return true;
             }
             catch (Exception)
@@ -447,14 +508,22 @@ namespace CodexMicroORM.Core.Helper
             var pi = o.GetType().GetProperty(propName);
             MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-            var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
-            using (new WriterLock(_lock))
+            try
             {
-                _setterCache[key] = asCast;
-            }
+                var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
-            asCast(o, value);
+                using (new WriterLock(_lock))
+                {
+                    _setterCache[key] = asCast;
+                }
+
+                asCast(o, value);
+            }
+            catch (TargetInvocationException)
+            {
+                o.GetType().GetProperty(propName).GetSetMethod().Invoke(o, new object[] { value });
+            }
         }
 
         public static void FastSetValueNoLock(this object o, string propName, object value)
@@ -470,11 +539,19 @@ namespace CodexMicroORM.Core.Helper
             var pi = o.GetType().GetProperty(propName);
             MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
-            var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
-            _setterCache[key] = asCast;
+            try
+            {
+                var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
-            asCast(o, value);
+                _setterCache[key] = asCast;
+
+                asCast(o, value);
+            }
+            catch (TargetInvocationException)
+            {
+                o.GetType().GetProperty(propName).GetSetMethod().Invoke(o, new object[] { value });
+            }
         }
 
         private static Action<object, object> InternalSet<TTarget, TProp>(MethodInfo method)

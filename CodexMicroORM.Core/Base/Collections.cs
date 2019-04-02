@@ -42,8 +42,10 @@ namespace CodexMicroORM.Core.Collections
     /// </summary>
     /// <typeparam name="TKey"></typeparam>
     /// <typeparam name="TValue"></typeparam>
+    [Serializable]
     public sealed class SlimConcurrentDictionary<TKey, TValue> : ICollection<KeyValuePair<TKey, TValue>>, IEnumerable<KeyValuePair<TKey, TValue>>, IEnumerable, IDictionary<TKey, TValue>, IReadOnlyCollection<KeyValuePair<TKey, TValue>>, IReadOnlyDictionary<TKey, TValue>, ICollection
     {
+        [Serializable]
         private class BucketInfo
         {
             public Dictionary<TKey, TValue> Map;
@@ -445,6 +447,7 @@ namespace CodexMicroORM.Core.Collections
     /// After looking at BCL options having this available as a custom solution is "good until further notice" - preliminary testing looks pretty darn good.
     /// </summary>
     /// <typeparam name="T"></typeparam>
+    [Serializable]
     public class ConcurrentObservableCollection<T> : ICollection<T>, IEnumerable<T>, IList<T>, IEnumerable, INotifyCollectionChanged, INotifyPropertyChanged where T : class, new()
     {
         private class Block
@@ -458,6 +461,7 @@ namespace CodexMicroORM.Core.Collections
             }
         }
 
+        [Serializable]
         private class BucketInfo
         {
             public Block Head;
@@ -1067,6 +1071,7 @@ namespace CodexMicroORM.Core.Collections
     /// It is also thread-safe and can get used in plenty of situations outside of the "ORM" of CodexMicroORM.
     /// </summary>
     /// <typeparam name="T">Must implement ICEFIndexedListItem which affords a way to customize values returned by each item instance, such as unwrapping of WeakReference's.</typeparam>
+    [Serializable]
     public sealed class ConcurrentIndexedList<T> : IEnumerable<T>, IEnumerable, ICollection<T>, ICollection  where T : class, ICEFIndexedListItem
     {
         #region "Private state"

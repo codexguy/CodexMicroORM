@@ -96,7 +96,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface(typeof(ICEFPersistenceHost).Name) == null)
+                if (value != null && value.GetInterface(typeof(ICEFPersistenceHost).Name) == null)
                 {
                     throw new ArgumentException("Type does not implement ICEFPersistenceHost.");
                 }
@@ -113,7 +113,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface(typeof(ICEFAuditHost).Name) == null)
+                if (value != null && value.GetInterface(typeof(ICEFAuditHost).Name) == null)
                 {
                     throw new ArgumentException("Type does not implement ICEFAuditHost.");
                 }
@@ -130,7 +130,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface(typeof(ICEFDataHost).Name) == null)
+                if (value != null && value.GetInterface(typeof(ICEFDataHost).Name) == null)
                 {
                     throw new ArgumentException("Type does not implement ICEFDataHost.");
                 }
@@ -147,7 +147,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface(typeof(ICEFValidationHost).Name) == null)
+                if (value != null && value.GetInterface(typeof(ICEFValidationHost).Name) == null)
                 {
                     throw new ArgumentException("Type does not implement ICEFValidationHost.");
                 }
@@ -164,7 +164,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value.GetInterface(typeof(ICEFKeyHost).Name) == null)
+                if (value != null && value.GetInterface(typeof(ICEFKeyHost).Name) == null)
                 {
                     throw new ArgumentException("Type does not implement ICEFKeyHost.");
                 }
@@ -184,6 +184,11 @@ namespace CodexMicroORM.Core
             }
             set
             {
+                if (value == null)
+                {
+                    throw new ArgumentNullException("PreferredEntityType is required.");
+                }
+
                 if (!typeof(ICEFList).IsAssignableFrom(value))
                 {
                     throw new ArgumentException("Value does not implement ICEFList.");

@@ -28,6 +28,12 @@ namespace CodexMicroORM.Core
 {
     public static class AttributeInitializer
     {
+        public static bool SilentlyContinue
+        {
+            get;
+            set;
+        } = false;
+
         public static void Apply(params Assembly[] args)
         {
             if (args?.Length == 0)
@@ -40,56 +46,86 @@ namespace CodexMicroORM.Core
             {
                 Parallel.ForEach(a.GetTypes(), (t) =>
                 {
-                    var pkAttr = t.GetCustomAttribute<EntityPrimaryKeyAttribute>();
-
-                    if (pkAttr != null)
+                    try
                     {
-                        if (pkAttr.ShadowType != null)
-                        {
-                            typeof(KeyService).GetMethod("RegisterKeyWithType").MakeGenericMethod(t).Invoke(null, new object[] { pkAttr.Fields.First(), pkAttr.ShadowType });
-                        }
-                        else
-                        {
-                            typeof(KeyService).GetMethod("RegisterKey").MakeGenericMethod(t).Invoke(null, new object[] { pkAttr.Fields });
-                        }
+                        var pkAttr = t.GetCustomAttribute<EntityPrimaryKeyAttribute>();
 
-                        foreach (var prop in t.GetProperties())
+                        if (pkAttr != null)
                         {
-                            var maxLenAttr = prop.GetCustomAttribute<EntityMaxLengthAttribute>();
-
-                            if (maxLenAttr != null)
+                            if (pkAttr.ShadowType != null)
                             {
-                                typeof(ValidationService).GetMethod("RegisterMaxLength").MakeGenericMethod(t).Invoke(null, new object[] { prop.Name, maxLenAttr.Length });
+                                typeof(KeyService).GetMethod("RegisterKeyWithType").MakeGenericMethod(t).Invoke(null, new object[] { pkAttr.Fields.First(), pkAttr.ShadowType });
+                            }
+                            else
+                            {
+                                typeof(KeyService).GetMethod("RegisterKey").MakeGenericMethod(t).Invoke(null, new object[] { pkAttr.Fields });
                             }
 
-                            var defValAttr = prop.GetCustomAttribute<EntityDefaultValueAttribute>();
-
-                            if (defValAttr != null)
+                            foreach (var prop in t.GetProperties())
                             {
-                                typeof(DBService).GetMethod("RegisterDefault").MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name, defValAttr.Value.CoerceType(prop.PropertyType) });
-                            }
+                                var maxLenAttr = prop.GetCustomAttribute<EntityMaxLengthAttribute>();
 
-                            var reqValAttr = prop.GetCustomAttribute<EntityRequiredAttribute>();
+                                if (maxLenAttr != null)
+                                {
+                                    typeof(ValidationService).GetMethod("RegisterMaxLength").MakeGenericMethod(t).Invoke(null, new object[] { prop.Name, maxLenAttr.Length });
+                                }
 
-                            if (reqValAttr != null)
-                            {
-                                typeof(ValidationService).GetMethod("RegisterRequired", new Type[] { typeof(string) }).MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name });
+                                var defValAttr = prop.GetCustomAttribute<EntityDefaultValueAttribute>();
+
+                                if (defValAttr != null)
+                                {
+                                    typeof(DBService).GetMethod("RegisterDefault").MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name, defValAttr.Value.CoerceType(prop.PropertyType) });
+                                }
+
+                                var reqValAttr = prop.GetCustomAttribute<EntityRequiredAttribute>();
+
+                                if (reqValAttr != null)
+                                {
+                                    typeof(ValidationService).GetMethod("RegisterRequired", new Type[] { typeof(string) }).MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name });
+                                }
                             }
                         }
                     }
-
-                    var schemaAttr = t.GetCustomAttribute<EntitySchemaNameAttribute>();
-
-                    if (schemaAttr != null)
+                    catch
                     {
-                        typeof(DBService).GetMethod("RegisterSchema").MakeGenericMethod(t).Invoke(null, new object[] { schemaAttr.Name });
+                        if (!SilentlyContinue)
+                        {
+                            throw;
+                        }
                     }
 
-                    var relAttr = t.GetCustomAttribute<EntityRelationshipsAttribute>();
-
-                    if (relAttr != null)
+                    try
                     {
-                        typeof(KeyService).GetMethod("RegisterRelationship").MakeGenericMethod(t).Invoke(null, new object[] { relAttr.Relations });
+                        var schemaAttr = t.GetCustomAttribute<EntitySchemaNameAttribute>();
+
+                        if (schemaAttr != null)
+                        {
+                            typeof(DBService).GetMethod("RegisterSchema").MakeGenericMethod(t).Invoke(null, new object[] { schemaAttr.Name });
+                        }
+                    }
+                    catch
+                    {
+                        if (!SilentlyContinue)
+                        {
+                            throw;
+                        }
+                    }
+
+                    try
+                    {
+                        var relAttr = t.GetCustomAttribute<EntityRelationshipsAttribute>();
+
+                        if (relAttr != null)
+                        {
+                            typeof(KeyService).GetMethod("RegisterRelationship").MakeGenericMethod(t).Invoke(null, new object[] { relAttr.Relations });
+                        }
+                    }
+                    catch
+                    {
+                        if (!SilentlyContinue)
+                        {
+                            throw;
+                        }
                     }
                 });
             });

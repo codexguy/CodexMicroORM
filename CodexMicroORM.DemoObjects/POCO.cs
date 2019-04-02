@@ -25,6 +25,7 @@ using System.Collections.Generic;
 namespace CodexMicroORM.DemoObjects
 {
     //[EntityRelationships("Person|ParentPersonID")]
+    [Serializable]
     public class Person
     {
         public int PersonID { get; set; }

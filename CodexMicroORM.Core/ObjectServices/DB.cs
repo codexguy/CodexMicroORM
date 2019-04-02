@@ -48,7 +48,7 @@ namespace CodexMicroORM.Core.Services
         private static ConcurrentDictionary<Type, string> _typeEntityNameMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Fields can have defaults (can match simple SQL DEFAULTs, for example)
-        private static ConcurrentDictionary<Type, List<(string prop, object value, object def)>> _typePropDefaults = new ConcurrentDictionary<Type, List<(string prop, object value, object def)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, List<(string prop, object value, object def, Type proptype)>> _typePropDefaults = new ConcurrentDictionary<Type, List<(string prop, object value, object def, Type proptype)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Property values can be "copied" from contained objects for DB persistence
         private static ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>> _typePropGroups = new ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
@@ -112,14 +112,14 @@ namespace CodexMicroORM.Core.Services
         {
             CEF.RegisterForType<T>(new DBService());
 
-            _typePropDefaults.TryGetValue(typeof(T), out List<(string prop, object value, object def)> vl);
+            _typePropDefaults.TryGetValue(typeof(T), out List<(string prop, object value, object def, Type proptype)> vl);
 
             if (vl == null)
             {
-                vl = new List<(string prop, object value, object def)>();
+                vl = new List<(string prop, object value, object def, Type proptype)>();
             }
 
-            vl.Add((propName, defaultValue, default(V)));
+            vl.Add((propName, defaultValue, default(V), typeof(V)));
             _typePropDefaults[typeof(T)] = vl;
         }
 
@@ -859,21 +859,25 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate)
         {
             if (isNew)
             {
-                if (_typePropDefaults.TryGetValue(to.BaseType, out List<(string prop, object value, object def)> defbytype))
+                if (_typePropDefaults.TryGetValue(to.BaseType, out List<(string prop, object value, object def, Type proptype)> defbytype))
                 {
                     var t = to.GetInfraWrapperTarget();
 
-                    foreach (var d in defbytype)
+                    foreach (var (prop, value, def, proptype) in defbytype)
                     {
-                        var curval = ss.GetGetter(t, d.prop).getter?.Invoke();
-
-                        if (curval.IsSame(d.def))
+                        // If the underlying prop is not nullable, we only overwrite if NOT init from a template object, otherwise can lose purposeful sets on that template object
+                        if (Nullable.GetUnderlyingType(proptype) != null || !initFromTemplate)
                         {
-                            ss.GetSetter(t, d.prop).setter?.Invoke(d.value);
+                            var curval = ss.GetGetter(t, prop).getter?.Invoke();
+
+                            if (curval.IsSame(def))
+                            {
+                                ss.GetSetter(t, prop).setter?.Invoke(value);
+                            }
                         }
                     }
                 }

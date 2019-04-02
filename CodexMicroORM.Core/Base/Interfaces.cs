@@ -42,7 +42,7 @@ namespace CodexMicroORM.Core
         WrappingSupport IdentifyInfraNeeds(object o, object replaced, ServiceScope ss, bool isNew);
 
         // Main purposes: all infra wrappers are now in place, can complete init
-        void FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state);
+        void FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate);
 
         void Disposing(ServiceScope ss);
     }
@@ -159,7 +159,7 @@ namespace CodexMicroORM.Core
     {
         IEnumerable<T> GetItemsFromSerializationText<T>(string json, JsonSerializationSettings settings) where T : class, new();
 
-        bool SaveContents(JsonTextWriter tw, object o, SerializationMode mode, IDictionary<object, bool> visits);
+        bool SaveContents(JsonTextWriter tw, object o, SerializationMode mode, SerializationVisitTracker visits);
     }
 
     public interface ICEFCachingHost : ICEFService, IDisposable
@@ -292,6 +292,8 @@ namespace CodexMicroORM.Core
         object GetValue(string propName);
 
         object GetOriginalValue(string propName, bool throwIfNotSet);
+
+        void SetOriginalValue(string propName, object value);
 
         void AcceptChanges();
 

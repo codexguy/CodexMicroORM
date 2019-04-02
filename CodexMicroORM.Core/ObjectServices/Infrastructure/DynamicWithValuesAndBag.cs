@@ -160,9 +160,14 @@ namespace CodexMicroORM.Core.Services
 
             if (readable)
             {
-                var oldval = _originalValues[e.PropertyName];
-
-                if (!oldval.IsSame(value))
+                if (_originalValues.TryGetValue(e.PropertyName, out object oldval))
+                {
+                    if (!oldval.IsSame(value))
+                    {
+                        OnPropertyChanged(e.PropertyName, oldval, value, _valueBag.ContainsKey(e.PropertyName));
+                    }
+                }
+                else
                 {
                     OnPropertyChanged(e.PropertyName, oldval, value, _valueBag.ContainsKey(e.PropertyName));
                 }
@@ -229,6 +234,14 @@ namespace CodexMicroORM.Core.Services
                         tw.WriteValue(State.ToString());
                     }
                 }
+            }
+        }
+
+        public override void SetOriginalValue(string propName, object value)
+        {
+            using (new WriterLock(_lock))
+            {
+                _originalValues[propName] = value;
             }
         }
 

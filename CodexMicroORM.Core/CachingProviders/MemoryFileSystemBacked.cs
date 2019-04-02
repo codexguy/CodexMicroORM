@@ -745,7 +745,7 @@ namespace CodexMicroORM.Providers
 
             if (props != null)
             {
-                return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, c.Properties, null, null) as T;
+                return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, c.Properties, null, null, false) as T;
             }
 
             return null;
@@ -807,7 +807,7 @@ namespace CodexMicroORM.Providers
             {
                 foreach (var rowdata in rows)
                 {
-                    yield return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, rowdata, null, null) as T;
+                    yield return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, rowdata, null, null, false) as T;
                 }
             }
         }
@@ -1248,7 +1248,7 @@ namespace CodexMicroORM.Providers
             return WrappingSupport.None;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate)
         {
         }
 

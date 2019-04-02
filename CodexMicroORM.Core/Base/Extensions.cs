@@ -17,23 +17,28 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
 using System;
-using CodexMicroORM.Core.Services;
 using System.ComponentModel;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using System.Text;
-using CodexMicroORM.Core.Helper;
 using System.Collections.Concurrent;
 using System.Data;
 using System.Linq;
+#if CGEH
+namespace CodexMicroORM.Core.CG
+#else
+using CodexMicroORM.Core.Services;
+using CodexMicroORM.Core.Helper;
 
 namespace CodexMicroORM.Core
+#endif
 {
     /// <summary>
     /// Not intended for general consumption, helper functions for the framework.
     /// </summary>
     internal static class InternalExtensions
     {
+#if !CGEH
         public static bool HasProperty(this object o, string propName)
         {
             if (o == null)
@@ -46,6 +51,7 @@ namespace CodexMicroORM.Core
 
             return o.FastPropertyReadable(propName);
         }
+#endif
 
         public static TV AssignReturn<TK, TV>(this Dictionary<TK, TV> dic, TK key, TV val)
         {
@@ -71,7 +77,7 @@ namespace CodexMicroORM.Core
     /// </summary>
     public static class PublicExtensions
     {
-        private static ConcurrentDictionary<Type, Type> _typeMap = new ConcurrentDictionary<Type, Type>();
+        private static readonly ConcurrentDictionary<Type, Type> _typeMap = new ConcurrentDictionary<Type, Type>();
 
         public static int MinOf(this int i1, int i2)
         {
@@ -148,7 +154,17 @@ namespace CodexMicroORM.Core
                     return false;
             }
 
-            return o1.Equals(o2);
+            if (o1.GetType() == o2.GetType())
+            {
+                return o1.Equals(o2);
+            }
+
+            if (o1 is IConvertible && o2 is IConvertible)
+            {
+                return Convert.ChangeType(o1, o2.GetType()).Equals(o2);
+            }
+
+            return o1.ToString() == o2.ToString();
         }
 
         public static void ForAll<T>(this IEnumerable<T> items, Action<T> work)
@@ -159,6 +175,138 @@ namespace CodexMicroORM.Core
             }
         }
 
+        public static object CoerceType(this string source, Type prefType, object defaultIfFail = null)
+        {
+            if (source == null)
+                return null;
+
+            if (prefType == typeof(string))
+            {
+                return source;
+            }
+
+            var nt = Nullable.GetUnderlyingType(prefType);
+
+            if (nt != null)
+            {
+                if (string.IsNullOrEmpty(source))
+                {
+                    return Activator.CreateInstance(prefType);
+                }
+
+                prefType = nt;
+            }
+
+            if (prefType.IsEnum)
+            {
+                return Enum.Parse(prefType, source);
+            }
+
+            if (source is IConvertible)
+            {
+                // Special conversion possibilities for booleans
+                if (prefType == typeof(bool))
+                {
+                    if (source == "0")
+                    {
+                        return false;
+                    }
+                    if (source == "-1")
+                    {
+                        return true;
+                    }
+                    if (source == "1")
+                    {
+                        return true;
+                    }
+                    if (string.Compare(source, "false", true) == 0)
+                    {
+                        return false;
+                    }
+                    if (string.Compare(source, "true", true) == 0)
+                    {
+                        return true;
+                    }
+                }
+
+                return Convert.ChangeType(source, prefType);
+            }
+
+            if (!source.GetType().IsValueType)
+            {
+                return source;
+            }
+
+            if (defaultIfFail != null)
+            {
+                return defaultIfFail;
+            }
+
+            throw new InvalidCastException("Cannot coerce type.");
+        }
+
+        public static object CoerceDBNullableType(this object source, Type prefType)
+        {
+            if (source == null || DBNull.Value.Equals(source))
+            {
+                return null;
+            }
+
+            // Avoid casting to string if the types match
+            if (source.GetType() == prefType)
+            {
+                return source;
+            }
+
+            if (source.GetType() == typeof(DateTime))
+            {
+                return ((DateTime)source).ToString("O").CoerceType(prefType);
+            }
+
+            return source.ToString().CoerceType(prefType);
+        }
+
+        public static T CoerceType<T>(this string source)
+        {
+            if (source == null)
+            {
+                return default(T);
+            }
+
+            if (typeof(T) == typeof(string))
+            {
+                return (T)(object)source;
+            }
+
+            if (Nullable.GetUnderlyingType(typeof(T)) != null)
+            {
+                if (string.IsNullOrEmpty(source))
+                {
+                    return (T)Activator.CreateInstance(typeof(T));
+                }
+
+                return (T)Activator.CreateInstance(typeof(T), Convert.ChangeType(source, Nullable.GetUnderlyingType(typeof(T))));
+            }
+
+            if (typeof(T).IsEnum)
+            {
+                return (T)Enum.Parse(typeof(T), source);
+            }
+
+            if (source is IConvertible)
+            {
+                return (T)Convert.ChangeType(source, typeof(T));
+            }
+
+            if (!source.GetType().IsValueType)
+            {
+                return (T)(object)source;
+            }
+
+            throw new InvalidCastException("Cannot coerce type.");
+        }
+
+#if !CGEH
         /// <summary>
         /// Save a specific entity set. Restricts/fitlers to rows present in the collection.
         /// </summary>
@@ -243,7 +391,17 @@ namespace CodexMicroORM.Core
 
             if (w == null && canCreate)
             {
-                throw new CEFInvalidOperationException("Failed to identify wrapper object, current scope may be invalid.");
+                var t = CEF.CurrentServiceScope.IncludeObjectNonGeneric(o, null);
+                
+                if (t != null)
+                {
+                    w = CEF.CurrentServiceScope.GetOrCreateInfra(t, canCreate);
+                }
+
+                if (w == null)
+                {
+                    throw new CEFInvalidOperationException("Failed to identify wrapper object, current scope may be invalid.");
+                }
             }
 
             return w;
@@ -302,7 +460,7 @@ namespace CodexMicroORM.Core
 
                 if (v == null)
                 {
-                    return default;
+                    return default(T);
                 }
 
                 if (v is T)
@@ -313,7 +471,7 @@ namespace CodexMicroORM.Core
                 throw new InvalidOperationException($"Invalid cast of type {typeof(T).Name}.");
             }
 
-            return default;
+            return default(T);
         }
 
         public static IEnumerable<ICEFInfraWrapper> AllAsInfraWrapped<T>(this IEnumerable<T> items) where T: class, new()
@@ -427,9 +585,7 @@ namespace CodexMicroORM.Core
         {
             if (wrapped != null)
             {
-                var w = wrapped as ICEFWrapper;
-
-                if (w != null)
+                if (wrapped is ICEFWrapper w)
                 {
                     var uw = w.GetCopyTo();
 
@@ -439,9 +595,7 @@ namespace CodexMicroORM.Core
                     }
                 }
 
-                var iw = wrapped as ICEFInfraWrapper;
-
-                if (iw != null)
+                if (wrapped is ICEFInfraWrapper iw)
                 {
                     var wo = iw.GetWrappedObject();
 
@@ -582,130 +736,12 @@ namespace CodexMicroORM.Core
             return sb.ToString();
         }
 
-        public static object CoerceType(this string source, Type prefType)
-        {
-            if (source == null)
-                return default;
-
-            if (prefType == typeof(string))
-            {
-                return source;
-            }
-
-            if (Nullable.GetUnderlyingType(prefType) != null)
-            {
-                if (string.IsNullOrEmpty(source))
-                {
-                    return Activator.CreateInstance(prefType);
-                }
-
-                return Activator.CreateInstance(prefType, Convert.ChangeType(source, Nullable.GetUnderlyingType(prefType)));
-            }
-
-            if (prefType.IsEnum)
-            {
-                return Enum.Parse(prefType, source);
-            }
-
-            if (source is IConvertible)
-            {
-                // Special conversion possibilities for booleans
-                if (prefType == typeof(bool))
-                {
-                    if (source == "0")
-                    {
-                        return false;
-                    }
-                    if (source == "-1")
-                    {
-                        return true;
-                    }
-                    if (source == "1")
-                    {
-                        return true;
-                    }
-                    if (string.Compare(source, "false", true) == 0)
-                    {
-                        return false;
-                    }
-                    if (string.Compare(source, "true", true) == 0)
-                    {
-                        return true;
-                    }
-                }
-
-                return Convert.ChangeType(source, prefType);
-            }
-
-            if (!source.GetType().IsValueType)
-            {
-                return source;
-            }
-
-            throw new InvalidCastException("Cannot coerce type.");
-        }
-
-        public static object CoerceDBNullableType(this object source, Type prefType)
-        {
-            if (source == null || DBNull.Value.Equals(source))
-            {
-                return null;
-            }
-
-            // Avoid casting to string if the types match
-            if (source.GetType() == prefType)
-            {
-                return source;
-            }
-
-            if (source.GetType() == typeof(DateTime))
-            {
-                return ((DateTime)source).ToString("O").CoerceType(prefType);
-            }
-
-            return source.ToString().CoerceType(prefType);
-        }
-
-        public static T CoerceType<T>(this string source)
-        {
-            if (source == null)
-            {
-                return default;
-            }
-
-            if (typeof(T) == typeof(string))
-            {
-                return (T)(object)source;
-            }
-
-            if (Nullable.GetUnderlyingType(typeof(T)) != null)
-            {
-                if (string.IsNullOrEmpty(source))
-                {
-                    return (T)Activator.CreateInstance(typeof(T));
-                }
-
-                return (T)Activator.CreateInstance(typeof(T), Convert.ChangeType(source, Nullable.GetUnderlyingType(typeof(T))));
-            }
-
-            if (typeof(T).IsEnum)
-            {
-                return (T)Enum.Parse(typeof(T), source);
-            }
-
-            if (source is IConvertible)
-            {
-                return (T)Convert.ChangeType(source, typeof(T));
-            }
-
-            if (!source.GetType().IsValueType)
-            {
-                return (T)(object)source;
-            }
-
-            throw new InvalidCastException("Cannot coerce type.");
-        }
-
+        /// <summary>
+        /// A target EntitySet is updated to look "the same" as a source DataView. Rows may be added, updated or deleted in the EntitySet based on the primary key set for type T.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="source">A source DataView containing data to be merged into target.</param>
+        /// <param name="target">A collection of entities that will be updated to match the source DataView.</param>
         public static void ReconcileDataViewToEntitySet<T>(this DataView source, EntitySet<T> target) where T : class, new()
         {
             // A natural key must be available!
@@ -886,7 +922,7 @@ namespace CodexMicroORM.Core
                                 while (sValEnum.MoveNext())
                                 {
                                     // Need to use non-generic method for this!
-                                    var wi = CEF.CurrentServiceScope.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, null);
+                                    var wi = CEF.CurrentServiceScope.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, null, true);
                                     wrappedCol.AddWrappedItem(wi);
                                 }
                             }
@@ -897,5 +933,7 @@ namespace CodexMicroORM.Core
                 }
             }
         }
+#endif
+
     }
 }
