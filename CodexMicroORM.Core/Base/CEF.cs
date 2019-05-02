@@ -62,9 +62,16 @@ namespace CodexMicroORM.Core
 
         private static Action<string, long> _queryPerfInfo = null;
 
+        private static object _lockDB = new object();
+        private static object _lockAudit = new object();
+        private static object _lockKey = new object();
+        private static object _lockPCT = new object();
+
         #endregion
 
         #region "Public methods"
+
+        public delegate void ColumnDefinitionCallback(string name, Type dataType);
 
         public static ServiceScope GlobalServiceScope => _globalServiceScope;
 
@@ -526,6 +533,45 @@ namespace CodexMicroORM.Core
         /// <param name="cmdText"></param>
         /// <param name="parms"></param>
         /// <returns></returns>
+        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, CommandType cmdType, string cmdText, ColumnDefinitionCallback cc, params object[] parms) where T : class, new()
+        {
+            if (pop.Any())
+            {
+                pop.Clear();
+            }
+
+            InternalDBAppendByQuery(pop, cmdType, cmdText, cc, parms);
+            return pop;
+        }
+
+        /// <summary>
+        /// Retrieves zero, one or many entities, populated into an existing EntitySet collection, using a custom query. The contents of the collection are replaced.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="pop"></param>
+        /// <param name="cmdText"></param>
+        /// <param name="parms"></param>
+        /// <returns></returns>
+        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, string cmdText, ColumnDefinitionCallback cc, params object[] parms) where T : class, new()
+        {
+            if (pop.Any())
+            {
+                pop.Clear();
+            }
+
+            InternalDBAppendByQuery(pop, CommandType.StoredProcedure, cmdText, cc, parms);
+            return pop;
+        }
+
+        /// <summary>
+        /// Retrieves zero, one or many entities, populated into an existing EntitySet collection, using a custom query. The contents of the collection are replaced.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="pop"></param>
+        /// <param name="cmdType"></param>
+        /// <param name="cmdText"></param>
+        /// <param name="parms"></param>
+        /// <returns></returns>
         public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, CommandType cmdType, string cmdText, params object[] parms) where T : class, new()
         {
             if (pop.Any())
@@ -533,7 +579,7 @@ namespace CodexMicroORM.Core
                 pop.Clear();
             }
 
-            InternalDBAppendByQuery(pop, cmdType, cmdText, parms);
+            InternalDBAppendByQuery(pop, cmdType, cmdText, null, parms);
             return pop;
         }
 
@@ -552,7 +598,7 @@ namespace CodexMicroORM.Core
                 pop.Clear();
             }
 
-            InternalDBAppendByQuery(pop, CommandType.StoredProcedure, cmdText, parms);
+            InternalDBAppendByQuery(pop, CommandType.StoredProcedure, cmdText, null, parms);
             return pop;
         }
 
@@ -567,7 +613,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static EntitySet<T> DBAppendByQuery<T>(this EntitySet<T> pop, CommandType cmdType, string cmdText, params object[] parms) where T : class, new()
         {
-            InternalDBAppendByQuery(pop, cmdType, cmdText, parms);
+            InternalDBAppendByQuery(pop, cmdType, cmdText, null, parms);
             return pop;
         }
 
@@ -581,7 +627,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static EntitySet<T> DBAppendByQuery<T>(this EntitySet<T> pop, string cmdText, params object[] parms) where T : class, new()
         {
-            InternalDBAppendByQuery(pop, CommandType.StoredProcedure, cmdText, parms);
+            InternalDBAppendByQuery(pop, CommandType.StoredProcedure, cmdText, null, parms);
             return pop;
         }
 
@@ -799,15 +845,18 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ICEFPersistenceHost CurrentPCTService(object forObject = null)
         {
-            var s = CurrentService<ICEFPersistenceHost>(forObject);
-
-            if (s == null)
+            lock (_lockPCT)
             {
-                s = Activator.CreateInstance(Globals.DefaultPCTServiceType) as ICEFPersistenceHost;
-                AddGlobalService(s);
-            }
+                var s = CurrentService<ICEFPersistenceHost>(forObject);
 
-            return s;
+                if (s == null)
+                {
+                    s = Activator.CreateInstance(Globals.DefaultPCTServiceType) as ICEFPersistenceHost;
+                    AddGlobalService(s);
+                }
+
+                return s;
+            }
         }
 
         /// <summary>
@@ -817,15 +866,18 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ICEFKeyHost CurrentKeyService(object forObject = null)
         {
-            var s = CurrentService<ICEFKeyHost>(forObject);
-
-            if (s == null)
+            lock (_lockKey)
             {
-                s = Activator.CreateInstance(Globals.DefaultKeyServiceType) as ICEFKeyHost;
-                AddGlobalService(s);
-            }
+                var s = CurrentService<ICEFKeyHost>(forObject);
 
-            return s;
+                if (s == null)
+                {
+                    s = Activator.CreateInstance(Globals.DefaultKeyServiceType) as ICEFKeyHost;
+                    AddGlobalService(s);
+                }
+
+                return s;
+            }
         }
 
         /// <summary>
@@ -835,15 +887,18 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ICEFAuditHost CurrentAuditService(object forObject = null)
         {
-            var s = CurrentService<ICEFAuditHost>(forObject);
-
-            if (s == null)
+            lock (_lockAudit)
             {
-                s = Activator.CreateInstance(Globals.DefaultAuditServiceType) as ICEFAuditHost;
-                AddGlobalService(s);
-            }
+                var s = CurrentService<ICEFAuditHost>(forObject);
 
-            return s;
+                if (s == null)
+                {
+                    s = Activator.CreateInstance(Globals.DefaultAuditServiceType) as ICEFAuditHost;
+                    AddGlobalService(s);
+                }
+
+                return s;
+            }
         }
 
         /// <summary>
@@ -853,15 +908,18 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ICEFDataHost CurrentDBService(object forObject = null)
         {
-            var s = CurrentService<ICEFDataHost>(forObject);
-
-            if (s == null)
+            lock (_lockDB)
             {
-                s = Activator.CreateInstance(Globals.DefaultDBServiceType) as ICEFDataHost;
-                AddGlobalService(s);
-            }
+                var s = CurrentService<ICEFDataHost>(forObject);
 
-            return s;
+                if (s == null)
+                {
+                    s = Activator.CreateInstance(Globals.DefaultDBServiceType) as ICEFDataHost;
+                    AddGlobalService(s);
+                }
+
+                return s;
+            }
         }
 
         /// <summary>
@@ -1061,7 +1119,10 @@ namespace CodexMicroORM.Core
                     } while (_allServiceScopes.Count > 0);
                 }
 
-                _currentServiceScope = null;
+                if (_allServiceScopes != null)
+                {
+                    _currentServiceScope = null;
+                }
             };
         }
 
@@ -1186,7 +1247,7 @@ namespace CodexMicroORM.Core
             tex = InternalRunQuery(ss, a);
         }
 
-        private static void InternalDBAppendByQuery<T>(EntitySet<T> pop, CommandType cmdType, string cmdText, object[] parms) where T : class, new()
+        private static void InternalDBAppendByQuery<T>(EntitySet<T> pop, CommandType cmdType, string cmdText, ColumnDefinitionCallback cc, object[] parms) where T : class, new()
         {
             Exception tex = null;
             var ss = CEF.CurrentServiceScope;
@@ -1195,7 +1256,7 @@ namespace CodexMicroORM.Core
             {
                 long tickstart = DateTime.Now.Ticks;
 
-                foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, parms))
+                foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, cc, parms))
                 {
                     if (Globals.GlobalQueryTimeout.HasValue)
                     {

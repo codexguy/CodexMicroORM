@@ -16,6 +16,8 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+using CodexMicroORM.Core;
+using CodexMicroORM.Core.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -29,12 +31,30 @@ namespace CodexMicroORM.BindingSupport
     /// A GenericBindableSet is an ObservableCollection of DynamicBindable. It resembles a DataTable, as such, since it offers no strong-typed CLR properties to access data.
     /// It's flexibility is in that it can be bound to WPF lists easily, as DynamicBindable's implement ICustomTypeProvider.
     /// </summary>
-    public class GenericBindableSet : ObservableCollection<DynamicBindable>, IDisposable
+    public class GenericBindableSet : BindingList<DynamicBindable>, IDisposable, ITypedList
     {
         private bool _isDirty = false;
 
         public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
         public event EventHandler<PropertyChangedEventArgs> RowPropertyChanged;
+
+        public Dictionary<string, Type> ExternalSchema
+        {
+            get;
+            set;
+        } = new Dictionary<string, Type>();
+
+        public ServiceScope OwningScope
+        {
+            get;
+            set;
+        } = CEF.CurrentServiceScope;
+
+        public Type BaseItemType
+        {
+            get;
+            set;
+        }
 
         public bool ScanClean
         {
@@ -42,9 +62,12 @@ namespace CodexMicroORM.BindingSupport
             set;
         } = false;
 
-        internal GenericBindableSet(IEnumerable<DynamicBindable> source) : base(source)
+        internal GenericBindableSet(IEnumerable<DynamicBindable> source) : base(source.ToList())
         {
             AddTracking(source);
+            this.AllowNew = true;
+            this.AllowEdit = true;
+            this.AllowRemove = true;
         }
 
         private void ItemPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -72,6 +95,54 @@ namespace CodexMicroORM.BindingSupport
         }
 
         public bool IsDirty => _isDirty;
+
+        protected override object AddNewCore()
+        {
+            using (CEF.UseServiceScope(OwningScope))
+            {
+                // We rely on construction of a new DynamicBindable that has the same shape as the first item in the collection, if any exist
+                if (this.Any())
+                {
+                    var f = this.First();
+                    var wot = f.Wrapped?.GetWrappedObject()?.GetType();
+
+                    if (wot != null)
+                    {
+                        var no = Activator.CreateInstance(wot);
+                        var wno = CEF.IncludeObject(no, ObjectState.Added);
+                        var nod = wno.AsDynamicBindable();
+                        base.Add(nod);
+                        return nod;
+                    }
+                }
+
+                // If none exist, need to rely on the "default schema" provided
+                if (BaseItemType != null)
+                {
+                    var no = Activator.CreateInstance(BaseItemType);
+                    var wno = CEF.IncludeObject(no, ObjectState.Added);
+                    var iw = wno.AsInfraWrapped();
+                    var nod = wno.AsDynamicBindable();
+
+                    if (ExternalSchema != null)
+                    {
+                        foreach (var e in ExternalSchema)
+                        {
+                            if (!iw.HasProperty(e.Key))
+                            {
+                                iw.SetValue(e.Key, null, e.Value);
+                            }
+                        }
+                    }
+
+                    base.Add(nod);
+                    return nod;
+                }
+
+                // No default schema? It's an error situation.
+                throw new InvalidOperationException("Cannot add a new item to the GenericBindableSet collection since there's no object definition available.");
+            }
+        }
 
         public void ResetClean()
         {
@@ -120,31 +191,50 @@ namespace CodexMicroORM.BindingSupport
             }
         }
 
-        protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
+        protected override void InsertItem(int index, DynamicBindable item)
         {
-            base.OnCollectionChanged(e);
+            base.InsertItem(index, item);
+            AddTracking(new DynamicBindable[] { item });
+            SetDirty();
+        }
 
-            switch (e.Action)
+        protected override void RemoveItem(int index)
+        {
+            var i = this[index];
+            RemoveTracking(new DynamicBindable[] { this[index] });
+            base.RemoveItem(index);
+
+            using (CEF.UseServiceScope(OwningScope))
             {
-                case NotifyCollectionChangedAction.Add:
-                    AddTracking(from a in e.NewItems.Cast<DynamicBindable>() select a);
-                    break;
-                case NotifyCollectionChangedAction.Remove:
-                    RemoveTracking(from a in e.OldItems.Cast<DynamicBindable>() select a);
-                    break;
-                case NotifyCollectionChangedAction.Replace:
-                    RemoveTracking(from a in e.OldItems.Cast<DynamicBindable>() select a);
-                    AddTracking(from a in e.NewItems.Cast<DynamicBindable>() select a);
-                    break;
-                case NotifyCollectionChangedAction.Reset:
-                    RemoveTracking(from a in e.OldItems.Cast<DynamicBindable>() select a);
-                    break;
+                var uw = i.Wrapped;
+
+                if (uw != null)
+                {
+                    CEF.DeleteObject(uw);
+                }
             }
 
-            if (e.Action != NotifyCollectionChangedAction.Move)
+            SetDirty();
+        }
+
+        protected override void SetItem(int index, DynamicBindable item)
+        {
+            bool change = (item != this[index]);
+            RemoveTracking(new DynamicBindable[] { this[index] });
+            base.SetItem(index, item);
+            AddTracking(new DynamicBindable[] { item });
+
+            if (change)
             {
                 SetDirty();
             }
+        }
+
+        protected override void ClearItems()
+        {
+            RemoveTracking(this);
+            base.ClearItems();
+            SetDirty();
         }
 
         public class DirtyStateChangeEventArgs : EventArgs
@@ -180,5 +270,34 @@ namespace CodexMicroORM.BindingSupport
             Dispose(true);
         }
         #endregion
+
+        public string GetListName(PropertyDescriptor[] listAccessors)
+        {
+            return typeof(GenericBindableSet).Name;
+        }
+
+        public PropertyDescriptorCollection GetItemProperties(PropertyDescriptor[] listAccessors)
+        {
+            PropertyDescriptorCollection pdc;
+
+            if (this.Count > 0)
+            {
+                // If we have data, use the underlying data
+                var i = this[0];
+                pdc = ((ICustomTypeDescriptor)i).GetProperties();
+            }
+            else
+            {
+                pdc = new PropertyDescriptorCollection(null);
+            }
+
+            // No data, rely on external schema if available
+            foreach (var s in ExternalSchema)
+            {
+                pdc.Add(DynamicBindable.GetNewPropertyDescriptor(s.Key, s.Value));
+            }
+
+            return pdc;
+        }
     }
 }

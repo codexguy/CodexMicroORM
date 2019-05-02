@@ -285,9 +285,31 @@ namespace CodexMicroORM.Providers
                                let pn = db?.GetPropertyNameFromStorageName(baseType, sn) ?? sn
                                let hasVal = parms.ContainsKey(pn)
                                where hasVal || UseNullForMissingValues
-                               select new { Parm = a, Value = hasVal ? parms[pn] : null }))
+                               select new { Parm = a, Value = hasVal ? parms[pn] : null, Name = pn }))
             {
-                p.Parm.Value = p.Value ?? DBNull.Value;
+                var val = p.Value;
+
+                if (val != null)
+                {
+                    if (val.GetType().Equals(typeof(DateTime)))
+                    {
+                        switch (CEF.CurrentServiceScope.ResolvedDateStorageForTypeAndProperty(baseType, p.Name))
+                        {
+                            case PropertyDateStorage.TwoWayConvertUtc:
+                                val = ((DateTime)val).ToUniversalTime();
+                                break;
+
+                            case PropertyDateStorage.TwoWayConvertUtcOnlyWithTime:
+                                if (((DateTime)val).TimeOfDay.TotalMilliseconds != 0)
+                                {
+                                    val = ((DateTime)val).ToUniversalTime();
+                                }
+                                break;
+                        }
+                    }
+                }
+
+                p.Parm.Value = val ?? DBNull.Value;
             }
 
             return this;
@@ -345,6 +367,24 @@ namespace CodexMicroORM.Providers
                     where a.Direction == ParameterDirection.Output || a.Direction == ParameterDirection.InputOutput
                     let pn = a.ParameterName.StartsWith("@") ? a.ParameterName.Substring(1) : a.ParameterName
                     select (pn, a.Value));
+        }
+
+        public IDictionary<string, Type> GetResultSetShape()
+        {
+            using (var da = new SqlDataAdapter(_cmd))
+            {
+                DataTable dt = new DataTable();
+                da.Fill(dt);
+
+                Dictionary<string, Type> ret = new Dictionary<string, Type>();
+
+                foreach (DataColumn dc in dt.Columns)
+                {
+                    ret[dc.ColumnName] = dc.DataType;
+                }
+
+                return ret;
+            }
         }
     }
 }

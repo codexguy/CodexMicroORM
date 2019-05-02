@@ -922,7 +922,7 @@ namespace CodexMicroORM.Core
                                 while (sValEnum.MoveNext())
                                 {
                                     // Need to use non-generic method for this!
-                                    var wi = CEF.CurrentServiceScope.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, null, true);
+                                    var wi = CEF.CurrentServiceScope.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, null, true, false);
                                     wrappedCol.AddWrappedItem(wi);
                                 }
                             }

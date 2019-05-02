@@ -33,6 +33,8 @@ namespace CodexMicroORM.Core.Services
     {
         #region "Static state"
 
+        private const int PARALLEL_THRESHOLD_FOR_PARSE = 100;
+
         private static IDBProvider _defaultProvider;
 
         // Can declare what DB schemas any object belongs to (if not expressed in GetSchemaName())
@@ -428,7 +430,7 @@ namespace CodexMicroORM.Core.Services
             // By grouping by provider type, we support hybrid data sources, by type
             List<(ICEFInfraWrapper row, Type basetype, string schema, string name, int level, ObjectState rs, IDBProvider prov)> tempList = new List<(ICEFInfraWrapper row, Type basetype, string schema, string name, int level, ObjectState rs, IDBProvider prov)>();
 
-            Parallel.ForEach(rows, (a) =>
+            var loader = new Action<ICEFInfraWrapper>((a) =>
             {
                 using (CEF.UseServiceScope(ss))
                 {
@@ -457,6 +459,18 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
             });
+
+            if (rows.Count > PARALLEL_THRESHOLD_FOR_PARSE)
+            {
+                Parallel.ForEach(rows, new ParallelOptions() { MaxDegreeOfParallelism = settings.MaxDegreeOfParallelism }, loader);
+            }
+            else
+            {
+                foreach (var a in rows)
+                {
+                    loader(a);
+                }
+            }
 
             var ordRows = from a in tempList
                           group a by new { Level = a.level, RowState = a.rs, Provider = a.prov }
@@ -713,12 +727,14 @@ namespace CodexMicroORM.Core.Services
             return funcWrap(key);
         }
 
+        // Do not remove, used internally by reflection
         private Func<object[], IEnumerable> InternalRetrieveByKey<T>() where T : class, new() => new Func<object[], IEnumerable>((k) => { return RetrieveByKey<T>(k); });
 
         public IEnumerable<T> RetrieveByKey<T>(params object[] key) where T : class, new()
         {
             var ss = CEF.CurrentServiceScope;
             var sst = ss.GetServiceState<DBServiceState>();
+            var cb = CEF.CurrentServiceScope.ResolvedCacheBehaviorForType(typeof(T));
 
             // Special situation we look for: async saving can result in unsaved objects, where we're better off to pull from that which might still be in memory
             if (sst?.Completions.Count > 0 && ((ss.Settings.MergeBehavior & MergeBehavior.CheckScopeIfPending) != 0))
@@ -738,7 +754,7 @@ namespace CodexMicroORM.Core.Services
 
             ICEFCachingHost cache = null;
 
-            if ((ss.Settings.CacheBehavior & CacheBehavior.IdentityBased) != 0)
+            if ((cb & CacheBehavior.IdentityBased) != 0)
             {
                 // If caching is present, see if this identity is already in cache and return it if so
                 cache = CEF.CurrentCacheService();
@@ -755,7 +771,7 @@ namespace CodexMicroORM.Core.Services
             cs.DoneWork();
 
             // If caching is present, call out to it to potentially cache results (by identity)
-            if (cache != null)
+            if (cache != null && cb != CacheBehavior.Off)
             {
                 res = res.ToArray();
 
@@ -770,10 +786,10 @@ namespace CodexMicroORM.Core.Services
             return res;
         }
 
-        public IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, params object[] parms) where T : class, new()
+        public IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback cc, params object[] parms) where T : class, new()
         {
             ICEFCachingHost cache = null;
-            var cb = CEF.CurrentServiceScope.Settings.CacheBehavior;
+            var cb = CEF.CurrentServiceScope.ResolvedCacheBehaviorForType(typeof(T));
 
             if ((cb & CacheBehavior.QueryBased) != 0 && (cb & CacheBehavior.OnlyForAllQuery) == 0)
             {
@@ -788,7 +804,7 @@ namespace CodexMicroORM.Core.Services
             }
 
             var cs = CEF.CurrentConnectionScope;
-            var res = GetProviderForType(typeof(T)).RetrieveByQuery<T>(this, cs, true, cmdType, cmdText, parms);
+            var res = GetProviderForType(typeof(T)).RetrieveByQuery<T>(this, cs, true, cmdType, cmdText, cc, parms);
             cs.DoneWork();
 
             if (cache == null && (cb & CacheBehavior.ConvertQueryToIdentity) != 0)
@@ -796,13 +812,13 @@ namespace CodexMicroORM.Core.Services
                 cache = CEF.CurrentCacheService();
             }
 
-            if (cache != null)
+            if (cache != null && cb != CacheBehavior.Off)
             {
                 res = res.ToArray();
 
                 if (res.Any())
                 {
-                    cache.AddByQuery(res, cmdText, parms);
+                    cache.AddByQuery(res, cmdText, parms, null, cb);
                 }
             }
 
@@ -812,8 +828,9 @@ namespace CodexMicroORM.Core.Services
         public IEnumerable<T> RetrieveAll<T>() where T : class, new()
         {
             ICEFCachingHost cache = null;
+            var cb = CEF.CurrentServiceScope.ResolvedCacheBehaviorForType(typeof(T));
 
-            if ((CEF.CurrentServiceScope.Settings.CacheBehavior & CacheBehavior.QueryBased) != 0)
+            if ((cb & CacheBehavior.QueryBased) != 0)
             {
                 // If caching is present, see if this identity is already in cache and return it if so
                 cache = CEF.CurrentCacheService();
@@ -829,13 +846,13 @@ namespace CodexMicroORM.Core.Services
             var res = GetProviderForType(typeof(T)).RetrieveAll<T>(this, cs, true);
             cs.DoneWork();
 
-            if (cache != null)
+            if (cache != null && cb != CacheBehavior.Off)
             {
                 res = res.ToArray();
 
                 if (res.Any())
                 {
-                    cache.AddByQuery(res, "ALL", null);
+                    cache.AddByQuery(res, "ALL", null, null, cb);
                 }
             }
 

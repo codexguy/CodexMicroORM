@@ -146,6 +146,11 @@ namespace CodexMicroORM.Providers
         {
             get
             {
+                if (!string.IsNullOrEmpty(_rootDir) && !Directory.Exists(_rootDir))
+                {
+                    Directory.CreateDirectory(_rootDir);
+                }
+
                 return _rootDir;
             }
             set
@@ -422,15 +427,19 @@ namespace CodexMicroORM.Providers
             return GetSingle<T>(c);
         }
 
-        public void AddByQuery<T>(IEnumerable<T> list, string text, object[] parms = null, int? expirySeconds = null) where T : class, new()
+        public void AddByQuery<T>(IEnumerable<T> list, string text, object[] parms = null, int? expirySeconds = null, CacheBehavior? mode = null) where T : class, new()
         {
             var ss = CEF.CurrentServiceScope;
-            var mode = ss.ResolvedCacheBehaviorForType(typeof(T));
+
+            if (mode == null)
+            {
+                mode = ss.ResolvedCacheBehaviorForType(typeof(T));
+            }
 
             if ((mode & CacheBehavior.QueryBased) == 0 && (mode & CacheBehavior.ConvertQueryToIdentity) != 0 && ((mode & CacheBehavior.ForAllDoesntConvertToIdentity) == 0 || string.Compare(text, "All", true) != 0))
             {
                 // All we can do is for all list items, add to identity cache
-                Action act2 = () =>
+                void act2()
                 {
                     try
                     {
@@ -452,7 +461,7 @@ namespace CodexMicroORM.Providers
                     {
                         Interlocked.Decrement(ref _working);
                     }
-                };
+                }
 
                 if (Globals.AsyncCacheUpdates)
                 {
@@ -460,7 +469,7 @@ namespace CodexMicroORM.Providers
                 }
                 else
                 {
-                    act2.Invoke();
+                    act2();
                 }
 
                 return;
@@ -528,7 +537,7 @@ namespace CodexMicroORM.Providers
                 c.Active = true;
             }
 
-            Action act = () =>
+            void act()
             {
                 try
                 {
@@ -582,7 +591,7 @@ namespace CodexMicroORM.Providers
                 {
                     Interlocked.Decrement(ref _working);
                 }
-            };
+            }
 
             if (Globals.AsyncCacheUpdates)
             {
@@ -590,7 +599,7 @@ namespace CodexMicroORM.Providers
             }
             else
             {
-                act.Invoke();
+                act();
             }
         }
 
@@ -729,7 +738,7 @@ namespace CodexMicroORM.Providers
             {
                 if (!string.IsNullOrEmpty(cfn))
                 {
-                    var fn = Path.Combine(_rootDir, cfn);
+                    var fn = Path.Combine(RootDirectory, cfn);
 
                     if (File.Exists(fn))
                     {
@@ -745,7 +754,7 @@ namespace CodexMicroORM.Providers
 
             if (props != null)
             {
-                return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, c.Properties, null, null, false) as T;
+                return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, c.Properties, null, null, false, false) as T;
             }
 
             return null;
@@ -789,7 +798,7 @@ namespace CodexMicroORM.Providers
 
                 if (rows == null && !string.IsNullOrEmpty(cfn))
                 {
-                    var fn = Path.Combine(_rootDir, cfn);
+                    var fn = Path.Combine(RootDirectory, cfn);
 
                     if (File.Exists(fn))
                     {
@@ -807,7 +816,7 @@ namespace CodexMicroORM.Providers
             {
                 foreach (var rowdata in rows)
                 {
-                    yield return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, rowdata, null, null, false) as T;
+                    yield return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, rowdata, null, null, false, false) as T;
                 }
             }
         }
@@ -824,7 +833,7 @@ namespace CodexMicroORM.Providers
         {
             using (var fs = File.OpenWrite(fn))
             {
-                bf.Serialize(fs, r);
+                bf.Serialize(fs, ScrubDictionary(r));
             }
         }
 
@@ -836,13 +845,45 @@ namespace CodexMicroORM.Providers
             }
         }
 
+        private static ConcurrentDictionary<Type, bool> _skipTypeForSave = new ConcurrentDictionary<Type, bool>();
+
+        private IDictionary<string, object> ScrubDictionary(IDictionary<string, object> source)
+        {
+            Dictionary<string, object> toSave = new Dictionary<string, object>();
+
+            // We only persist serializable values or would get error!
+            foreach (var kvp in source)
+            {
+                if (kvp.Value != null)
+                {
+                    var t = kvp.Value.GetType();
+
+                    if (!_skipTypeForSave.TryGetValue(t, out bool doSkip))
+                    {
+                        doSkip = !t.IsSerializable || (!t.IsEnum && !t.IsPrimitive && !t.FullName.StartsWith("System."));
+                        _skipTypeForSave[t] = doSkip;
+                    }
+
+                    if (!doSkip)
+                    {
+                        toSave[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            return toSave;
+        }
+
         private void SaveRows(BinaryFormatter bf, string fn, IEnumerable<IDictionary<string, object>> rows)
         {
-            using (var fs = File.OpenWrite(fn))
+            if (Directory.Exists(Path.GetDirectoryName(fn)))
             {
-                foreach (var r in rows)
+                using (var fs = File.OpenWrite(fn))
                 {
-                    bf.Serialize(fs, r);
+                    foreach (var r in rows)
+                    {
+                        bf.Serialize(fs, ScrubDictionary(r));
+                    }
                 }
             }
         }
@@ -862,6 +903,11 @@ namespace CodexMicroORM.Providers
         {
             string subdir = "";
 
+            if (CEF.CurrentServiceScope.ResolvedCacheOnlyMemoryForType(t))
+            {
+                return null;
+            }
+
             switch (DefaultStorageStrategy)
             {
                 case CacheStorageStrategy.DirPerDay:
@@ -879,6 +925,8 @@ namespace CodexMicroORM.Providers
             return Path.Combine(subdir, Regex.Replace(Guid.NewGuid().ToString(), @"\W", "") + ".dat");
         }
 
+        private static int _savingCommitted = 0;
+
         /// <summary>
         /// For cases where persisting to file, ensures items that are eligible to be cached to disk actually are persisted to disk.
         /// </summary>
@@ -890,56 +938,68 @@ namespace CodexMicroORM.Providers
                 return;
             }
 
-            List<MFSEntry> items = new List<MFSEntry>();
-
-            foreach (var i in _index)
+            if (Interlocked.Exchange(ref _savingCommitted, 1) > 0)
             {
-                if (honorShutdown && Interlocked.Read(ref _stopping) > 0)
-                {
-                    return;
-                }
-
-                lock (i.ObjSync)
-                {
-                    if (!i.Persisted && i.Active && !string.IsNullOrEmpty(i.FileName) && (i.Properties != null || i.Rows != null) && i.ExpiryDate > DateTime.Now)
-                    {
-                        items.Add(i);
-                    }
-                }
+                return;
             }
 
-            Parallel.ForEach(items, new ParallelOptions() { MaxDegreeOfParallelism = honorShutdown ? Environment.ProcessorCount > 4 ? Environment.ProcessorCount >> 2 : 1 : -1 }, (i, pls) =>
+            try
             {
-                try
+                List<MFSEntry> items = new List<MFSEntry>();
+
+                foreach (var i in _index)
                 {
                     if (honorShutdown && Interlocked.Read(ref _stopping) > 0)
                     {
-                        pls.Break();
                         return;
-                    }
-
-                    if (i.Properties != null)
-                    {
-                        SaveProperties(_formatter, Path.Combine(_rootDir, i.FileName), i.Properties);
-                    }
-                    else
-                    {
-                        if (i.Rows != null)
-                        {
-                            SaveRows(_formatter, Path.Combine(_rootDir, i.FileName), i.Rows);
-                        }
                     }
 
                     lock (i.ObjSync)
                     {
-                        i.Persisted = true;
+                        if (!i.Persisted && i.Active && !string.IsNullOrEmpty(i.FileName) && (i.Properties != null || i.Rows != null) && i.ExpiryDate > DateTime.Now)
+                        {
+                            items.Add(i);
+                        }
                     }
                 }
-                catch (Exception ex)
+
+                Parallel.ForEach(items, new ParallelOptions() { MaxDegreeOfParallelism = honorShutdown ? Environment.ProcessorCount > 4 ? Environment.ProcessorCount >> 2 : 1 : -1 }, (i, pls) =>
                 {
-                    CEFDebug.WriteInfo($"Exception in cache save uncommitted: {ex.Message}");
-                }
-            });
+                    try
+                    {
+                        if (honorShutdown && Interlocked.Read(ref _stopping) > 0)
+                        {
+                            pls.Break();
+                            return;
+                        }
+
+                        if (i.Properties != null)
+                        {
+                            SaveProperties(_formatter, Path.Combine(RootDirectory, i.FileName), i.Properties);
+                        }
+                        else
+                        {
+                            if (i.Rows != null)
+                            {
+                                SaveRows(_formatter, Path.Combine(RootDirectory, i.FileName), i.Rows);
+                            }
+                        }
+
+                        lock (i.ObjSync)
+                        {
+                            i.Persisted = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        CEFDebug.WriteInfo($"Exception in cache save uncommitted: {ex.Message}");
+                    }
+                });
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _savingCommitted, 0);
+            }
         }
 
         /// <summary>
@@ -954,39 +1014,49 @@ namespace CodexMicroORM.Providers
 
             try
             {
-                using (var jr = new JsonTextReader(new StreamReader(File.OpenRead(Path.Combine(_rootDir, "index.json")))))
+                var fn = Path.Combine(RootDirectory, "index.json");
+
+                if (File.Exists(fn))
                 {
-                    // Should be start array
-                    jr.Read();
-
-                    while (jr.Read() && jr.TokenType != JsonToken.EndArray)
+                    using (var jr = new JsonTextReader(new StreamReader(File.OpenRead(fn))))
                     {
-                        // Should be start object
+                        // Should be start array
                         jr.Read();
 
-                        var i = new MFSEntry();
-
-                        i.FileName = jr.ReadAsString();
-                        jr.Read();
-                        i.ObjectTypeName = jr.ReadAsString();
-                        jr.Read();
-                        i.ByQuerySHA = jr.ReadAsString();
-                        jr.Read();
-                        i.QueryForAll = jr.ReadAsBoolean().GetValueOrDefault();
-                        jr.Read();
-                        i.ByIdentityComposite = jr.ReadAsString();
-                        jr.Read();
-                        i.ExpiryDate = jr.ReadAsDateTime().GetValueOrDefault();
-
-                        jr.Read();
-
-                        if (i.ExpiryDate > DateTime.Now)
+                        while (jr.Read() && jr.TokenType != JsonToken.EndArray)
                         {
-                            i.Active = true;
-                            i.Persisted = true;
-                            _index.Add(i);
+                            // Should be start object
+                            jr.Read();
+
+                            var i = new MFSEntry();
+
+                            i.FileName = jr.ReadAsString();
+                            jr.Read();
+                            i.ObjectTypeName = jr.ReadAsString();
+                            jr.Read();
+                            i.ByQuerySHA = jr.ReadAsString();
+                            jr.Read();
+                            i.QueryForAll = jr.ReadAsBoolean().GetValueOrDefault();
+                            jr.Read();
+                            i.ByIdentityComposite = jr.ReadAsString();
+                            jr.Read();
+                            i.ExpiryDate = jr.ReadAsDateTime().GetValueOrDefault();
+
+                            jr.Read();
+
+                            if (i.ExpiryDate > DateTime.Now)
+                            {
+                                i.Active = true;
+                                i.Persisted = true;
+                                _index.Add(i);
+                            }
                         }
                     }
+                }
+                else
+                {
+                    FlushAll(RootDirectory);
+                    _index.Clear();
                 }
             }
             catch (Exception ex)
@@ -1062,24 +1132,27 @@ namespace CodexMicroORM.Providers
 
             lock (_indexLock)
             {
-                File.WriteAllText(Path.Combine(_rootDir, "index.json"), sb.ToString());
+                File.WriteAllText(Path.Combine(RootDirectory, "index.json"), sb.ToString());
             }
         }
 
         private IEnumerable<string> GetAllFiles(string dir)
         {
-            foreach (var d in Directory.GetDirectories(dir))
+            if (Directory.Exists(dir))
             {
-                foreach (var f in GetAllFiles(d))
+                foreach (var d in Directory.GetDirectories(dir))
                 {
-                    yield return f;
+                    foreach (var f in GetAllFiles(d))
+                    {
+                        yield return f;
+                    }
                 }
-            }
-            foreach (var f in Directory.GetFiles(dir))
-            {
-                if (Path.GetFileName(f) != "index.json")
+                foreach (var f in Directory.GetFiles(dir))
                 {
-                    yield return f.Replace(RootDirectory + @"\", "");
+                    if (Path.GetFileName(f) != "index.json")
+                    {
+                        yield return f.Replace(RootDirectory + @"\", "");
+                    }
                 }
             }
         }
@@ -1123,12 +1196,19 @@ namespace CodexMicroORM.Providers
                         return;
                     }
 
-                    if (!string.IsNullOrEmpty(c.FileName) && File.Exists(Path.Combine(RootDirectory, c.FileName)))
+                    try
                     {
-                        File.Delete(Path.Combine(RootDirectory, c.FileName));
-                    }
+                        if (!string.IsNullOrEmpty(c.FileName) && File.Exists(Path.Combine(RootDirectory, c.FileName)))
+                        {
+                            File.Delete(Path.Combine(RootDirectory, c.FileName));
+                        }
 
-                    _index.Remove(c);
+                        _index.Remove(c);
+                    }
+                    catch (Exception ex)
+                    {
+                        CEFDebug.WriteInfo($"Exception in cache cleanup: {ex.Message}");
+                    }
                 });
 
                 if (Interlocked.Read(ref _stopping) > 0)
@@ -1168,13 +1248,23 @@ namespace CodexMicroORM.Providers
 
                     if (DefaultStorageStrategy != CacheStorageStrategy.OnlyMemory)
                     {
-                        Parallel.ForEach(GetAllFiles(RootDirectory), new ParallelOptions() { MaxDegreeOfParallelism = Environment.ProcessorCount > 4 ? Environment.ProcessorCount >> 2 : 1 }, (f) =>
+                        try
                         {
-                            if (_index.GetFirstByName(nameof(MFSEntry.FileName), f) == null)
+                            Parallel.ForEach(GetAllFiles(RootDirectory), new ParallelOptions() { MaxDegreeOfParallelism = Environment.ProcessorCount > 4 ? Environment.ProcessorCount >> 2 : 1 }, (f) =>
                             {
-                                File.Delete(f);
-                            }
-                        });
+                                if (_index.GetFirstByName(nameof(MFSEntry.FileName), f) == null)
+                                {
+                                    if (File.Exists(f))
+                                    {
+                                        File.Delete(f);
+                                    }
+                                }
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            CEFDebug.WriteInfo($"Exception in cache monitor: {ex.Message}");
+                        }
                     }
 
                     Cleanup(true);

@@ -25,6 +25,37 @@ using System.Text;
 namespace CodexMicroORM.Core
 {
     [AttributeUsage(AttributeTargets.Class)]
+    public class EntityCacheRecommendAttribute : Attribute
+    {
+        public EntityCacheRecommendAttribute(int intervalMinutes, bool onlyMemory)
+        {
+            IntervalMinutes = intervalMinutes;
+            OnlyMemory = onlyMemory;
+        }
+
+        public EntityCacheRecommendAttribute(int intervalMinutes)
+        {
+            IntervalMinutes = intervalMinutes;
+        }
+
+        public int? IntervalMinutes
+        {
+            get;
+            private set;
+        }
+
+        public bool? OnlyMemory
+        {
+            get;
+            private set;
+        }
+    }
+
+    public class EntityIgnoreBindingAttribute : Attribute
+    {
+    }
+
+    [AttributeUsage(AttributeTargets.Class)]
     public class EntityPrimaryKeyAttribute : Attribute
     {
         public string[] Fields
@@ -68,6 +99,20 @@ namespace CodexMicroORM.Core
         public EntitySchemaNameAttribute(string name)
         {
             Name = name;
+        }
+    }
+
+    public class EntityDateHandlingAttribute : Attribute
+    {
+        public EntityDateHandlingAttribute(PropertyDateStorage mode)
+        {
+            StorageMode = mode;
+        }
+
+        public PropertyDateStorage StorageMode
+        {
+            get;
+            private set;
         }
     }
 

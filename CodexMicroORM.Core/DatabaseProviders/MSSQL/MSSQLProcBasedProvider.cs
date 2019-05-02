@@ -600,7 +600,7 @@ namespace CodexMicroORM.Providers
             return retVal;
         }
 
-        private IEnumerable<T> CommonRetrieveRows<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, string cmdText, CommandType type, IList<object> parms) where T: class, new()
+        private IEnumerable<T> CommonRetrieveRows<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, string cmdText, CommandType type, CEF.ColumnDefinitionCallback cc, IList<object> parms) where T: class, new()
         {
             var ss = CEF.CurrentServiceScope;
 
@@ -611,7 +611,7 @@ namespace CodexMicroORM.Providers
             var schema = wo?.GetSchemaName() ?? db.GetSchemaNameByType(no.GetBaseType()) ?? DefaultSchema ?? DEFAULT_DB_SCHEMA;
             var name = db.GetEntityNameByType(no.GetBaseType(), wo);
 
-            MSSQLCommand sqlcmd = null;
+            MSSQLCommand sqlcmd;
 
             if (type == CommandType.RetrieveByText)
             {
@@ -637,9 +637,13 @@ namespace CodexMicroORM.Providers
             CEFDebug.DumpSQLCall(cmdText, sqlcmd.GetParameterValues());
 
             bool fetchedOutput = false;
+            bool hasData = false;
+            HashSet<string> dateFields = null;
 
             foreach (var row in sqlcmd.ExecuteReadRows())
             {
+                hasData = true;
+
                 if (!fetchedOutput)
                 {
                     fetchedOutput = true;
@@ -653,6 +657,40 @@ namespace CodexMicroORM.Providers
                         foreach (var ov in outVals)
                         {
                             conn.LastOutputVariables[ov.name] = ov.value;
+                        }
+                    }
+                }
+
+                // Handle any possible date translation now - to be efficient, we build a list of candidate fields to handle instead of looking at every cell from every row!
+                if (dateFields == null)
+                {
+                    dateFields = new HashSet<string>();
+
+                    foreach (var kvp in row)
+                    {
+                        if (kvp.Value.type == typeof(DateTime))
+                        {
+                            dateFields.Add(kvp.Key);
+                        }
+                    }
+                }
+
+                foreach (string df in dateFields)
+                {
+                    if (row[df].value != null)
+                    {
+                        switch (ss.ResolvedDateStorageForTypeAndProperty(typeof(T), df))
+                        {
+                            case PropertyDateStorage.TwoWayConvertUtc:
+                                row[df] = (DateTime.SpecifyKind((DateTime)row[df].value, DateTimeKind.Utc).ToLocalTime(), typeof(DateTime));
+                                break;
+
+                            case PropertyDateStorage.TwoWayConvertUtcOnlyWithTime:
+                                if (((DateTime)row[df].value).TimeOfDay.Milliseconds != 0)
+                                {
+                                    row[df] = (DateTime.SpecifyKind((DateTime)row[df].value, DateTimeKind.Utc).ToLocalTime(), typeof(DateTime));
+                                }
+                                break;
                         }
                     }
                 }
@@ -695,21 +733,29 @@ namespace CodexMicroORM.Providers
 
                 yield return no;
             }
+
+            if (!hasData && cc != null)
+            {
+                foreach (var c in sqlcmd.GetResultSetShape())
+                {
+                    cc(c.Key, c.Value);
+                }
+            }
         }
 
         public IEnumerable<T> RetrieveAll<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap) where T : class, new()
         {
-            return CommonRetrieveRows<T>(db, conn, doWrap, null, CommandType.RetrieveAll, null);
+            return CommonRetrieveRows<T>(db, conn, doWrap, null, CommandType.RetrieveAll, null, null);
         }
 
         public IEnumerable<T> RetrieveByKey<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, object[] key) where T : class, new()
         {
-            return CommonRetrieveRows<T>(db, conn, doWrap, null, CommandType.RetrieveByKey, key);
+            return CommonRetrieveRows<T>(db, conn, doWrap, null, CommandType.RetrieveByKey, null, key);
         }
 
-        public IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, object[] parms) where T : class, new()
+        public IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback cc, object[] parms) where T : class, new()
         {
-            return CommonRetrieveRows<T>(db, conn, doWrap, cmdText, cmdType == System.Data.CommandType.StoredProcedure ? CommandType.RetrieveByProc : CommandType.RetrieveByText, parms);
+            return CommonRetrieveRows<T>(db, conn, doWrap, cmdText, cmdType == System.Data.CommandType.StoredProcedure ? CommandType.RetrieveByProc : CommandType.RetrieveByText, cc, parms);
         }
     }
 }

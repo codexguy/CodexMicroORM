@@ -102,6 +102,11 @@ namespace CodexMicroORM.Core.Services
 
         public event EventHandler Initialized;
 
+        public Dictionary<string, Type> ExternalSchema
+        {
+            get;
+        } = new Dictionary<string, Type>();
+
         public bool ContainsItemByKey(object o)
         {
             if (o == null)
@@ -938,7 +943,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         if (ni != null)
                         {
-                            if (BoundScope.InternalCreateAddBase(ni, true, null, null, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), true) is ICEFWrapper w)
+                            if (BoundScope.InternalCreateAddBase(ni, true, null, null, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), true, false) is ICEFWrapper w)
                             {
                                 var cast = w as T;
 

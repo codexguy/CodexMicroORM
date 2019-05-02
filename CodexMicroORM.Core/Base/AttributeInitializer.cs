@@ -96,6 +96,53 @@ namespace CodexMicroORM.Core
 
                     try
                     {
+                        foreach (var prop in t.GetProperties())
+                        {
+                            var dateStoreAttr = prop.GetCustomAttribute<EntityDateHandlingAttribute>();
+
+                            if (dateStoreAttr != null && dateStoreAttr.StorageMode != PropertyDateStorage.None)
+                            {
+                                typeof(ServiceScope).GetMethod("SetDateStorageMode").MakeGenericMethod(t).Invoke(null, new object[] { prop.Name, dateStoreAttr.StorageMode });
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        if (!SilentlyContinue)
+                        {
+                            throw;
+                        }
+                    }
+
+                    try
+                    {
+                        var cacheAttr = t.GetCustomAttribute<EntityCacheRecommendAttribute>();
+
+                        if (cacheAttr != null)
+                        {
+                            typeof(ServiceScope).GetMethod("SetCacheBehavior").MakeGenericMethod(t).Invoke(null, new object[] { CacheBehavior.MaximumDefault });
+
+                            if (cacheAttr.OnlyMemory.HasValue)
+                            {
+                                typeof(ServiceScope).GetMethod("SetCacheOnlyMemory").MakeGenericMethod(t).Invoke(null, new object[] { cacheAttr.OnlyMemory.Value });
+                            }
+
+                            if (cacheAttr.IntervalMinutes.HasValue)
+                            {
+                                typeof(ServiceScope).GetMethod("SetCacheSeconds").MakeGenericMethod(t).Invoke(null, new object[] { cacheAttr.IntervalMinutes.Value * 60 });
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        if (!SilentlyContinue)
+                        {
+                            throw;
+                        }
+                    }
+
+                    try
+                    {
                         var schemaAttr = t.GetCustomAttribute<EntitySchemaNameAttribute>();
 
                         if (schemaAttr != null)

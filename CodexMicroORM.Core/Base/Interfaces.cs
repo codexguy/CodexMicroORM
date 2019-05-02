@@ -62,7 +62,7 @@ namespace CodexMicroORM.Core
 
         IEnumerable<T> RetrieveAll<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap) where T : class, new();
         IEnumerable<T> RetrieveByKey<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, object[] key) where T : class, new();
-        IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, CommandType cmdType, string cmdText, object[] parms) where T : class, new();
+        IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback cc, object[] parms) where T : class, new();
 
         void ExecuteRaw(ConnectionScope conn, string cmdText, bool doThrow = true, bool stopOnError = true);
         T ExecuteScalar<T>(ConnectionScope conn, string cmdText);
@@ -89,6 +89,8 @@ namespace CodexMicroORM.Core
         IEnumerable<Dictionary<string, (object value, Type type)>> ExecuteReadRows();
 
         IDBProviderCommand ExecuteNoResultSet();
+
+        IDictionary<string, Type> GetResultSetShape();
 
         IEnumerable<(string name, object value)> GetOutputValues();
     }
@@ -125,7 +127,7 @@ namespace CodexMicroORM.Core
 
         IEnumerable<T> RetrieveByKey<T>(params object[] key) where T : class, new();
 
-        IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, params object[] parms) where T : class, new();
+        IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback cc, params object[] parms) where T : class, new();
 
         string GetSchemaNameByType(Type bt);
 
@@ -174,7 +176,7 @@ namespace CodexMicroORM.Core
 
         void AddByIdentity<T>(T o, object[] key = null, int? expirySeconds = null) where T : class, new();
 
-        void AddByQuery<T>(IEnumerable<T> list, string text, object[] parms = null, int? expirySeconds = null) where T : class, new();
+        void AddByQuery<T>(IEnumerable<T> list, string text, object[] parms = null, int? expirySeconds = null, CacheBehavior? mode = null) where T : class, new();
 
         void InvalidateForByQuery(Type t, bool typeSpecific);
 

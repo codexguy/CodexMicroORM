@@ -249,6 +249,11 @@ namespace CodexMicroORM.Core.Helper
 
         public static bool FastPropertyReadable(this object o, string propName)
         {
+            if (o == null)
+            {
+                return false;
+            }
+
             var key = new DelegateCacheKey(o.GetType(), propName);
 
             if (_getterCache.TryGetValue(key, out Func<object, object> call))

@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>CodexMicroORM.BindingSupport</id>
-    <version>0.6.5</version>
+    <version>0.9.0</version>
     <title>CodexMicroORM UI Binding Support</title>
     <authors>CodeX Enterprises LLC</authors>
     <owners>CodeX Enterprises LLC</owners>
@@ -12,7 +12,7 @@
     <requireLicenseAcceptance>true</requireLicenseAcceptance>
     <description>An alternative to ORM's such as Entity Framework, offers light-weight database mapping to your existing CLR objects with minimal effort. BindingSupport is net461, supporting two-way data-binding with entities.</description>
     <releaseNotes>Visit on GitHub for details.</releaseNotes>
-    <copyright>Copyright (c) 2018, All Rights Reserved</copyright>
+    <copyright>Copyright (c) 2019, All Rights Reserved</copyright>
     <tags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql data-binding wpf</tags>
   </metadata>
 </package>

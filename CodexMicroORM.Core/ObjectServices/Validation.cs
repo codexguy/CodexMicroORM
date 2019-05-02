@@ -182,10 +182,7 @@ namespace CodexMicroORM.Core.Services
         public static void RegisterMaxLength<T>(string propName, int maxlength) where T : class
         {
             CEF.RegisterForType<T>(new ValidationService());
-
-            List<(string prop, int maxlength)> vl = null;
-
-            _typePropMaxLength.TryGetValue(typeof(T), out vl);
+            _typePropMaxLength.TryGetValue(typeof(T), out List<(string prop, int maxlength)> vl);
 
             if (vl == null)
             {
@@ -206,10 +203,7 @@ namespace CodexMicroORM.Core.Services
         public static void RegisterRangeValidation<T>(string propName, double? minval, double? maxval) where T : class
         {
             CEF.RegisterForType<T>(new ValidationService());
-
-            List<(string prop, double minval, double maxval)> vl = null;
-
-            _typePropRange.TryGetValue(typeof(T), out vl);
+            _typePropRange.TryGetValue(typeof(T), out List<(string prop, double minval, double maxval)> vl);
 
             if (vl == null)
             {
@@ -271,7 +265,7 @@ namespace CodexMicroORM.Core.Services
         public IEnumerable<(ValidationErrorCode error, string message)> GetObjectMessage<T>(T o) where T : class
         {
             var uw = o.AsUnwrapped();
-            var iw = o.AsInfraWrapped();
+            var iw = uw.AsInfraWrapped();
             var bt = uw.GetBaseType();
 
             List<(ValidationErrorCode error, string message)> messages = new List<(ValidationErrorCode error, string message)>();
@@ -370,7 +364,7 @@ namespace CodexMicroORM.Core.Services
         public IEnumerable<(ValidationErrorCode error, string message)> GetPropertyMessages<T>(T o, string propName) where T : class
         {
             var uw = o.AsUnwrapped();
-            var iw = o.AsInfraWrapped();
+            var iw = uw.AsInfraWrapped();
             var bt = uw.GetBaseType();
 
             List<(ValidationErrorCode error, string message)> messages = new List<(ValidationErrorCode error, string message)>();

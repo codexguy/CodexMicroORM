@@ -300,7 +300,7 @@ namespace CodexMicroORM.Core.Services
                                 {
                                     if (((mode & SerializationMode.OnlyCLRProperties) == 0) || (wot.GetProperty(kvp.Key)?.CanRead).GetValueOrDefault(false))
                                     {
-                                        var aud = CEF.CurrentServiceScope.GetService<ICEFAuditHost>();
+                                        var aud = CEF.CurrentAuditService();
 
                                         if (aud != null)
                                         {

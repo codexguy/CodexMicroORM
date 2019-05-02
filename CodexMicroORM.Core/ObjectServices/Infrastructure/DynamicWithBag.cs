@@ -221,6 +221,11 @@ namespace CodexMicroORM.Core.Services
             if (source == null)
                 return null;
 
+            if (targetType == typeof(string))
+            {
+                return source.ToString();
+            }
+
             if (source.GetType() == targetType)
                 return source;
 
@@ -236,6 +241,11 @@ namespace CodexMicroORM.Core.Services
                 if (ntt.IsEnum)
                 {
                     return Activator.CreateInstance(targetType, Enum.Parse(ntt, source.ToString()));
+                }
+
+                if (ntt == typeof(Guid) && source != null && !string.IsNullOrEmpty(source.ToString()))
+                {
+                    return Activator.CreateInstance(targetType, new Guid(source.ToString()));
                 }
 
                 if (source is IConvertible)
@@ -466,6 +476,11 @@ namespace CodexMicroORM.Core.Services
 
         public bool HasProperty(string propName)
         {
+            if (_source == null)
+            {
+                return false;
+            }
+
             if (_source.FastPropertyReadable(propName))
             {
                 return true;

@@ -51,6 +51,9 @@ namespace CodexMicroORM.Core
         // Global config...
         private static ConcurrentDictionary<Type, CacheBehavior> _cacheBehaviorByType = new ConcurrentDictionary<Type, CacheBehavior>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static ConcurrentDictionary<Type, int> _cacheDurByType = new ConcurrentDictionary<Type, int>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<Type, bool> _cacheOnlyMemByType = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static ConcurrentDictionary<(Type, string), PropertyDateStorage> _dateConversionByTypeAndProp = new ConcurrentDictionary<(Type, string), PropertyDateStorage>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static long _currentSaveNestLevel = 0;
 
         // Tracks all objects in this scope - and their services.
         private ConcurrentIndexedList<TrackedObject> _scopeObjects = null;
@@ -130,6 +133,24 @@ namespace CodexMicroORM.Core
         public static void SetCacheBehavior<T>(CacheBehavior cb) => _cacheBehaviorByType[typeof(T)] = cb;
 
         public static void SetCacheSeconds<T>(int seconds) => _cacheDurByType[typeof(T)] = seconds;
+
+        public static void SetCacheOnlyMemory<T>(bool onlyMem = true)
+        {
+            _cacheOnlyMemByType[typeof(T)] = onlyMem;
+        }
+
+        public static void SetDateStorageMode<T>(string prop, PropertyDateStorage mode)
+        {
+            _dateConversionByTypeAndProp[(typeof(T), prop)] = mode;
+        }
+
+        public static long CurrentSaveNestLevel
+        {
+            get
+            {
+                return Interlocked.Read(ref _currentSaveNestLevel);
+            }
+        }
 
         #endregion
 
@@ -290,6 +311,37 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Returns whether a given type can only be cached in memory or not.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <returns></returns>
+        public bool ResolvedCacheOnlyMemoryForType(Type t)
+        {
+            if (_cacheOnlyMemByType.TryGetValue(t, out bool om))
+            {
+                return om;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns the date storage mode for a given property name on a given type.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <param name="prop"></param>
+        /// <returns></returns>
+        public PropertyDateStorage ResolvedDateStorageForTypeAndProperty(Type t, string prop)
+        {
+            if (_dateConversionByTypeAndProp.TryGetValue((t, prop), out PropertyDateStorage mode))
+            {
+                return mode;
+            }
+
+            return Globals.DefaultPropertyDateStorage;
+        }
+
+        /// <summary>
         /// Registers a service for local use by just this service scope (local use).
         /// </summary>
         /// <param name="service"></param>
@@ -331,6 +383,8 @@ namespace CodexMicroORM.Core
                 {
                     try
                     {
+                        Interlocked.Increment(ref _currentSaveNestLevel);
+
                         var filterRows = GetFilterRows(parm.settings);
 
                         // Go through scope, looking for tracked obj which do not implement INotifyPropertyChanged but do have an infra wrapper, to the infra wrapper - can change row states due to this, go through and update row states, if needed
@@ -391,6 +445,10 @@ namespace CodexMicroORM.Core
                         {
                             throw;
                         }
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _currentSaveNestLevel);
                     }
                 }
             };
@@ -618,12 +676,12 @@ namespace CodexMicroORM.Core
 
         public object IncludeObjectNonGeneric(object initial, IDictionary<string, object> props)
         {
-            return InternalCreateAddBase(initial, false, null, props, null, null, initial != null);
+            return InternalCreateAddBase(initial, false, null, props, null, null, initial != null, false);
         }
 
         public object IncludeObjectNonGeneric(object initial, IDictionary<string, object> props, ObjectState state)
         {
-            return InternalCreateAddBase(initial, false, state, props, null, null, initial != null);
+            return InternalCreateAddBase(initial, false, state, props, null, null, initial != null, false);
         }
 
         public INotifyPropertyChanged GetNotifyFriendlyFor(object o)
@@ -772,7 +830,7 @@ namespace CodexMicroORM.Core
                                     }
                                     else
                                     {
-                                        throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                                        CEFDebug.WriteInfo("Cannot deserialize this type of data (TODO).");
                                     }
                                 }
                             }
@@ -791,7 +849,7 @@ namespace CodexMicroORM.Core
                                     }
                                     else
                                     {
-                                        throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                                        CEFDebug.WriteInfo("Cannot deserialize this type of data (TODO).");
                                     }
                                 }
                             }
@@ -878,12 +936,13 @@ namespace CodexMicroORM.Core
                             break;
 
                         default:
-                            throw new NotSupportedException("Cannot deserialize this type of data (TODO).");
+                            CEFDebug.WriteInfo("Cannot deserialize this type of data (TODO).");
+                            break;
                     }
                 }
             }
 
-            var constructed = CEF.CurrentServiceScope.InternalCreateAddBase(type.FastCreateNoParm(), rs == ObjectState.Added, rs, props, null, visits, true);
+            var constructed = CEF.CurrentServiceScope.InternalCreateAddBase(type.FastCreateNoParm(), rs == ObjectState.Added, rs, props, null, visits, true, false);
 
             var iw = constructed.AsInfraWrapped();
 
@@ -1405,7 +1464,7 @@ namespace CodexMicroORM.Core
             return tosave;
         }
 
-        internal object InternalCreateAddBase(object initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits, bool initFromTemplate)
+        internal object InternalCreateAddBase(object initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits, bool initFromTemplate, bool mustValueMatch)
         {
             if (initial == null)
                 throw new ArgumentNullException("initial");
@@ -1432,8 +1491,24 @@ namespace CodexMicroORM.Core
             var initBase = initial.GetBaseType();
 
             // Also need to see if can identify it based on key values
-            if (props != null)
+            if (mustValueMatch || props != null)
             {
+                IDictionary<string, object> pkcheck;
+
+                if (props == null)
+                {
+                    pkcheck = new Dictionary<string, object>();
+
+                    foreach (var (name, type, readable, writeable) in initial.FastGetAllProperties(true))
+                    {
+                        pkcheck[name] = GetGetter(initial, name).getter.Invoke();
+                    }
+                }
+                else
+                {
+                    pkcheck = props;
+                }
+
                 var kss = GetServiceState<KeyService.KeyServiceState>();
 
                 if (kss != null)
@@ -1442,11 +1517,11 @@ namespace CodexMicroORM.Core
 
                     if (pkcol.Any())
                     {
-                        var pkval = (from a in pkcol let scn = KeyService.SHADOW_PROP_PREFIX + a where props.ContainsKey(scn) && (props[scn] ?? "").ToString() != "" select props[scn]);
+                        var pkval = (from a in pkcol let scn = KeyService.SHADOW_PROP_PREFIX + a where pkcheck.ContainsKey(scn) && (pkcheck[scn] ?? "").ToString() != "" select pkcheck[scn]);
 
                         if (!pkval.Any())
                         {
-                            pkval = (from a in pkcol where props.ContainsKey(a) && (props[a] ?? "").ToString() != "" select props[a]);
+                            pkval = (from a in pkcol where pkcheck.ContainsKey(a) && (pkcheck[a] ?? "").ToString() != "" select pkcheck[a]);
                         }
 
                         if (pkval.Count() == pkcol.Count)
@@ -1458,7 +1533,6 @@ namespace CodexMicroORM.Core
                                 if (props != null)
                                 {
                                     var iw = pkto.GetInfraWrapperTarget();
-                                    var aiw = iw as ICEFInfraWrapper;
 
                                     // Since we have properties in hand, option to update the existing object (default is to do this, other option is to fail if any values differ)
                                     foreach (var prop in props)
@@ -1486,7 +1560,7 @@ namespace CodexMicroORM.Core
                                         }
                                     }
 
-                                    if (initState.HasValue && aiw != null)
+                                    if (initState.HasValue && iw is ICEFInfraWrapper aiw)
                                     {
                                         aiw.SetRowState(initState.Value);
                                     }
@@ -1695,7 +1769,7 @@ namespace CodexMicroORM.Core
 
         internal T InternalCreateAdd<T>(T initial, bool isNew, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types) where T : class, new()
         {
-            var v = InternalCreateAddBase(initial ?? new T(), isNew, initState, props, types, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), initial != null);
+            var v = InternalCreateAddBase(initial ?? new T(), isNew, initState, props, types, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), initial != null, false);
             return v as T;
         }
 

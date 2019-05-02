@@ -361,10 +361,10 @@ namespace CodexMicroORM.Core.Services
             if (uw == null)
                 return;
 
-            if (props == null)
-            {
-                props = new Dictionary<string, object>();
-            }
+            //if (props == null)
+            //{
+            //    props = new Dictionary<string, object>();
+            //}
 
             var pkFields = ResolveKeyDefinitionForType(uw.GetBaseType());
 
@@ -376,7 +376,7 @@ namespace CodexMicroORM.Core.Services
             {
                 if (pkFields?.Count == 1)
                 {
-                    if (!props.ContainsKey(pkFields[0]))
+                    if (props != null && !props.ContainsKey(pkFields[0]))
                     {
                         _keyKnownTypes.TryGetValue(uw.GetBaseType(), out prefKeyType);
 
@@ -458,7 +458,7 @@ namespace CodexMicroORM.Core.Services
                     }
                     else
                     {
-                        if (Globals.UseShadowPropertiesForNew && props.ContainsKey(k) && props.ContainsKey(SHADOW_PROP_PREFIX + k))
+                        if (props != null && Globals.UseShadowPropertiesForNew && props.ContainsKey(k) && props.ContainsKey(SHADOW_PROP_PREFIX + k))
                         {
                             var spval = props[SHADOW_PROP_PREFIX + k];
                             var defVal = WrappingHelper.GetDefaultForType(spval?.GetType());
@@ -561,7 +561,7 @@ namespace CodexMicroORM.Core.Services
 
                         if (testParent != null)
                         {
-                            objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false);
+                            objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false, false);
                             didAdd = true;
                         }
                         else
@@ -579,7 +579,7 @@ namespace CodexMicroORM.Core.Services
                         if (testParent != null)
                         {
                             iw.SetValue(rel.ParentPropertyName, testParent.GetWrapperTarget());
-                            objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false);
+                            objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false, false);
                             didAdd = true;
                         }
                         else
@@ -606,7 +606,7 @@ namespace CodexMicroORM.Core.Services
                         {
                             var (getter, type) = ss.GetGetter(testParent.GetInfraWrapperTarget(), rel.ChildPropertyName);
 
-                            if (WrappingHelper.IsWrappableListType(type, null))
+                            if (type != null && WrappingHelper.IsWrappableListType(type, null))
                             {
                                 var parVal = getter.Invoke();
 
@@ -620,10 +620,12 @@ namespace CodexMicroORM.Core.Services
 
                                 if (parVal is ICEFList asCefList)
                                 {
-                                    asCefList.AddWrappedItem(w ?? uw, !didAdd);
+                                    if (asCefList.AddWrappedItem(w ?? uw, !didAdd))
+                                    {
+                                        objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false, true);
+                                        didLink = true;
+                                    }
                                 }
-
-                                didLink = true;
                             }
                         }
                         else
@@ -653,7 +655,7 @@ namespace CodexMicroORM.Core.Services
                             {
                                 if (val.Equals(uw) || val.Equals(w))
                                 {
-                                    objstate.AddFK(ss, rel, to, testChild, to.GetNotifyFriendly(), true, true);
+                                    objstate.AddFK(ss, rel, to, testChild, to.GetNotifyFriendly(), true, true, false);
                                     didLink = true;
                                 }
                             }
@@ -674,7 +676,7 @@ namespace CodexMicroORM.Core.Services
                             if (setter != null)
                             {
                                 setter.Invoke(to.GetWrapperTarget());
-                                objstate.AddFK(ss, rel, to, testChild.Child, to.GetNotifyFriendly(), true, true);
+                                objstate.AddFK(ss, rel, to, testChild.Child, to.GetNotifyFriendly(), true, true, false);
                                 testChild.Processed = true;
                                 didLink = true;
                             }
@@ -686,9 +688,9 @@ namespace CodexMicroORM.Core.Services
                 {
                     var (getter, type) = ss.GetGetter(iw, rel.ChildPropertyName);
 
-                    if (getter != null)
+                    if (getter != null && type != null)
                     {
-                        if (WrappingHelper.IsWrappableListType(type, null))
+                        if (type != null && WrappingHelper.IsWrappableListType(type, null))
                         {
                             var parVal = getter.Invoke();
 
@@ -703,7 +705,7 @@ namespace CodexMicroORM.Core.Services
 
                                     if (chTo != null)
                                     {
-                                        objstate.AddFK(ss, rel, to, chTo, to.GetNotifyFriendly(), true, false);
+                                        objstate.AddFK(ss, rel, to, chTo, to.GetNotifyFriendly(), true, false, false);
                                     }
                                 }
                             }
@@ -726,7 +728,7 @@ namespace CodexMicroORM.Core.Services
                         {
                             var (getter, type) = ss.GetGetter(to.GetInfraWrapperTarget(), pobj.Relationship.ChildPropertyName);
 
-                            if (WrappingHelper.IsWrappableListType(type, null))
+                            if (type != null && WrappingHelper.IsWrappableListType(type, null))
                             {
                                 var parVal = getter.Invoke();
 
@@ -742,7 +744,7 @@ namespace CodexMicroORM.Core.Services
                                 {
                                     if (asCefList.AddWrappedItem(pobj.Child.GetWrapperTarget()))
                                     {
-                                        objstate.AddFK(ss, pobj.Relationship, to, pobj.Child, to.GetNotifyFriendly(), false, false);
+                                        objstate.AddFK(ss, pobj.Relationship, to, pobj.Child, to.GetNotifyFriendly(), false, false, false);
                                         pobj.Processed = true;
                                     }
                                 }
@@ -776,7 +778,7 @@ namespace CodexMicroORM.Core.Services
                             if (parVal == null)
                             {
                                 // If this is a wrappable type, create instance now to host the child value
-                                if (WrappingHelper.IsWrappableListType(parGet.type, parVal))
+                                if (parGet.type != null && WrappingHelper.IsWrappableListType(parGet.type, parVal))
                                 {
                                     parVal = WrappingHelper.CreateWrappingList(ss, parGet.type, testParent.AsUnwrapped(), rel.ChildPropertyName);
                                     var parSet = ss.GetSetter(testParent.GetInfraWrapperTarget(), rel.ChildPropertyName);
@@ -787,7 +789,7 @@ namespace CodexMicroORM.Core.Services
                             else
                             {
                                 // Parent value might not be a CEF list type, see if we can convert it to be one now
-                                if (asCefList == null && parVal is System.Collections.IEnumerable && WrappingHelper.IsWrappableListType(parGet.type, parVal))
+                                if (asCefList == null && parVal is System.Collections.IEnumerable && parGet.type != null && WrappingHelper.IsWrappableListType(parGet.type, parVal))
                                 {
                                     asCefList = WrappingHelper.CreateWrappingList(ss, parGet.type, testParent.AsUnwrapped(), rel.ChildPropertyName);
 
@@ -797,7 +799,7 @@ namespace CodexMicroORM.Core.Services
                                     {
                                         var toAdd = sValEnum.Current;
                                         var toAddWrapped = ss.GetDynamicWrapperFor(toAdd, false);
-                                        var toAddTracked = ss.InternalCreateAddBase(toAdd, toAddWrapped != null && toAddWrapped.GetRowState() == ObjectState.Added, null, null, null, null, true);
+                                        var toAddTracked = ss.InternalCreateAddBase(toAdd, toAddWrapped != null && toAddWrapped.GetRowState() == ObjectState.Added, null, null, null, null, true, false);
 
                                         if (!asCefList.ContainsItem(toAddTracked))
                                         {
@@ -814,8 +816,10 @@ namespace CodexMicroORM.Core.Services
                             {
                                 if (!asCefList.ContainsItem(w ?? uw))
                                 {
-                                    asCefList.AddWrappedItem(w ?? uw);
-                                    objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false);
+                                    if (asCefList.AddWrappedItem(w ?? uw))
+                                    {
+                                        objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false, true);
+                                    }
                                 }
                             }
                         }
@@ -897,7 +901,7 @@ namespace CodexMicroORM.Core.Services
                     if (toc != null)
                     {
                         var kss = ss.GetServiceState<KeyServiceState>();
-                        kss.AddFK(ss, ki, top, toc, top.GetNotifyFriendly(), true, false);
+                        kss.AddFK(ss, ki, top, toc, top.GetNotifyFriendly(), true, false, false);
                     }
                 }
             }
@@ -935,8 +939,8 @@ namespace CodexMicroORM.Core.Services
 
                         foreach (var crn in tcr.ChildResolvedKey)
                         {
-                            var chGet = ss.GetGetter(child, crn);
-                            childVals.Add(chGet.getter.Invoke());
+                            var (getter, type) = ss.GetGetter(child, crn);
+                            childVals.Add(getter.Invoke());
                         }
 
                         var testParent = state.GetTrackedByPKValue(ss, tcr.ParentType, childVals);
@@ -1348,9 +1352,7 @@ namespace CodexMicroORM.Core.Services
 
                 public override bool Equals(object obj)
                 {
-                    var otherFK = obj as KeyObjectStateFK;
-
-                    if (otherFK != null)
+                    if (obj is KeyObjectStateFK otherFK)
                     {
                         return otherFK.Parent.IsSame(this.Parent) && otherFK.Child.IsSame(this.Child);
                     }
@@ -1580,11 +1582,16 @@ namespace CodexMicroORM.Core.Services
                 return existingKey;
             }
 
-            public KeyObjectStateFK AddFK(ServiceScope ss, TypeChildRelationship key, ServiceScope.TrackedObject parent, ServiceScope.TrackedObject child, INotifyPropertyChanged parentWrapped, bool copyValues, bool checkUnlinked)
+            public KeyObjectStateFK AddFK(ServiceScope ss, TypeChildRelationship key, ServiceScope.TrackedObject parent, ServiceScope.TrackedObject child, INotifyPropertyChanged parentWrapped, bool copyValues, bool checkUnlinked, bool checkExists)
             {
                 if (parentWrapped != null)
                 {
                     var nk = new KeyObjectStateFK(ss, key, parent, child, parentWrapped);
+
+                    if (checkExists && AllFK.Contains(nk))
+                    {
+                        return nk;
+                    }
 
                     AllFK.Add(nk, false);
 
@@ -1832,6 +1839,7 @@ namespace CodexMicroORM.Core.Services
                             // FKs are trickier - how many will we have per entity? we'll guess 2:1 but let it be controllable
                             AllFK = new ConcurrentIndexedList<KeyObjectStateFK>(Convert.ToInt32(ss.Settings.EstimatedScopeSize * Globals.EstimatedFKRatio), nameof(KeyObjectStateFK.Parent), nameof(KeyObjectStateFK.Child));
                         }
+
                         _firstInit = false;
                     }
                 }
@@ -1864,7 +1872,7 @@ namespace CodexMicroORM.Core.Services
                         if (setter != null)
                         {
                             setter.Invoke(to.GetWrapperTarget());
-                            AddFK(ss, info.Relationship, to, info.Child, to.GetNotifyFriendly(), true, false);
+                            AddFK(ss, info.Relationship, to, info.Child, to.GetNotifyFriendly(), true, false, false);
                             info.Processed = true;
                         }
                     }
@@ -1881,7 +1889,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         var (getter, type) = ss.GetGetter(to.GetInfraWrapperTarget(), info.Relationship.ChildPropertyName);
 
-                        if (WrappingHelper.IsWrappableListType(type, null))
+                        if (type != null && WrappingHelper.IsWrappableListType(type, null))
                         {
                             var parVal = getter.Invoke();
 
@@ -1897,7 +1905,7 @@ namespace CodexMicroORM.Core.Services
                             {
                                 if (asCefList.AddWrappedItem(info.Child.GetWrapperTarget()))
                                 {
-                                    AddFK(ss, info.Relationship, to, info.Child, to.GetNotifyFriendly(), false, false);
+                                    AddFK(ss, info.Relationship, to, info.Child, to.GetNotifyFriendly(), false, false, false);
                                     info.Processed = true;
                                 }
                             }

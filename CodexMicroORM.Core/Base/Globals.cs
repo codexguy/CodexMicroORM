@@ -225,6 +225,12 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
+        public static PropertyDateStorage DefaultPropertyDateStorage
+        {
+            get;
+            set;
+        } = PropertyDateStorage.None;
+
         public static bool UseGlobalServiceScope
         {
             get

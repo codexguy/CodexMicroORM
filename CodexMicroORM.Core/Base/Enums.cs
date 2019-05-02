@@ -20,6 +20,13 @@ using System;
 
 namespace CodexMicroORM.Core
 {
+    public enum PropertyDateStorage
+    {
+        None = 0,
+        TwoWayConvertUtc = 1,
+        TwoWayConvertUtcOnlyWithTime = 2
+    }
+
     public enum SerializationType
     {
         Array = 0,
@@ -115,7 +122,7 @@ namespace CodexMicroORM.Core
         CustomError = (65536 * 4),
         NumericRange = (65536 * 8),
         IllegalUpdate = (65536 * 16),
-        SaveFailDefault = (65536 * 4) | (65536 * 2) | (65536 * 8) | (65536 * 16)
+        SaveFailDefault = MissingRequired | TooLarge | CustomError | NumericRange | IllegalUpdate
     }
 
     [Flags]

@@ -30,21 +30,29 @@ namespace CodexMicroORM.BindingSupport
     /// DynamicBindable wraps individual rows of data (similar to DataRow's). 
     /// By implementing ICustomTypeProvider, it offers a way for data binding engines (such as used by WPF) to interact with the underlying data (both CLR properties and property bag values).
     /// </summary>
-    public class DynamicBindable : ICustomTypeProvider, INotifyPropertyChanged, IDisposable, IDataErrorInfo
+    public class DynamicBindable : ICustomTypeProvider, INotifyPropertyChanged, IDisposable, IDataErrorInfo, ICustomTypeDescriptor
     {
         private DynamicWithBag _infra;
         private INotifyPropertyChanged _eventSource;
         private IDataErrorInfo _errorSource;
         private int _signalling = 0;
+        private ServiceScope _initScope = null;
 
         public event PropertyChangedEventHandler PropertyChanged;
         public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
 
         internal DynamicWithBag Wrapped => _infra;
 
+        public override int GetHashCode()
+        {
+            return _infra.GetHashCode();
+        }
+
         public DynamicBindable(DynamicWithBag infra)
         {
-            _infra = infra;
+            _initScope = CEF.CurrentServiceScope;
+
+            _infra = infra ?? throw new ArgumentNullException("infra");
 
             var es = infra as INotifyPropertyChanged;
 
@@ -76,11 +84,38 @@ namespace CodexMicroORM.BindingSupport
         }
 
         [Browsable(false)]
-        public ObjectState State => _infra.GetRowState();
+        public ObjectState State
+        {
+            get
+            {
+                using (CEF.UseServiceScope(_initScope))
+                {
+                    return _infra.GetRowState();
+                }
+            }
+        }
+            
+        string IDataErrorInfo.Error
+        {
+            get
+            {
+                using (CEF.UseServiceScope(_initScope))
+                {
+                    return _errorSource?.Error;
+                }
+            }
+        }
 
-        string IDataErrorInfo.Error => _errorSource?.Error;
-
-        string IDataErrorInfo.this[string columnName] => _errorSource?[columnName];
+        string IDataErrorInfo.this[string columnName]
+        {
+            get
+            {
+                using (CEF.UseServiceScope(_initScope))
+                {
+                    return _errorSource?[columnName];
+                }
+            }
+        }
 
         private void Dst_DirtyStateChange(object sender, DirtyStateChangeEventArgs e)
         {
@@ -553,6 +588,180 @@ namespace CodexMicroORM.BindingSupport
         {
             Dispose(true);
         }
+
         #endregion
+
+        #region "ICustomTypeDescriptor"
+        public AttributeCollection GetAttributes()
+        {
+            return new AttributeCollection(null);
+        }
+
+        public string GetClassName()
+        {
+            return null;
+        }
+
+        public string GetComponentName()
+        {
+            return null;
+        }
+
+        public TypeConverter GetConverter()
+        {
+            return null;
+        }
+
+        public EventDescriptor GetDefaultEvent()
+        {
+            return null;
+        }
+
+        public PropertyDescriptor GetDefaultProperty()
+        {
+            return null;
+        }
+
+        public object GetEditor(Type editorBaseType)
+        {
+            return null;
+        }
+
+        public EventDescriptorCollection GetEvents()
+        {
+            return new EventDescriptorCollection(null);
+        }
+
+        public EventDescriptorCollection GetEvents(Attribute[] attributes)
+        {
+            return new EventDescriptorCollection(null);
+        }
+
+        internal static PropertyDescriptor GetNewPropertyDescriptor(string name, Type dataType)
+        {
+            return new InternalPropertyDescriptor(name, dataType, null, CEF.CurrentServiceScope);
+        }
+
+        private PropertyDescriptorCollection InternalGetProperties()
+        {
+            var v = (from a in _infra.GetAllValues().Keys
+                     where _infra.AsUnwrapped()?.GetType()?.GetProperty(a)?.GetCustomAttribute<EntityIgnoreBindingAttribute>() == null
+                     select new InternalPropertyDescriptor(a, _infra.GetPropertyType(a), _infra, _initScope)).ToArray();
+
+            return new PropertyDescriptorCollection(v);
+        }
+
+        PropertyDescriptorCollection ICustomTypeDescriptor.GetProperties()
+        {
+            return InternalGetProperties();
+        }
+
+        public PropertyDescriptorCollection GetProperties(Attribute[] attributes)
+        {
+            return InternalGetProperties();
+        }
+
+        public object GetPropertyOwner(PropertyDescriptor pd)
+        {
+            return this;
+        }
+        #endregion
+
+        private class InternalPropertyDescriptor : PropertyDescriptor
+        {
+            private string _name;
+            private Type _dt;
+            private DynamicWithBag _iw;
+            private ServiceScope _ss;
+
+            public InternalPropertyDescriptor(string name, Type dt, DynamicWithBag iw, ServiceScope ss) : base(name, null)
+            {
+                _name = name;
+                _dt = dt;
+                _iw = iw;
+                _ss = ss;
+            }
+
+            public override Type ComponentType => this.GetType();
+
+            public override bool IsReadOnly => false;
+
+            public override Type PropertyType => _dt;
+
+            public override bool CanResetValue(object component)
+            {
+                return true;
+            }
+
+            public override object GetValue(object component)
+            {
+                using (CEF.UseServiceScope(_ss))
+                {
+                    DynamicWithBag iw = null;
+
+                    if (component is DynamicBindable db)
+                    {
+                        iw = db.Wrapped;
+                    }
+
+                    if (iw == null)
+                    {
+                        iw = _iw;
+                    }
+
+                    if (iw.HasProperty(_name))
+                    {
+                        return iw.GetValue(_name);
+                    }
+                    return null;
+                }
+            }
+
+            public override void ResetValue(object component)
+            {
+                using (CEF.UseServiceScope(_ss))
+                {
+                    DynamicWithBag iw = null;
+
+                    if (component is DynamicBindable db)
+                    {
+                        iw = db.Wrapped;
+                    }
+
+                    if (iw == null)
+                    {
+                        iw = _iw;
+                    }
+
+                    iw.SetValue(_name, iw.GetOriginalValue(_name, false), _dt);
+                }
+            }
+
+            public override void SetValue(object component, object value)
+            {
+                using (CEF.UseServiceScope(_ss))
+                {
+                    DynamicWithBag iw = null;
+
+                    if (component is DynamicBindable db)
+                    {
+                        iw = db.Wrapped;
+                    }
+
+                    if (iw == null)
+                    {
+                        iw = _iw;
+                    }
+
+                    iw.SetValue(_name, value, _dt);
+                }
+            }
+
+            public override bool ShouldSerializeValue(object component)
+            {
+                return true;
+            }
+        }
+
     }
 }

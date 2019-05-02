@@ -2,18 +2,20 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <Version>0.7.2</Version>
+    <Version>0.9.0</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <Authors>CodeX Enterprises LLC</Authors>
     <Company>CodeX Enterprises LLC</Company>
-    <PackageLicenseUrl>http://www.apache.org/licenses/LICENSE-2.0</PackageLicenseUrl>
-    <Copyright>Copyright (c) 2018, All Rights Reserved</Copyright>
+    <PackageLicenseUrl></PackageLicenseUrl>
+    <Copyright>Copyright (c) 2019, All Rights Reserved</Copyright>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <PackageIconUrl>http://www.xskrape.com/images/cef64.png</PackageIconUrl>
     <PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
     <Description>For users of CodexFramework V1.0, this package offers a way to change less code when migrating to use CodexMicroORM as a replacement framework.</Description>
     <PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
     <PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
+    <AssemblyVersion>0.9.0.0</AssemblyVersion>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>

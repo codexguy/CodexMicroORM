@@ -28,7 +28,10 @@ namespace CodexMicroORM.BindingSupport
     {
         public static GenericBindableSet AsDynamicBindable<T>(this IEnumerable<T> list) where T : ICEFInfraWrapper, new()
         {
-            return new GenericBindableSet(from a in list let d = a.AsInfraWrapped() as DynamicWithBag where d != null select new DynamicBindable(d));
+            return new GenericBindableSet(from a in list let d = a.AsInfraWrapped() as DynamicWithBag where d != null select new DynamicBindable(d))
+            {
+                BaseItemType = typeof(T)
+            };
         }
 
         public static GenericBindableSet AsDynamicBindable(this System.Collections.IEnumerable list)
@@ -38,7 +41,11 @@ namespace CodexMicroORM.BindingSupport
 
         public static GenericBindableSet AsDynamicBindable<T>(this EntitySet<T> list) where T : class, new()
         {
-            return new GenericBindableSet(from a in list let d = a.AsInfraWrapped() as DynamicWithBag where d != null select new DynamicBindable(d));
+            return new GenericBindableSet(from a in list let d = a.AsInfraWrapped() as DynamicWithBag where d != null select new DynamicBindable(d))
+            {
+                ExternalSchema = list.ExternalSchema,
+                BaseItemType = typeof(T)
+            };
         }
 
         public static DynamicBindable AsDynamicBindable(this object o)
