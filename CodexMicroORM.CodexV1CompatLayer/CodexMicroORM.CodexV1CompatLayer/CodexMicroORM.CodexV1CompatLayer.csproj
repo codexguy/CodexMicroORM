@@ -1,8 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <Version>0.9.0</Version>
+    <Version>0.9.1</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <Authors>CodeX Enterprises LLC</Authors>
     <Company>CodeX Enterprises LLC</Company>
@@ -14,12 +14,16 @@
     <Description>For users of CodexFramework V1.0, this package offers a way to change less code when migrating to use CodexMicroORM as a replacement framework.</Description>
     <PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
     <PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
-    <AssemblyVersion>0.9.0.0</AssemblyVersion>
+    <AssemblyVersion>0.9.1.0</AssemblyVersion>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\CodexMicroORM.Core\CodexMicroORM.Core.csproj" />
   </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="xcopy $(TargetDir)*.* C:\Source\WizerFood\WizerFoodWeb\SharedBin\ /y" />
+  </Target>
 
 </Project>

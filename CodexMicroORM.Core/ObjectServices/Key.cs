@@ -1067,6 +1067,17 @@ namespace CodexMicroORM.Core.Services
                     }
                     else
                     {
+                        if (val is Enum)
+                        {
+                            try
+                            {
+                                val = (int)val;
+                            }
+                            catch
+                            {
+                            }
+                        }
+
                         if (val is Guid ag)
                         {
                             AsGuid = ag;

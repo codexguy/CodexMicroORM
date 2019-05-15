@@ -390,6 +390,8 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Support for automatic conversion of dates to/from UTC storage in DB layer (declarative: template support)
 	* Changed binding support project to have GenericBindableSet inherit from BindingList to offer wider reach for UI binding, and other improvements related to binding (testing done with Infragistics)
 	* New WinForm demo app / test harness - [here](https://codexenterprisesllc-my.sharepoint.com/:u:/g/personal/sqlheroguy_codexenterprisesllc_onmicrosoft_com/Ea9kpt6kx_ZOv7Ol_1dLYSQBl5qpim1hkv4Cej6zm7K9VA?e=Iyk3hN)
+* 0.9.1 - May 2019
+    * Fixes, changes including use of AsyncLocal internally to support proper flow when using await
 
 ## Roadmap / Plans
 Look for in coming releases:

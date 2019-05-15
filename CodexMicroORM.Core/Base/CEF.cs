@@ -43,17 +43,13 @@ namespace CodexMicroORM.Core
 
         internal static ServiceScope _globalServiceScope = null;
 
-        [ThreadStatic]
-        private static Stack<ServiceScope> _allServiceScopes = new Stack<ServiceScope>();
+        private static readonly AsyncLocal<ConcurrentStack<ServiceScope>> _allServiceScopes = new AsyncLocal<ConcurrentStack<ServiceScope>>();
 
-        [ThreadStatic]
-        private static ServiceScope _currentServiceScope = null;
+        private static readonly AsyncLocal<ServiceScope> _currentServiceScope = new AsyncLocal<ServiceScope>();
 
-        [ThreadStatic]
-        private static Stack<ConnectionScope> _allConnScopes = new Stack<ConnectionScope>();
+        private static readonly AsyncLocal<ConcurrentStack<ConnectionScope>> _allConnScopes = new AsyncLocal<ConcurrentStack<ConnectionScope>>();
 
-        [ThreadStatic]
-        private static ConnectionScope _currentConnScope = null;
+        private static readonly AsyncLocal<ConnectionScope> _currentConnScope = new AsyncLocal<ConnectionScope>();
 
         public static ICollection<ICEFService> GlobalServices => _globalServices.ToArray();
 
@@ -176,7 +172,7 @@ namespace CodexMicroORM.Core
 
                 if (!useLocal)
                 {
-                    if (ss._currentConnScope == null)
+                    if (ss._currentConnScope?.Value == null)
                     {
                         var cs = new ConnectionScope(Globals.DefaultTransactionalStandalone)
                         {
@@ -185,10 +181,10 @@ namespace CodexMicroORM.Core
                         ss.ConnScopeInit(cs, Globals.DefaultConnectionScopeMode);
                     }
 
-                    return ss._currentConnScope;
+                    return ss._currentConnScope.Value;
                 }
 
-                if (_currentConnScope == null)
+                if (_currentConnScope?.Value == null)
                 {
                     var cs = new ConnectionScope(Globals.DefaultTransactionalStandalone)
                     {
@@ -197,7 +193,7 @@ namespace CodexMicroORM.Core
                     ConnScopeInit(cs, Globals.DefaultConnectionScopeMode);
                 }
 
-                return _currentConnScope;
+                return _currentConnScope.Value;
             }
         }
 
@@ -211,7 +207,7 @@ namespace CodexMicroORM.Core
             // This is a special type of service scope - we create a shallow copy and flag it as not allowing destruction of contents when disposed
             // The tempation to check if the toUse == current should be ignored - if we're using in a using block, we might not want destruction of the input scope, so better to push a new one even if more costly
             ServiceScopeInit(new ServiceScope(toUse ?? throw new ArgumentNullException("toUse")), null);
-            return _currentServiceScope;
+            return _currentServiceScope.Value;
         }
 
         /// <summary>
@@ -225,17 +221,17 @@ namespace CodexMicroORM.Core
             if (_globalServiceScope != null)
             {
                 ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
-                return _currentServiceScope;
+                return _currentServiceScope.Value;
             }
 
-            if (_currentServiceScope != null)
+            if (_currentServiceScope.Value != null)
             {
-                ServiceScopeInit(new ServiceScope(_currentServiceScope), additionalServices);
-                return _currentServiceScope;
+                ServiceScopeInit(new ServiceScope(_currentServiceScope.Value), additionalServices);
+                return _currentServiceScope.Value;
             }
 
             ServiceScopeInit(new ServiceScope(settings), additionalServices);
-            return _currentServiceScope;
+            return _currentServiceScope.Value;
         }
 
         /// <summary>
@@ -248,17 +244,17 @@ namespace CodexMicroORM.Core
             if (_globalServiceScope != null)
             {
                 ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
-                return _currentServiceScope;
+                return _currentServiceScope.Value;
             }
 
-            if (_currentServiceScope != null)
+            if (_currentServiceScope.Value != null)
             {
-                ServiceScopeInit(new ServiceScope(_currentServiceScope), additionalServices);
-                return _currentServiceScope;
+                ServiceScopeInit(new ServiceScope(_currentServiceScope.Value), additionalServices);
+                return _currentServiceScope.Value;
             }
 
             ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), additionalServices);
-            return _currentServiceScope;
+            return _currentServiceScope.Value;
         }
 
         /// <summary>
@@ -271,17 +267,17 @@ namespace CodexMicroORM.Core
             if (_globalServiceScope != null)
             {
                 ServiceScopeInit(new ServiceScope(_globalServiceScope), null);
-                return _currentServiceScope;
+                return _currentServiceScope.Value;
             }
 
-            if (_currentServiceScope != null)
+            if (_currentServiceScope.Value != null)
             {
-                ServiceScopeInit(new ServiceScope(_currentServiceScope), null);
-                return _currentServiceScope;
+                ServiceScopeInit(new ServiceScope(_currentServiceScope.Value), null);
+                return _currentServiceScope.Value;
             }
 
             ServiceScopeInit(new ServiceScope(settings ?? new ServiceScopeSettings()), null);
-            return _currentServiceScope;
+            return _currentServiceScope.Value;
         }
 
         /// <summary>
@@ -289,18 +285,18 @@ namespace CodexMicroORM.Core
         /// </summary>
         public static void RemoveAllServiceScopes()
         {
-            while (_allServiceScopes?.Count > 0)
+            while (_allServiceScopes.Value?.Count > 0)
             {
-                if (_currentServiceScope != null)
+                if (_allServiceScopes.Value.TryPop(out var ss))
                 {
-                    _currentServiceScope.Dispose();
-                }
-                else
-                {
-                    _allServiceScopes.Pop().Dispose();
+                    ss.Dispose();
                 }
             }
-            _currentServiceScope = null;
+            if (_currentServiceScope.Value != null)
+            {
+                _currentServiceScope.Value.Dispose();
+            }
+            _currentServiceScope.Value = null;
         }
 
         /// <summary>
@@ -314,11 +310,11 @@ namespace CodexMicroORM.Core
             if (_globalServiceScope != null)
             {
                 ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
-                return _currentServiceScope;
+                return _currentServiceScope.Value;
             }
 
             ServiceScopeInit(new ServiceScope(settings), additionalServices);
-            return _currentServiceScope;
+            return _currentServiceScope.Value;
         }
 
         /// <summary>
@@ -331,11 +327,11 @@ namespace CodexMicroORM.Core
             if (_globalServiceScope != null)
             {
                 ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
-                return _currentServiceScope;
+                return _currentServiceScope.Value;
             }
 
             ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), additionalServices);
-            return _currentServiceScope;
+            return _currentServiceScope.Value;
         }
 
         /// <summary>
@@ -348,11 +344,11 @@ namespace CodexMicroORM.Core
             if (_globalServiceScope != null)
             {
                 ServiceScopeInit(new ServiceScope(_globalServiceScope), null);
-                return _currentServiceScope;
+                return _currentServiceScope.Value;
             }
 
             ServiceScopeInit(new ServiceScope(settings ?? new ServiceScopeSettings()), null);
-            return _currentServiceScope;
+            return _currentServiceScope.Value;
         }
 
         /// <summary>
@@ -362,7 +358,7 @@ namespace CodexMicroORM.Core
         {
             get
             {
-                if (_currentServiceScope == null)
+                if (_currentServiceScope.Value == null)
                 {
                     if (_globalServiceScope != null)
                     {
@@ -372,7 +368,7 @@ namespace CodexMicroORM.Core
                     ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), null);
                 }
 
-                return _currentServiceScope;
+                return _currentServiceScope.Value;
             }
         }
 
@@ -423,6 +419,65 @@ namespace CodexMicroORM.Core
         public static void AcceptAllChanges()
         {
             CurrentServiceScope.AcceptAllChanges();
+        }
+
+        public static async Task<IEnumerable<(object item, string message, int status)>> DBSaveTransactionalAsync(DBSaveSettings settings = null)
+        {
+            IEnumerable<(object item, string message, int status)> rv = null;
+            Exception ex = null;
+
+            await Task.Factory.StartNew(() =>
+            {
+                try
+                {
+                    using (var tx = CEF.NewTransactionScope())
+                    {
+                        rv = CurrentServiceScope.DBSave(settings);
+                        tx.CanCommit();
+                    }
+                }
+                catch (Exception ex2)
+                {
+                    ex = ex2;
+                }
+            });
+
+            if (ex != null)
+            {
+                throw ex;
+            }
+
+            return rv;
+        }
+
+        /// <summary>
+        /// Requests database persistence over all entities in the ambient service scope.
+        /// </summary>
+        /// <param name="settings"></param>
+        /// <returns>One element per entity saved, indicating any message and/or status returned by the save process for that entity.</returns>
+        public static async Task<IEnumerable<(object item, string message, int status)>> DBSaveAsync(DBSaveSettings settings = null)
+        {
+            IEnumerable<(object item, string message, int status)> rv = null;
+            Exception ex = null;
+
+            await Task.Factory.StartNew(() =>
+            {
+                try
+                {
+                    rv = CurrentServiceScope.DBSave(settings);
+                }
+                catch (Exception ex2)
+                {
+                    ex = ex2;
+                }
+            });
+
+            if (ex != null)
+            {
+                throw ex;
+            }
+
+            return rv;
         }
 
         /// <summary>
@@ -969,9 +1024,9 @@ namespace CodexMicroORM.Core
                 return svc;
             }
 
-            if (_allServiceScopes != null)
+            if (_allServiceScopes.Value?.Count > 0)
             {
-                foreach (var ss in _allServiceScopes)
+                foreach (var ss in _allServiceScopes.Value.ToArray())
                 {
                     svc = ss.GetService<T>(forObject);
 
@@ -1030,17 +1085,17 @@ namespace CodexMicroORM.Core
                 return;
             }
 
-            if (_currentConnScope != null)
+            if (_allConnScopes.Value == null)
             {
-                if (_allConnScopes == null)
-                {
-                    _allConnScopes = new Stack<ConnectionScope>();
-                }
-
-                _allConnScopes.Push(_currentConnScope);
+                _allConnScopes.Value = new ConcurrentStack<ConnectionScope>();
             }
 
-            _currentConnScope = newcs ?? throw new ArgumentNullException("newcs");
+            if (_currentConnScope.Value != null)
+            {
+                _allConnScopes.Value.Push(_currentConnScope.Value);
+            }
+
+            _currentConnScope.Value = newcs ?? throw new ArgumentNullException("newcs");
 
             var db = ss.GetService<DBService>();
 
@@ -1052,34 +1107,29 @@ namespace CodexMicroORM.Core
 
             newcs.Disposed = () =>
             {
-                if (_allConnScopes?.Count > 0)
+                if (_allConnScopes.Value?.Count > 0)
                 {
-                    do
+                    if (_allConnScopes.Value.TryPop(out var cs))
                     {
-                        var cspop = _allConnScopes.Pop();
-
-                        if (cspop != _currentConnScope)
-                        {
-                            _currentConnScope = cspop;
-                            return;
-                        }
-                    } while (_allConnScopes.Count > 0);
+                        _currentConnScope.Value = cs;
+                    }
+                    return;
                 }
 
-                _currentConnScope = null;
+                _currentConnScope.Value = null;
             };
         }
 
         private static void ServiceScopeInit(ServiceScope newss, ICEFService[] additionalServices)
         {
-            if (_currentServiceScope != null)
+            if (_allServiceScopes.Value == null)
             {
-                if (_allServiceScopes == null)
-                {
-                    _allServiceScopes = new Stack<ServiceScope>();
-                }
+                _allServiceScopes.Value = new ConcurrentStack<ServiceScope>();
+            }
 
-                _allServiceScopes.Push(_currentServiceScope);
+            if (_currentServiceScope.Value != null)
+            {
+                _allServiceScopes.Value.Push(_currentServiceScope.Value);
             }
 
             if (additionalServices != null)
@@ -1090,7 +1140,7 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            _currentServiceScope = newss ?? throw new ArgumentNullException("newss");
+            _currentServiceScope.Value = newss ?? throw new ArgumentNullException("newss");
 
             newss.Disposed = () =>
             {
@@ -1105,24 +1155,16 @@ namespace CodexMicroORM.Core
                     }
                 }
 
-                if (_allServiceScopes?.Count > 0)
+                if (_allServiceScopes.Value?.Count > 0)
                 {
-                    do
+                    if (_allServiceScopes.Value.TryPop(out var ss))
                     {
-                        var ts = _allServiceScopes.Pop();
-
-                        if (ts != _currentServiceScope)
-                        {
-                            _currentServiceScope = ts;
-                            return;
-                        }
-                    } while (_allServiceScopes.Count > 0);
+                        _currentServiceScope.Value = ss;
+                    }
+                    return;
                 }
 
-                if (_allServiceScopes != null)
-                {
-                    _currentServiceScope = null;
-                }
+                _currentServiceScope.Value = null;
             };
         }
 

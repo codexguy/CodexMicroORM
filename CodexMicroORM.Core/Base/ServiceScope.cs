@@ -49,28 +49,28 @@ namespace CodexMicroORM.Core
         #region "Private state"
 
         // Global config...
-        private static ConcurrentDictionary<Type, CacheBehavior> _cacheBehaviorByType = new ConcurrentDictionary<Type, CacheBehavior>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, int> _cacheDurByType = new ConcurrentDictionary<Type, int>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, bool> _cacheOnlyMemByType = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<(Type, string), PropertyDateStorage> _dateConversionByTypeAndProp = new ConcurrentDictionary<(Type, string), PropertyDateStorage>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, CacheBehavior> _cacheBehaviorByType = new ConcurrentDictionary<Type, CacheBehavior>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, int> _cacheDurByType = new ConcurrentDictionary<Type, int>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, bool> _cacheOnlyMemByType = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<(Type, string), PropertyDateStorage> _dateConversionByTypeAndProp = new ConcurrentDictionary<(Type, string), PropertyDateStorage>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static long _currentSaveNestLevel = 0;
 
         // Tracks all objects in this scope - and their services.
-        private ConcurrentIndexedList<TrackedObject> _scopeObjects = null;
+        private readonly ConcurrentIndexedList<TrackedObject> _scopeObjects = null;
 
         // Optional state maintained at scope level, per service type
-        private ConcurrentDictionary<Type, ICEFServiceObjState> _serviceState = null;
+        private readonly ConcurrentDictionary<Type, ICEFServiceObjState> _serviceState = null;
 
         // Known/resolved services available in this scope - when asking for non-object-specific services, this offers a fast(er) way to determine
-        private HashSet<ICEFService> _scopeServices = null;
+        private readonly HashSet<ICEFService> _scopeServices = null;
 
-        private ServiceScopeSettings _settings = new ServiceScopeSettings();
+        private readonly ServiceScopeSettings _settings = new ServiceScopeSettings();
 
-        private HashSet<ICEFService> _localServices = null;
+        private readonly HashSet<ICEFService> _localServices = null;
 
-        // Connection scopes can be thread-static (default) or per service scope...
-        internal Stack<ConnectionScope> _allConnScopes = new Stack<ConnectionScope>();
-        internal ConnectionScope _currentConnScope = null;
+        // For cases we have connection scopes by service scope...
+        internal AsyncLocal<Stack<ConnectionScope>> _allConnScopes = new AsyncLocal<Stack<ConnectionScope>>();
+        internal AsyncLocal<ConnectionScope> _currentConnScope = new AsyncLocal<ConnectionScope>();
 
         #endregion
 
@@ -984,17 +984,17 @@ namespace CodexMicroORM.Core
 
         internal void ConnScopeInit(ConnectionScope newcs, ScopeMode mode)
         {
-            if (_currentConnScope != null)
+            if (_allConnScopes.Value == null)
             {
-                if (_allConnScopes == null)
-                {
-                    _allConnScopes = new Stack<ConnectionScope>();
-                }
-
-                _allConnScopes.Push(_currentConnScope);
+                _allConnScopes.Value = new Stack<ConnectionScope>();
             }
 
-            _currentConnScope = newcs ?? throw new ArgumentNullException("newcs");
+            if (_currentConnScope.Value != null)
+            {
+                _allConnScopes.Value.Push(_currentConnScope.Value);
+            }
+
+            _currentConnScope.Value = newcs ?? throw new ArgumentNullException("newcs");
 
             var db = GetService<DBService>();
 
@@ -1006,21 +1006,13 @@ namespace CodexMicroORM.Core
 
             newcs.Disposed = () =>
             {
-                if (_allConnScopes?.Count > 0)
+                if (_allConnScopes.Value?.Count > 0)
                 {
-                    do
-                    {
-                        var cspop = _allConnScopes.Pop();
-
-                        if (cspop != _currentConnScope)
-                        {
-                            _currentConnScope = cspop;
-                            return;
-                        }
-                    } while (_allConnScopes.Count > 0);
+                    _currentConnScope.Value = _allConnScopes.Value.Pop();
+                    return;
                 }
 
-                _currentConnScope = null;
+                _currentConnScope.Value = null;
             };
         }
 
