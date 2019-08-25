@@ -192,7 +192,7 @@ namespace CodexMicroORM.Core.Services
 
         public Dictionary<string, T> ToDictionary(IEnumerable<string> cols)
         {
-            if (cols?.Count() == 0)
+            if ((cols?.Count()).GetValueOrDefault() == 0)
             {
                 throw new ArgumentNullException("cols");
             }
@@ -233,7 +233,7 @@ namespace CodexMicroORM.Core.Services
 
             var kdef = KeyService.ResolveKeyDefinitionForType(typeof(T));
 
-            if (kdef?.Count == 0)
+            if ((kdef?.Count).GetValueOrDefault() == 0)
             {
                 throw new InvalidOperationException("Cannot apply changes without a primary key defined for type.");
             }
@@ -655,7 +655,7 @@ namespace CodexMicroORM.Core.Services
             {
                 Interlocked.Increment(ref _toAddWorkers);
 
-                Task.Factory.StartNew(() =>
+                Task.Run(() =>
                 {
                     try
                     {
@@ -811,10 +811,10 @@ namespace CodexMicroORM.Core.Services
 
         #region "Internals"
 
-        internal ServiceScope BoundScope
+        public ServiceScope BoundScope
         {
             get;
-            set;
+            internal set;
         }
 
         internal object ParentContainer
@@ -882,7 +882,7 @@ namespace CodexMicroORM.Core.Services
             else
             {
                 // Need to defer wiring dependencies
-                if (e.NewItems?.Count > 0)
+                if (e.NewItems != null)
                 {
                     foreach (T ni in e.NewItems)
                     {

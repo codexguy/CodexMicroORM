@@ -94,21 +94,46 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
+        public static Func<Type, string, bool> CheckIgnorePropertyModifiedState
+        {
+            get;
+            set;
+        }
+
         public bool ReconcileModifiedState(Action<string, object, object> onChanged = null, bool force = false)
         {
             // For cases where live binding was not possible, tries to identify possible changes in object state (typically at the time of saving)
-            if (force || _rowState == ObjectState.Unchanged)
+            if ((!force && _rowState == ObjectState.Unchanged) || (force && (_rowState == ObjectState.Modified || _rowState == ObjectState.ModifiedPriority || _rowState == ObjectState.Unchanged)))
             {
                 foreach (var oval in _originalValues)
                 {
                     var nval = GetValue(oval.Key);
 
+                    if (CheckIgnorePropertyModifiedState != null && CheckIgnorePropertyModifiedState.Invoke(_source?.GetBaseType(), oval.Key))
+                    {
+                        continue;
+                    }
+
                     if (!oval.Value.IsSame(nval))
                     {
-                        SetRowState(ObjectState.Modified);
-                        onChanged?.Invoke(oval.Key, oval, nval);
-                        return true;
+                        if (_rowState == ObjectState.Unchanged)
+                        {
+                            SetRowState(ObjectState.Modified);
+                            onChanged?.Invoke(oval.Key, oval, nval);
+                            return true;
+                        }
+                        else
+                        {
+                            return false;
+                        }
                     }
+                }
+
+                // We can optionally *un*modify an object if in force mode, all original vals = current vals (this is not the default)
+                if (force && (_rowState == ObjectState.Modified || _rowState == ObjectState.ModifiedPriority))
+                {
+                    SetRowState(ObjectState.Unchanged);
+                    return true;
                 }
             }
 
@@ -145,6 +170,8 @@ namespace CodexMicroORM.Core.Services
             if (propName[0] != KeyService.SHADOW_PROP_PREFIX)
             {
                 base.OnPropertyChanged(propName, oldVal, newVal, isBag);
+
+                Globals.GlobalPropertyChangePreview?.Invoke(this, propName, oldVal, newVal);
 
                 if (SafeGetState() == ObjectState.Unchanged)
                 {

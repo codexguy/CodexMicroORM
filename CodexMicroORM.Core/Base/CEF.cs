@@ -426,7 +426,7 @@ namespace CodexMicroORM.Core
             IEnumerable<(object item, string message, int status)> rv = null;
             Exception ex = null;
 
-            await Task.Factory.StartNew(() =>
+            await Task.Run(() =>
             {
                 try
                 {
@@ -460,7 +460,7 @@ namespace CodexMicroORM.Core
             IEnumerable<(object item, string message, int status)> rv = null;
             Exception ex = null;
 
-            await Task.Factory.StartNew(() =>
+            await Task.Run(() =>
             {
                 try
                 {

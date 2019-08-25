@@ -374,7 +374,7 @@ namespace CodexMicroORM.Core.Services
             // Case where not "new" row but still missing a key value - still need to generate it as such, for uniqueness!
             if (!isNew)
             {
-                if (pkFields?.Count == 1)
+                if ((pkFields?.Count).GetValueOrDefault() == 1)
                 {
                     if (props != null && !props.ContainsKey(pkFields[0]))
                     {
@@ -809,6 +809,7 @@ namespace CodexMicroORM.Core.Services
 
                                     var parSet = ss.GetSetter(testParent.GetInfraWrapperTarget(), rel.ChildPropertyName);
                                     parSet.setter.Invoke(asCefList);
+                                    didLink = true;
                                 }
                             }
 
@@ -819,8 +820,28 @@ namespace CodexMicroORM.Core.Services
                                     if (asCefList.AddWrappedItem(w ?? uw))
                                     {
                                         objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false, true);
+                                        didLink = true;
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                if (!didLink)
+                {
+                    // Check based on values, not properties - only really need to do if nothing else worked above!
+                    foreach (var rel in (from a in childRels where a.ChildType.Equals(uw.GetBaseType()) select a))
+                    {
+                        var chRoleVals = kvCache.TestAssignReturn(rel, () => { return GetKeyValues(uw, rel.ChildResolvedKey); });
+
+                        if ((from a in chRoleVals where a.value != null select a).Any())
+                        {
+                            var testParent = objstate.GetTrackedByPKValue(ss, rel.ParentType, (from a in chRoleVals select a.value));
+
+                            if (testParent != null)
+                            {
+                                objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), false, false, true);
                             }
                         }
                     }
@@ -1111,6 +1132,13 @@ namespace CodexMicroORM.Core.Services
                                             if (val is byte ab)
                                             {
                                                 AsWhole = ab;
+                                            }
+                                            else
+                                            {
+                                                if (val is DateTime dt)
+                                                {
+                                                    AsWhole = dt.Ticks;
+                                                }
                                             }
                                         }
                                     }
@@ -1858,8 +1886,7 @@ namespace CodexMicroORM.Core.Services
                 if (parentWrapped != null)
                 {
                     var nk = new KeyObjectStatePK(ss, parent, parentWrapped, parentKeyFields, notifyKeyChange);
-                    AllPK.Add(nk, false);
-                    return nk;
+                    return AllPK.Add(nk, true);
                 }
 
                 return null;

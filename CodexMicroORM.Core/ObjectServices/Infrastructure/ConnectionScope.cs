@@ -118,9 +118,13 @@ namespace CodexMicroORM.Core.Services
         public void DoneWork()
         {
             // If not standalone or not transactional - we don't need to discard connection, keep it alive
-            if (IsStandalone && IsTransactional)
+            if (IsStandalone)
             {
-                CanCommit();
+                if (IsTransactional)
+                {
+                    CanCommit();
+                }
+
                 Dispose();
             }
         }
@@ -166,7 +170,7 @@ namespace CodexMicroORM.Core.Services
                         }
                     }
 
-                    if (ToAcceptList?.Count > 0)
+                    if (ToAcceptList != null)
                     {
                         foreach (var r in ToAcceptList)
                         {
@@ -176,13 +180,13 @@ namespace CodexMicroORM.Core.Services
                         ToAcceptList = null;
                     }
 
-                    if (isRB && ToRollbackList?.Count > 0)
+                    if (isRB && ToRollbackList != null)
                     {
-                        foreach (var r in ToRollbackList)
+                        foreach (var (row, data) in ToRollbackList)
                         {
-                            foreach (var v in r.data)
+                            foreach (var (name, value) in data)
                             {
-                                r.row.SetValue(v.name, v.value);
+                                row.SetValue(name, value);
                             }
                         }
                     }

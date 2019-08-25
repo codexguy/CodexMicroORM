@@ -53,10 +53,16 @@ namespace CodexMicroORM.Core.Collections
         }
 
         private BucketInfo[] _perThreadMap;
-        private object _lock = new object();
+        private readonly object _lock = new object();
         private int _count = 0;
-        private int _initCapacity = Globals.DefaultDictionaryCapacity;
-        private HashSet<TKey> _building = new HashSet<TKey>();
+        private readonly int _initCapacity = Globals.DefaultDictionaryCapacity;
+        private readonly HashSet<TKey> _building = new HashSet<TKey>();
+
+        public RWLockInfo ExternalLock
+        {
+            get;
+            set;
+        }
 
         public SlimConcurrentDictionary(int? initCapacity = null, int? buckets = null)
         {
@@ -92,12 +98,6 @@ namespace CodexMicroORM.Core.Collections
         public object SyncRoot => _lock;
 
         public bool IsFixedSize => false;
-
-        //ICollection IDictionary.Keys => (from a in All() select a.Key).ToList();
-
-        //ICollection IDictionary.Values => (from a in All() select a.Value).ToList();
-
-        //public object this[object key] { get => ValueByKey((TKey)key); set => SafeAdd((TKey)key, (TValue)value); }
 
         /// <summary>
         /// This method consolidates all data into a single dictionary, reducing the need to traverse potentially multiple dictionaries on read.
@@ -135,7 +135,7 @@ namespace CodexMicroORM.Core.Collections
             {
                 if (bi != null)
                 {
-                    using (new ReaderLock(bi.Lock))
+                    using (new ReaderLock(ExternalLock ?? bi.Lock))
                     {
                         foreach (var i in bi.Map)
                         {
@@ -170,7 +170,7 @@ namespace CodexMicroORM.Core.Collections
                 return;
             }
 
-            using (new WriterLock(found.map.Lock))
+            using (new WriterLock(ExternalLock ?? found.map.Lock))
             {
                 found.map.Map[key] = value;
             }
@@ -242,7 +242,7 @@ namespace CodexMicroORM.Core.Collections
                 dw = Interlocked.CompareExchange(ref _perThreadMap[tkey], dw, null) ?? dw;
             }
 
-            using (new WriterLock(dw.Lock))
+            using (new WriterLock(ExternalLock ?? dw.Lock))
             {
                 dw.Map[key] = value;
                 Interlocked.Increment(ref _count);
@@ -264,7 +264,7 @@ namespace CodexMicroORM.Core.Collections
                     }
                     catch
                     {
-                        using (new ReaderLock(bi.Lock))
+                        using (new ReaderLock(ExternalLock ?? bi.Lock))
                         {
                             if (bi.Map.TryGetValue(key, out var val))
                             {
@@ -301,7 +301,7 @@ namespace CodexMicroORM.Core.Collections
             {
                 if (i != null)
                 {
-                    using (new WriterLock(i.Lock))
+                    using (new WriterLock(ExternalLock ?? i.Lock))
                     {
                         var reduce = i.Map.Count;
                         i.Map.Clear();
@@ -360,11 +360,11 @@ namespace CodexMicroORM.Core.Collections
 
         private bool RemoveInternal(TKey key)
         {
-            var (map, value) = FindByKey(key);
+            var (map, _) = FindByKey(key);
 
             if (map != null)
             {
-                using (new WriterLock(map.Lock))
+                using (new WriterLock(ExternalLock ?? map.Lock))
                 {
                     return map.Map.Remove(key);
                 }
@@ -381,7 +381,7 @@ namespace CodexMicroORM.Core.Collections
             {
                 if ((item.Value == null && value == null) || (!(item.Value == null || value == null) && (item.Value.Equals(value))))
                 {
-                    using (new WriterLock(map.Lock))
+                    using (new WriterLock(ExternalLock ?? map.Lock))
                     {
                         return map.Map.Remove(item.Key);
                     }
@@ -1295,11 +1295,11 @@ namespace CodexMicroORM.Core.Collections
         /// Add an item to the collection. (If it already exists, no operation.) Slightly less safe than AddSafe given can have dirty reads - record may appear "missing" when searching by some fields until all are committed, but maintains consistency of underlying structures.
         /// </summary>
         /// <param name="item"></param>
-        public void Add(T item, bool checkExists)
+        public T Add(T item, bool checkExists)
         {
-            if (checkExists && _contains.ContainsKey(item ?? throw new ArgumentNullException("item")))
+            if (checkExists && _contains.TryGetValue(item ?? throw new ArgumentNullException("item"), out var existing))
             {
-                return;
+                return _data[existing];
             }
 
             var id = Interlocked.Increment(ref _dataID);
@@ -1307,6 +1307,25 @@ namespace CodexMicroORM.Core.Collections
             bool addeddata = false;
             bool addedcontains = false;
             List<(LightweightLongList bag, long id)> toremove = new List<(LightweightLongList bag, long id)>(8);
+
+            void Unwind()
+            {
+                // We are effectively doing a compensating tx here, rolling back possible state updates. At the end we rethrow.
+                foreach (var remitem in toremove)
+                {
+                    remitem.bag.Remove(remitem.id);
+                }
+
+                if (addedcontains)
+                {
+                    _contains.Remove(item);
+                }
+
+                if (addeddata)
+                {
+                    _data.Remove(id);
+                }
+            }
 
             try
             {
@@ -1335,6 +1354,13 @@ namespace CodexMicroORM.Core.Collections
                         {
                             if (bag.Count > 0 && _isUnique.Contains(dic.Key))
                             {
+                                // If we're ok with checking for exitence, we can silently ignore the fact this indexed value already exists - leave value pointer on existing item
+                                // What this means effectively is if checkExists is true, can have two different objects supplying similar values for different properties - TODO, evaluate the validity of this is real world for a while
+                                if (checkExists)
+                                {
+                                    continue;
+                                }
+
                                 throw new CEFInvalidOperationException($"Collection already contains an entry for '{propVal}'.");
                             }
 
@@ -1353,24 +1379,11 @@ namespace CodexMicroORM.Core.Collections
             }
             catch
             {
-                // We are effectively doing a compensating tx here, rolling back possible state updates. At the end we rethrow.
-                foreach (var remitem in toremove)
-                {
-                    remitem.bag.Remove(remitem.id);
-                }
-
-                if (addedcontains)
-                {
-                    _contains.Remove(item);
-                }
-
-                if (addeddata)
-                {
-                    _data.Remove(id);
-                }
-
+                Unwind();
                 throw;
             }
+
+            return item;
         }
 
         /// <summary>

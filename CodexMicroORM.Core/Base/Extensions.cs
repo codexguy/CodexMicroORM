@@ -24,6 +24,7 @@ using System.Text;
 using System.Collections.Concurrent;
 using System.Data;
 using System.Linq;
+using System.Text.RegularExpressions;
 #if CGEH
 namespace CodexMicroORM.Core.CG
 #else
@@ -93,6 +94,21 @@ namespace CodexMicroORM.Core
                 return i1;
 
             return i2;
+        }
+
+        public static string LeftWithEllipsis(this string str, int count)
+        {
+            if (string.IsNullOrEmpty(str))
+            {
+                return str;
+            }
+
+            if (str.Length <= count - 4)
+            {
+                return str;
+            }
+
+            return str.Substring(0, count - 4) + " ...";
         }
 
         public static string Left(this string str, int count)
@@ -202,6 +218,14 @@ namespace CodexMicroORM.Core
                 return Enum.Parse(prefType, source);
             }
 
+            if (prefType == typeof(TimeSpan))
+            {
+                if (TimeSpan.TryParse(source, out TimeSpan ts))
+                {
+                    return ts;
+                }
+            }
+
             if (source is IConvertible)
             {
                 // Special conversion possibilities for booleans
@@ -228,6 +252,13 @@ namespace CodexMicroORM.Core
                         return true;
                     }
                 }
+                else
+                {
+                    if (prefType == typeof(Guid))
+                    {
+                        return new Guid(source);
+                    }
+                }
 
                 return Convert.ChangeType(source, prefType);
             }
@@ -243,6 +274,21 @@ namespace CodexMicroORM.Core
             }
 
             throw new InvalidCastException("Cannot coerce type.");
+        }
+
+        public static object EnsureNullable(this object source, Type nullType)
+        {
+            if (source == null)
+            {
+                return Activator.CreateInstance(nullType);
+            }
+
+            if (source.GetType().Equals(nullType))
+            {
+                return source;
+            }
+
+            return Activator.CreateInstance(nullType, source);
         }
 
         public static object CoerceDBNullableType(this object source, Type prefType)
@@ -747,7 +793,7 @@ namespace CodexMicroORM.Core
             // A natural key must be available!
             var key = KeyService.ResolveKeyDefinitionForType(typeof(T));
 
-            if (key?.Count == 0)
+            if ((key?.Count).GetValueOrDefault() == 0)
             {
                 throw new ArgumentException($"Type {typeof(T).Name} does not have a key defined.");
             }
@@ -799,6 +845,197 @@ namespace CodexMicroORM.Core
                         target.Remove(kvp.Value);
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Creates a deep copy of the source object, returning it.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="src"></param>
+        /// <returns></returns>
+        public static T DeepCopyObject<T>(this T src) where T : class, new()
+        {
+            var n = (T)typeof(T).FastCreateNoParm();
+
+            if (src != null)
+            {
+                foreach (var (name, type, readable, writeable) in typeof(T).FastGetAllProperties(true, true))
+                {
+                    n.FastSetValue(name, src.FastGetValue(name));
+                }
+            }
+
+            return n;
+        }
+
+        /// <summary>
+        /// Copies all shared properties from one instance to another instance of any arbitrary type.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="src"></param>
+        /// <param name="dest"></param>
+        public static void CopySharedTo(this object src, object dest)
+        {
+            if (src == null)
+                throw new ArgumentNullException("src");
+
+            if (dest == null)
+                throw new ArgumentNullException("dest");
+
+            // We can copy from non-nullable to nullable (always)
+            foreach (var name in (from a in src.FastGetAllProperties(true, true)
+                                  join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                  where a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type
+                                  select a.name))
+            {
+                dest.FastSetValue(name, src.FastGetValue(name));
+            }
+
+            // We can additionally copy from nullable to non-nullable, but only if the nullable actually holds a non-null value
+            foreach (var fi in (from a in src.FastGetAllProperties(true, true)
+                                  join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                  where a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type
+                                  let v = src.FastGetValue(a.name)
+                                  where v != null
+                                  select new { a.name, value = v }))
+            {
+                dest.FastSetValue(fi.name, fi.value);
+            }
+        }
+
+        /// <summary>
+        /// Copies all shared properties from one instance to another instance of any arbitrary type.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="src"></param>
+        /// <param name="dest"></param>
+        public static void CopySharedTo(this object src, object dest, bool isExclude, params string[] fields)
+        {
+            if (src == null)
+                throw new ArgumentNullException("src");
+
+            if (dest == null)
+                throw new ArgumentNullException("dest");
+
+            foreach (var name in (from a in src.FastGetAllProperties(true, true) join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                  where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type) &&
+                                    (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                  select a.name))
+            {
+                dest.FastSetValue(name, src.FastGetValue(name));
+            }
+
+            foreach (var fi in (from a in src.FastGetAllProperties(true, true)
+                                join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                where (a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type) &&
+                                    (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                let v = src.FastGetValue(a.name)
+                                where v != null
+                                select new { a.name, value = v }))
+            {
+                dest.FastSetValue(fi.name, fi.value);
+            }
+        }
+
+        /// <summary>
+        /// Returns a list of property names where shared property values differ between two instances of arbitrary types.
+        /// </summary>
+        /// <param name="src"></param>
+        /// <param name="dest"></param>
+        /// <param name="isExclude"></param>
+        /// <param name="fields"></param>
+        /// <returns></returns>
+        public static IEnumerable<string> FindDifferentSharedValues(this object src, object dest)
+        {
+            if (src == null)
+                throw new ArgumentNullException("src");
+
+            if (dest == null)
+                throw new ArgumentNullException("dest");
+
+            foreach (var name in (from a in src.FastGetAllProperties(true, true)
+                                  join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                  where a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type
+                                  select a.name))
+            {
+                if (!dest.FastGetValue(name).IsSame(src.FastGetValue(name)))
+                {
+                    yield return name;
+                }
+            }
+
+            foreach (var fi in (from a in src.FastGetAllProperties(true, true)
+                                join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                where a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type
+                                let v = src.FastGetValue(a.name)
+                                where v != null
+                                select new { a.name, value = v }))
+            {
+                if (!dest.FastGetValue(fi.name).IsSame(fi.value))
+                {
+                    yield return fi.name;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Copies all shared properties from one instance to another instance of any arbitrary type - except does not overwrite values that are not null/default in target.
+        /// </summary>
+        /// <param name="src"></param>
+        /// <param name="dest"></param>
+        public static void CopySharedToOnlyOverwriteDefault(this object src, object dest)
+        {
+            if (src == null)
+                throw new ArgumentNullException("src");
+
+            if (dest == null)
+                throw new ArgumentNullException("dest");
+
+            foreach (var name in (from a in src.FastGetAllProperties(true, true)
+                                  join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                  where a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type
+                                  select a.name))
+            {
+                var sv = src.FastGetValue(name);
+                var dv = dest.FastGetValue(name);
+
+                if (sv.IsSame(dv))
+                {
+                    continue;
+                }
+
+                if (dv != null)
+                {
+                    var di = dv.GetType().FastCreateNoParm();
+
+                    if (di.Equals(dv))
+                    {
+                        continue;
+                    }
+                }
+
+                dest.FastSetValue(name, sv);
+            }
+        }
+
+        /// <summary>
+        /// Copies all properties from one instance to another instance of the same type.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="src"></param>
+        /// <param name="dest"></param>
+        public static void CopyToObject<T>(this T src, T dest) where T : class, new()
+        {
+            if (src == null)
+                throw new ArgumentNullException("src");
+
+            if (dest == null)
+                throw new ArgumentNullException("dest");
+
+            foreach (var (name, type, readable, writeable) in typeof(T).FastGetAllProperties(true, true))
+            {
+                dest.FastSetValue(name, src.FastGetValue(name));
             }
         }
 

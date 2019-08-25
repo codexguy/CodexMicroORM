@@ -106,14 +106,21 @@ namespace CodexMicroORM.Core.Helper
                 return del();
             }
 
-            var exp = (Func<object>)Expression.Lambda(Expression.New(t.GetConstructor(Type.EmptyTypes))).Compile();
+            var ctr = t.GetConstructor(Type.EmptyTypes);
 
-            using (new WriterLock(_lock))
+            if (ctr != null)
             {
-                _constructorCache[t] = exp;
+                var exp = (Func<object>)Expression.Lambda(Expression.New(ctr)).Compile();
+
+                using (new WriterLock(_lock))
+                {
+                    _constructorCache[t] = exp;
+                }
+
+                return exp();
             }
 
-            return exp();
+            return Activator.CreateInstance(t);
         }
 
         public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this Type t, bool? canRead = null, bool? canWrite = null, string name = null)

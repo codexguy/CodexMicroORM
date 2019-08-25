@@ -245,7 +245,15 @@ namespace CodexMicroORM.Core.Services
 
                 if (ntt == typeof(Guid) && source != null && !string.IsNullOrEmpty(source.ToString()))
                 {
-                    return Activator.CreateInstance(targetType, new Guid(source.ToString()));
+                    return new Guid(source.ToString());
+                }
+
+                if (ntt == typeof(TimeSpan) && source != null && !string.IsNullOrEmpty(source.ToString()))
+                {
+                    if (TimeSpan.TryParse(source.ToString(), out TimeSpan pts))
+                    {
+                        return pts;
+                    }
                 }
 
                 if (source is IConvertible)
@@ -259,6 +267,19 @@ namespace CodexMicroORM.Core.Services
             if (targetType.IsEnum)
             {
                 return Enum.Parse(targetType, source.ToString());
+            }
+
+            if (targetType == typeof(Guid) && source != null && !string.IsNullOrEmpty(source.ToString()))
+            {
+                return new Guid(source.ToString());
+            }
+
+            if (targetType == typeof(TimeSpan) && source != null && !string.IsNullOrEmpty(source.ToString()))
+            {
+                if (TimeSpan.TryParse(source.ToString(), out TimeSpan pts))
+                {
+                    return pts;
+                }
             }
 
             if (source is IConvertible)
@@ -315,11 +336,11 @@ namespace CodexMicroORM.Core.Services
                                 {
                                     if (isnull)
                                     {
-                                        value = Convert.ChangeType(value, Nullable.GetUnderlyingType(pt));
+                                        value = InternalChangeType(value, Nullable.GetUnderlyingType(pt));
                                     }
                                     else
                                     {
-                                        value = Convert.ChangeType(value, pt);
+                                        value = InternalChangeType(value, pt);
                                     }
                                 }
                                 else

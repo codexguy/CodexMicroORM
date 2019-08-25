@@ -53,6 +53,7 @@ namespace CodexMicroORM.Core
         private static readonly ConcurrentDictionary<Type, int> _cacheDurByType = new ConcurrentDictionary<Type, int>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static readonly ConcurrentDictionary<Type, bool> _cacheOnlyMemByType = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static readonly ConcurrentDictionary<(Type, string), PropertyDateStorage> _dateConversionByTypeAndProp = new ConcurrentDictionary<(Type, string), PropertyDateStorage>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly HashSet<Type> _doNotSave = new HashSet<Type>();
         private static long _currentSaveNestLevel = 0;
 
         // Tracks all objects in this scope - and their services.
@@ -104,6 +105,7 @@ namespace CodexMicroORM.Core
             _allConnScopes = template._allConnScopes;
             _currentConnScope = template._currentConnScope;
             FriendlyName = template.FriendlyName;
+            RowActionPreviewEnabled = template.RowActionPreviewEnabled;
 
             // Settings need to be deep copied
             _settings = new ServiceScopeSettings()
@@ -129,6 +131,14 @@ namespace CodexMicroORM.Core
         #endregion
 
         #region "Static methods"
+
+        public static void RegisterDoNotSave<T>()
+        {
+            lock (_doNotSave)
+            {
+                _doNotSave.Add(typeof(T));
+            }
+        }
 
         public static void SetCacheBehavior<T>(CacheBehavior cb) => _cacheBehaviorByType[typeof(T)] = cb;
 
@@ -161,6 +171,12 @@ namespace CodexMicroORM.Core
             get;
             set;
         }
+
+        public bool RowActionPreviewEnabled
+        {
+            get;
+            set;
+        } = true;
 
         /// <summary>
         /// Returns a wrapper object if one is available for the input object.
@@ -1342,6 +1358,11 @@ namespace CodexMicroORM.Core
 
             void work(TrackedObject to)
             {
+                if (_doNotSave.Contains(to.GetBaseType()))
+                {
+                    return;
+                }
+
                 // If object is unlinked, ignore and evict!
                 if (to.GetInfra()?.GetRowState() == ObjectState.Unlinked)
                 {
@@ -1352,7 +1373,7 @@ namespace CodexMicroORM.Core
                     // If type includes property groups, copy values here (as well as on notifications - which may or may not have done it already)
                     db?.CopyPropertyGroupValues(to.GetWrapperTarget());
 
-                    if (!(to.GetTarget() is INotifyPropertyChanged))
+                    if (!(to.GetTarget() is INotifyPropertyChanged) || Globals.CheckDirtyItemsForRealChanges)
                     {
                         if (to.GetInfra() is DynamicWithValuesAndBag dyn)
                         {
@@ -1360,7 +1381,8 @@ namespace CodexMicroORM.Core
                             {
                                 // If the modification is for a tracked field, potentially change DB values as well
                                 CEF.CurrentKeyService()?.UpdateBoundKeys(to, this, field, oval, nval);
-                            }))
+
+                            }, Globals.CheckDirtyItemsForRealChanges))
                             {
                                 Interlocked.Increment(ref count);
                             }
@@ -1375,7 +1397,6 @@ namespace CodexMicroORM.Core
                 {
                     work(to);
                 }
-
             }
             else
             {
@@ -1418,7 +1439,7 @@ namespace CodexMicroORM.Core
 
                     if (target != null)
                     {
-                        if (settings.IgnoreObjectType == null || target.GetType() != settings.IgnoreObjectType)
+                        if (!_doNotSave.Contains(target.GetType()) && (settings.IgnoreObjectType == null || target.GetType() != settings.IgnoreObjectType))
                         {
                             if (v.GetCreateInfra() is DynamicWithValuesAndBag db)
                             {
@@ -1781,7 +1802,14 @@ namespace CodexMicroORM.Core
             if (_settings.CanDispose)
             {
                 // Advertise "early disposal" to services used
-                foreach (var svc in _scopeServices)
+                List<ICEFService> sl;
+
+                lock (_scopeServices)
+                {
+                    sl = _scopeServices.ToList();
+                }
+
+                foreach (var svc in sl)
                 {
                     svc.Disposing(this);
                 }
@@ -1803,6 +1831,19 @@ namespace CodexMicroORM.Core
 
             // Advertise disposal
             Disposed?.Invoke();
+
+            // If dealing with a case where conn scopes are bound to service scopes, ensure current is closed if actually disposing service scope
+            if (_settings.CanDispose)
+            {
+                if (!this.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread))
+                {
+                    if (_currentConnScope.Value != null)
+                    {
+                        _currentConnScope.Value.Dispose();
+                        _currentConnScope.Value = null;
+                    }
+                }
+            }
         }
 
         public void Dispose()

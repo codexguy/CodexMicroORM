@@ -18,6 +18,7 @@ Major Changes:
 4/2018     0.5     Addition of locking helpers
 ***********************************************************************/
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 
@@ -74,60 +75,100 @@ namespace CodexMicroORM.Core
     }
 
     /// <summary>
+    /// This dictionary type is thread-safe if the only way used to add entries is through the SafeGetSetValue method.
+    /// </summary>
+    /// <typeparam name="TK"></typeparam>
+    /// <typeparam name="TV"></typeparam>
+    public class ConcurrentDictionaryEx<TK, TV> : ConcurrentDictionary<TK, TV>
+    {
+        private readonly object _lock = new object();
+
+        public TV SafeGetSetValue(TK key, Func<TK, TV> factoryPred)
+        {
+            // Why do the get twice? First one is lockless so is safe on read.
+            // Second one is effectively an upgraded lock (write lock), where we must make second check to avoid race condition where two threads could have incorrectly assumed no value when the first will actually populate it.
+            if (base.TryGetValue(key, out var val))
+            {
+                return val;
+            }
+
+            lock (_lock)
+            {
+                if (base.TryGetValue(key, out var val2))
+                {
+                    return val2;
+                }
+
+                var v = factoryPred.Invoke(key);
+
+                this[key] = v;
+                return v;
+            }
+        }
+    }
+
+    /// <summary>
     /// Creates/destroys a reader lock (use using pattern).
     /// </summary>
     public sealed class ReaderLock : IDisposable
     {
         RWLockInfo _info;
-        bool _active = false;
+        long _active = 0;
 
-        public bool IsActive => _active;
+        public bool IsActive => Interlocked.Read(ref _active) > 0;
 
         public ReaderLock(RWLockInfo info, bool? active = null)
         {            
-            _info = info;
-
-            if (active.GetValueOrDefault(Globals.UseReaderWriterLocks && (!Globals.AllowDirtyReads || !info.AllowDirtyReads)))
+            if (info != null)
             {
-                try
+                _info = info;
+
+                if (active.GetValueOrDefault(Globals.UseReaderWriterLocks && (!Globals.AllowDirtyReads || !info.AllowDirtyReads)))
                 {
+                    try
+                    {
 #if LOCK_TRACE
                     RWLockInfo.Waits++;
                     long start = DateTime.Now.Ticks;
 #endif
-                    Thread.BeginCriticalRegion();
+                        Thread.BeginCriticalRegion();
 
-                    if (!_info.Lock.TryEnterReadLock(_info.Timeout))
-                    {
+                        if (!_info.Lock.TryEnterReadLock(_info.Timeout))
+                        {
 #if LOCK_TRACE
                         RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
 #endif
-                        throw new TimeoutException("Failed to obtain a read lock in timeout interval.");
-                    }
+                            throw new TimeoutException("Failed to obtain a read lock in timeout interval.");
+                        }
 
-                    _active = true;
+                        Interlocked.Increment(ref _active);
 
 #if LOCK_TRACE
                     _info.LastReader = Environment.CurrentManagedThreadId;
                     RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
 #endif
-                }
-                finally
-                {
-                    Thread.EndCriticalRegion();
+                    }
+                    finally
+                    {
+                        Thread.EndCriticalRegion();
+                    }
                 }
             }
         }
 
         public void Release()
         {
-            if (_active)
+            if (IsActive)
             {
                 try
                 {
                     Thread.BeginCriticalRegion();
-                    _info.Lock.ExitReadLock();
-                    _active = false;
+                    Interlocked.Decrement(ref _active);
+
+                    if (_info.Lock.IsReadLockHeld)
+                    {
+                        _info.Lock.ExitReadLock();
+                    }
 
 #if LOCK_TRACE
                     _info.LastReaderRelease = Environment.CurrentManagedThreadId;
@@ -152,9 +193,9 @@ namespace CodexMicroORM.Core
     public sealed class QuietWriterLock : IDisposable
     {
         RWLockInfo _info;
-        bool _active = false;
+        long _active = 0;
 
-        public bool IsActive => _active;
+        public bool IsActive => Interlocked.Read(ref _active) > 0;
 
         // Writers block both readers and writers - wait for all other readers and writers to finish
         public QuietWriterLock(RWLockInfo info, bool? active = null)
@@ -169,7 +210,7 @@ namespace CodexMicroORM.Core
 
                     if (_info.Lock.TryEnterWriteLock(0))
                     {
-                        _active = true;
+                        Interlocked.Increment(ref _active);
 
 #if LOCK_TRACE
                         _info.LastWriter = Environment.CurrentManagedThreadId;
@@ -185,13 +226,17 @@ namespace CodexMicroORM.Core
 
         public void Release()
         {
-            if (_active)
+            if (IsActive)
             {
                 try
                 {
                     Thread.BeginCriticalRegion();
-                    _info.Lock.ExitWriteLock();
-                    _active = false;
+                    Interlocked.Decrement(ref _active);
+
+                    if (_info.Lock.IsWriteLockHeld)
+                    {
+                        _info.Lock.ExitWriteLock();
+                    }
 
 #if LOCK_TRACE
                     _info.LastWriterRelease = Environment.CurrentManagedThreadId;
@@ -215,21 +260,24 @@ namespace CodexMicroORM.Core
     /// </summary>
     public sealed class WriterLock : IDisposable
     {
-        RWLockInfo _info;
-        bool _active = false;
+        readonly RWLockInfo _info;
+        long _active = 0;
 
-        public bool IsActive => _active;
+        public bool IsActive => Interlocked.Read(ref _active) > 0;
 
         // Writers block both readers and writers - wait for all other readers and writers to finish
         public WriterLock(RWLockInfo info, bool? active = null)
         {
-            _info = info;
-            Reacquire(active);
+            if (info != null)
+            {
+                _info = info;
+                Reacquire(active);
+            }
         }
 
         public void Reacquire(bool? active = null)
         {
-            if (!_active)
+            if (!IsActive)
             {
                 if (active.GetValueOrDefault(Globals.UseReaderWriterLocks))
                 {
@@ -249,7 +297,7 @@ namespace CodexMicroORM.Core
                             throw new TimeoutException("Failed to obtain a write lock in timeout interval.");
                         }
 
-                        _active = true;
+                        Interlocked.Increment(ref _active);
 
 #if LOCK_TRACE
                         _info.LastWriter = Environment.CurrentManagedThreadId;
@@ -269,13 +317,17 @@ namespace CodexMicroORM.Core
         /// </summary>
         public void YieldLock()
         {
-            if (_active)
+            if (IsActive)
             {
                 try
                 {
                     Thread.BeginCriticalRegion();
-                    _info.Lock.ExitWriteLock();
-                    _active = false;
+                    Interlocked.Decrement(ref _active);
+
+                    if (_info.Lock.IsWriteLockHeld)
+                    {
+                        _info.Lock.ExitWriteLock();
+                    }
 
 #if LOCK_TRACE
                     _info.LastWriterRelease = Environment.CurrentManagedThreadId;
@@ -290,7 +342,7 @@ namespace CodexMicroORM.Core
                         throw new TimeoutException("Failed to obtain a write lock in timeout interval.");
                     }
 
-                    _active = true;
+                    Interlocked.Increment(ref _active);
 
 #if LOCK_TRACE
                     _info.LastWriter = Environment.CurrentManagedThreadId;
@@ -306,13 +358,17 @@ namespace CodexMicroORM.Core
 
         public void Release()
         {
-            if (_active)
+            if (IsActive)
             {
                 try
                 {
                     Thread.BeginCriticalRegion();
-                    _info.Lock.ExitWriteLock();
-                    _active = false;
+                    Interlocked.Decrement(ref _active);
+
+                    if (_info.Lock.IsWriteLockHeld)
+                    {
+                        _info.Lock.ExitWriteLock();
+                    }
 
 #if LOCK_TRACE
                     _info.LastWriterRelease = Environment.CurrentManagedThreadId;

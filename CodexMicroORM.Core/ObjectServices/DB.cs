@@ -442,7 +442,7 @@ namespace CodexMicroORM.Core.Services
                         var (cansave, treatas) = (settings.RowSavePreview == null ? (true, null) : settings.RowSavePreview.Invoke(a));
                         var rs = treatas.GetValueOrDefault(a.GetRowState());
 
-                        if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && cansave && (cs.ToAcceptList?.Count == 0 || !cs.ToAcceptList.Contains(a)))
+                        if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && cansave && ((cs.ToAcceptList?.Count).GetValueOrDefault() == 0 || !cs.ToAcceptList.Contains(a)))
                         {
                             var w = a.GetWrappedObject() as ICEFWrapper;
                             var prov = GetProviderForType(bt);

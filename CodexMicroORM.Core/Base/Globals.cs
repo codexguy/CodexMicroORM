@@ -43,6 +43,23 @@ namespace CodexMicroORM.Core
 
         #endregion
 
+        public delegate void GlobalPropertyChangeCallback(object source, string propName, object oldval, object newval);
+
+        /// <summary>
+        /// Offers a mechanism to detect changes in infrastructure objects globally. (e.g. used in a syncing framework)
+        /// </summary>
+        public static GlobalPropertyChangeCallback GlobalPropertyChangePreview
+        {
+            get;
+            set;
+        } = null;
+
+        public static bool CheckDirtyItemsForRealChanges
+        {
+            get;
+            set;
+        } = false;
+
         /// <summary>
         /// Mainly intended for debugging purposes, allows certain very low-level operations to be logged. (Use sparingly!)
         /// </summary>

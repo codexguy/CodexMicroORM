@@ -392,6 +392,11 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* New WinForm demo app / test harness - [here](https://codexenterprisesllc-my.sharepoint.com/:u:/g/personal/sqlheroguy_codexenterprisesllc_onmicrosoft_com/Ea9kpt6kx_ZOv7Ol_1dLYSQBl5qpim1hkv4Cej6zm7K9VA?e=Iyk3hN)
 * 0.9.1 - May 2019
     * Fixes, changes including use of AsyncLocal internally to support proper flow when using await
+* 0.9.2 - August 2019
+    * Add: DoNotSave attribute (including template support for nested property classes), CheckDirtyItemsForRealChanges, GlobalRowActionPreview
+	* Minor enhancements (e.g. returning instance from Add)
+	* Changes: when adding to scopes, check for existence (slower but better behavior)
+	* Fixes: light-weight locks (race condition fix), FastCreateNoParm
 
 ## Roadmap / Plans
 Look for in coming releases:

@@ -38,9 +38,17 @@ namespace CodexMicroORM.Providers
     {
         private const string DEFAULT_DB_SCHEMA = "dbo";
 
+        public delegate void RowActionPreviewCallback(CommandType action, string objname, ICEFInfraWrapper row);
+
+        public static RowActionPreviewCallback GlobalRowActionPreview
+        {
+            get;
+            set;
+        } = null;
+
         private static ConcurrentDictionary<string, string> _csMap = new ConcurrentDictionary<string, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
 
-        private enum CommandType
+        public enum CommandType
         {
             Insert = 0,
             Update = 1,
@@ -460,6 +468,12 @@ namespace CodexMicroORM.Providers
 
                     try
                     {
+                        if (ss.RowActionPreviewEnabled)
+                        {
+                            // An opportunity to possibly change row properties ahead of actual save
+                            GlobalRowActionPreview?.Invoke(cmdType, r.Name, r.Row);
+                        }
+
                         var outVals = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, cmdType, r.Schema, r.Name, r.Row, null, conn.TimeoutOverride).ExecuteNoResultSet().GetOutputValues();
                         var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(conn.IsTransactional);
                         List<(string name, object value)> toRB = new List<(string name, object value)>();

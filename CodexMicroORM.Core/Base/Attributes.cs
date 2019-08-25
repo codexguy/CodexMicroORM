@@ -55,6 +55,10 @@ namespace CodexMicroORM.Core
     {
     }
 
+    public class EntityDoNotSaveAttribute : Attribute
+    {
+    }
+
     [AttributeUsage(AttributeTargets.Class)]
     public class EntityPrimaryKeyAttribute : Attribute
     {
