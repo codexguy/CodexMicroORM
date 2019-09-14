@@ -1148,9 +1148,7 @@ namespace CodexMicroORM.Core
 
             if (target != null)
             {
-                var dyn = target as DynamicWithBag;
-
-                if (dyn != null)
+                if (target is DynamicWithBag dyn)
                 {
                     return ((v) =>
                     {

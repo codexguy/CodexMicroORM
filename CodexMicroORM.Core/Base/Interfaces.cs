@@ -80,6 +80,14 @@ namespace CodexMicroORM.Core
         void Commit();
 
         void Rollback();
+
+        string ID();
+
+        bool IsWorking();
+
+        void IncrementWorking();
+
+        void DecrementWorking();
     }
 
     public interface IDBProviderCommand

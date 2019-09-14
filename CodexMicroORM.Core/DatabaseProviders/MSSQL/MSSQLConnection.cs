@@ -16,7 +16,9 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+using System;
 using System.Data.SqlClient;
+using System.Threading;
 using CodexMicroORM.Core;
 
 namespace CodexMicroORM.Providers
@@ -26,10 +28,54 @@ namespace CodexMicroORM.Providers
     /// </summary>
     public class MSSQLConnection : IDBProviderConnection
     {
+#if DEBUG
+        private string _id = Guid.NewGuid().ToString();
+
+        public string ID()
+        {
+            return _id;
+        }
+#else
+        public string ID()
+        {
+            return string.Empty;
+        }
+#endif
+
+        private int _working = 0;
+        private object _worklock = new object();
+
         internal MSSQLConnection(SqlConnection conn, SqlTransaction tx)
         {
             CurrentConnection = conn;
             CurrentTransaction = tx;
+        }
+
+        public void IncrementWorking()
+        {
+            lock (_worklock)
+            {
+                ++_working;
+            }
+        }
+
+        public void DecrementWorking()
+        {
+            lock (_worklock)
+            {
+                if (_working > 0)
+                {
+                    --_working;
+                }
+            }
+        }
+
+        public bool IsWorking()
+        {
+            lock (_worklock)
+            {
+                return _working > 0;
+            }
         }
 
         public SqlConnection CurrentConnection { get; private set; }
@@ -55,11 +101,9 @@ namespace CodexMicroORM.Providers
         }
 
         #region IDisposable Support
-        private bool _disposedValue = false;
-
         protected virtual void Dispose(bool disposing)
         {
-            if (!_disposedValue)
+            if (!IsWorking())
             {
                 if (CurrentTransaction != null)
                 {
@@ -72,9 +116,9 @@ namespace CodexMicroORM.Providers
                     CurrentConnection.Dispose();
                     CurrentConnection = null;
                 }
-
-                _disposedValue = true;
             }
+
+            //CEFDebug.WriteInfo($"Dispose connection: " + _id);
         }
 
         public void Dispose()

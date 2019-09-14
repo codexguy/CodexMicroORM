@@ -768,12 +768,20 @@ namespace CodexMicroORM.Core.Services
 
             var cs = CEF.CurrentConnectionScope;
             var res = GetProviderForType(typeof(T)).RetrieveByKey<T>(this, cs, true, key);
-            cs.DoneWork();
+
+            if (cs.IsStandalone)
+            {
+                res = res.ToArray();
+                cs.DoneWork();
+            }
 
             // If caching is present, call out to it to potentially cache results (by identity)
             if (cache != null && cb != CacheBehavior.Off)
             {
-                res = res.ToArray();
+                if (!cs.IsStandalone)
+                {
+                    res = res.ToArray();
+                }
 
                 var fr = res.FirstOrDefault();
 
@@ -805,7 +813,12 @@ namespace CodexMicroORM.Core.Services
 
             var cs = CEF.CurrentConnectionScope;
             var res = GetProviderForType(typeof(T)).RetrieveByQuery<T>(this, cs, true, cmdType, cmdText, cc, parms);
-            cs.DoneWork();
+
+            if (cs.IsStandalone)
+            {
+                res = res.ToArray();
+                cs.DoneWork();
+            }
 
             if (cache == null && (cb & CacheBehavior.ConvertQueryToIdentity) != 0)
             {
@@ -814,7 +827,10 @@ namespace CodexMicroORM.Core.Services
 
             if (cache != null && cb != CacheBehavior.Off)
             {
-                res = res.ToArray();
+                if (!cs.IsStandalone)
+                {
+                    res = res.ToArray();
+                }
 
                 if (res.Any())
                 {
@@ -844,11 +860,19 @@ namespace CodexMicroORM.Core.Services
 
             var cs = CEF.CurrentConnectionScope;
             var res = GetProviderForType(typeof(T)).RetrieveAll<T>(this, cs, true);
-            cs.DoneWork();
+
+            if (cs.IsStandalone)
+            {
+                res = res.ToArray();
+                cs.DoneWork();
+            }
 
             if (cache != null && cb != CacheBehavior.Off)
             {
-                res = res.ToArray();
+                if (!cs.IsStandalone)
+                {
+                    res = res.ToArray();
+                }
 
                 if (res.Any())
                 {

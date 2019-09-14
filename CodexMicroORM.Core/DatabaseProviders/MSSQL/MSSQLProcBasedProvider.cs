@@ -40,6 +40,10 @@ namespace CodexMicroORM.Providers
 
         public delegate void RowActionPreviewCallback(CommandType action, string objname, ICEFInfraWrapper row);
 
+#if DEBUG
+        public string ID = Guid.NewGuid().ToString();
+#endif
+
         public static RowActionPreviewCallback GlobalRowActionPreview
         {
             get;
@@ -474,8 +478,9 @@ namespace CodexMicroORM.Providers
                             GlobalRowActionPreview?.Invoke(cmdType, r.Name, r.Row);
                         }
 
-                        var outVals = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, cmdType, r.Schema, r.Name, r.Row, null, conn.TimeoutOverride).ExecuteNoResultSet().GetOutputValues();
-                        var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(conn.IsTransactional);
+                        var msconn = (MSSQLConnection)conn.CurrentConnection;
+                        var outVals = CreateProcCommand(msconn, cmdType, r.Schema, r.Name, r.Row, null, conn.TimeoutOverride).ExecuteNoResultSet().GetOutputValues();
+                        var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(false /*conn.IsTransactional*/);
                         List<(string name, object value)> toRB = new List<(string name, object value)>();
 
                         foreach (var (name, value) in outVals)
@@ -509,14 +514,14 @@ namespace CodexMicroORM.Providers
 
                         if (!settings.NoAcceptChanges)
                         {
+                            conn.ToRollbackList.Add((r.Row, r.Row.GetRowState(), toRB));
+
                             if (doAccept)
                             {
                                 r.Row.AcceptChanges();
                             }
                             else
                             {
-                                conn.ToRollbackList.Add((r.Row, toRB));
-
                                 lock (conn.ToAcceptList)
                                 {
                                     conn.ToAcceptList.Add(r.Row);
@@ -626,10 +631,11 @@ namespace CodexMicroORM.Providers
             var name = db.GetEntityNameByType(no.GetBaseType(), wo);
 
             MSSQLCommand sqlcmd;
+            var dbconn = (MSSQLConnection)conn.CurrentConnection;
 
             if (type == CommandType.RetrieveByText)
             {
-                sqlcmd = CreateRawCommand((MSSQLConnection)conn.CurrentConnection, System.Data.CommandType.Text, cmdText, parms, conn.TimeoutOverride);
+                sqlcmd = CreateRawCommand(dbconn, System.Data.CommandType.Text, cmdText, parms, conn.TimeoutOverride);
             }
             else
             {
@@ -645,115 +651,124 @@ namespace CodexMicroORM.Providers
                     name = sn.name;
                 }
 
-                sqlcmd = CreateProcCommand((MSSQLConnection)conn.CurrentConnection, type, schema, name, null, parms, conn.TimeoutOverride);
+                sqlcmd = CreateProcCommand(dbconn, type, schema, name, null, parms, conn.TimeoutOverride);
             }
 
-            CEFDebug.DumpSQLCall(cmdText, sqlcmd.GetParameterValues());
-
-            bool fetchedOutput = false;
-            bool hasData = false;
-            HashSet<string> dateFields = null;
-
-            foreach (var row in sqlcmd.ExecuteReadRows())
+            try
             {
-                hasData = true;
+                dbconn.IncrementWorking();
 
-                if (!fetchedOutput)
+                CEFDebug.DumpSQLCall(cmdText, sqlcmd.GetParameterValues());
+
+                bool fetchedOutput = false;
+                bool hasData = false;
+                HashSet<string> dateFields = null;
+
+                foreach (var row in sqlcmd.ExecuteReadRows())
                 {
-                    fetchedOutput = true;
+                    hasData = true;
 
-                    var outVals = sqlcmd.GetOutputValues();
-
-                    if (outVals != null)
+                    if (!fetchedOutput)
                     {
-                        conn.LastOutputVariables.Clear();
+                        fetchedOutput = true;
 
-                        foreach (var ov in outVals)
+                        var outVals = sqlcmd.GetOutputValues();
+
+                        if (outVals != null)
                         {
-                            conn.LastOutputVariables[ov.name] = ov.value;
+                            conn.LastOutputVariables.Clear();
+
+                            foreach (var ov in outVals)
+                            {
+                                conn.LastOutputVariables[ov.name] = ov.value;
+                            }
                         }
                     }
-                }
 
-                // Handle any possible date translation now - to be efficient, we build a list of candidate fields to handle instead of looking at every cell from every row!
-                if (dateFields == null)
-                {
-                    dateFields = new HashSet<string>();
-
-                    foreach (var kvp in row)
+                    // Handle any possible date translation now - to be efficient, we build a list of candidate fields to handle instead of looking at every cell from every row!
+                    if (dateFields == null)
                     {
-                        if (kvp.Value.type == typeof(DateTime))
+                        dateFields = new HashSet<string>();
+
+                        foreach (var kvp in row)
                         {
-                            dateFields.Add(kvp.Key);
+                            if (kvp.Value.type == typeof(DateTime))
+                            {
+                                dateFields.Add(kvp.Key);
+                            }
                         }
                     }
-                }
 
-                foreach (string df in dateFields)
-                {
-                    if (row[df].value != null)
+                    foreach (string df in dateFields)
                     {
-                        switch (ss.ResolvedDateStorageForTypeAndProperty(typeof(T), df))
+                        if (row[df].value != null)
                         {
-                            case PropertyDateStorage.TwoWayConvertUtc:
-                                row[df] = (DateTime.SpecifyKind((DateTime)row[df].value, DateTimeKind.Utc).ToLocalTime(), typeof(DateTime));
-                                break;
-
-                            case PropertyDateStorage.TwoWayConvertUtcOnlyWithTime:
-                                if (((DateTime)row[df].value).TimeOfDay.Milliseconds != 0)
-                                {
+                            switch (ss.ResolvedDateStorageForTypeAndProperty(typeof(T), df))
+                            {
+                                case PropertyDateStorage.TwoWayConvertUtc:
                                     row[df] = (DateTime.SpecifyKind((DateTime)row[df].value, DateTimeKind.Utc).ToLocalTime(), typeof(DateTime));
-                                }
-                                break;
+                                    break;
+
+                                case PropertyDateStorage.TwoWayConvertUtcOnlyWithTime:
+                                    if (((DateTime)row[df].value).TimeOfDay.Milliseconds != 0)
+                                    {
+                                        row[df] = (DateTime.SpecifyKind((DateTime)row[df].value, DateTimeKind.Utc).ToLocalTime(), typeof(DateTime));
+                                    }
+                                    break;
+                            }
                         }
                     }
-                }
 
-                if (doWrap)
-                {
-                    // If "the same" object exists in current scope, this will "merge" it with new values, avoids duplicating it in scope
-                    no = CEF.CurrentServiceScope.IncludeObjectWithType<T>(new T(), ObjectState.Unchanged, row);
-                }
-                else
-                {
-                    var propVals = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
-
-                    foreach (var kvp in row)
+                    if (doWrap)
                     {
-                        propVals[kvp.Key] = kvp.Value.value;
+                        // If "the same" object exists in current scope, this will "merge" it with new values, avoids duplicating it in scope
+                        no = CEF.CurrentServiceScope.IncludeObjectWithType<T>(new T(), ObjectState.Unchanged, row);
+                    }
+                    else
+                    {
+                        var propVals = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
+
+                        foreach (var kvp in row)
+                        {
+                            propVals[kvp.Key] = kvp.Value.value;
+                        }
+
+                        no = new T();
+                        WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), false);
                     }
 
-                    no = new T();
-                    WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), false);
+                    // Handle property groups if they exist for this type
+                    if ((ss.Settings.RetrievalPostProcessing & RetrievalPostProcessing.PropertyGroups) != 0)
+                    {
+                        db.ExpandPropertyGroupValues(no);
+                    }
+
+                    // Handle properties that are named differently from underlying storage
+                    if ((ss.Settings.RetrievalPostProcessing & RetrievalPostProcessing.PropertyNameFixups) != 0)
+                    {
+                        db.FixupPropertyStorageNames(no);
+                    }
+
+                    // Handle populating links to parent instances where there does not exist a CLR property exposed for the key/ID of the parent
+                    if ((ss.Settings.RetrievalPostProcessing & RetrievalPostProcessing.ParentInstancesWithoutCLRProperties) != 0)
+                    {
+                        db.InitializeObjectsWithoutCorrespondingIDs(no);
+                    }
+
+                    yield return no;
                 }
 
-                // Handle property groups if they exist for this type
-                if ((ss.Settings.RetrievalPostProcessing & RetrievalPostProcessing.PropertyGroups) != 0)
+                if (!hasData && cc != null)
                 {
-                    db.ExpandPropertyGroupValues(no);
+                    foreach (var c in sqlcmd.GetResultSetShape())
+                    {
+                        cc(c.Key, c.Value);
+                    }
                 }
-
-                // Handle properties that are named differently from underlying storage
-                if ((ss.Settings.RetrievalPostProcessing & RetrievalPostProcessing.PropertyNameFixups) != 0)
-                {
-                    db.FixupPropertyStorageNames(no);
-                }
-
-                // Handle populating links to parent instances where there does not exist a CLR property exposed for the key/ID of the parent
-                if ((ss.Settings.RetrievalPostProcessing & RetrievalPostProcessing.ParentInstancesWithoutCLRProperties) != 0)
-                {
-                    db.InitializeObjectsWithoutCorrespondingIDs(no);
-                }
-
-                yield return no;
             }
-
-            if (!hasData && cc != null)
+            finally
             {
-                foreach (var c in sqlcmd.GetResultSetShape())
-                {
-                    cc(c.Key, c.Value);
-                }
+                dbconn.DecrementWorking();
             }
         }
 

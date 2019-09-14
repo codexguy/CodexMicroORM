@@ -125,18 +125,21 @@ namespace CodexMicroORM.Core.Services
                     return true;
                 }
 
-                if (!_source.FastPropertyWriteable(binder.Name) && _valueBag.ContainsKey(binder.Name))
+                if (_source != null)
                 {
-                    result = _valueBag[binder.Name];
-                    return true;
-                }
+                    if (!_source.FastPropertyWriteable(binder.Name) && _valueBag.ContainsKey(binder.Name))
+                    {
+                        result = _valueBag[binder.Name];
+                        return true;
+                    }
 
-                var r = _source.FastPropertyReadableWithValue(binder.Name);
+                    var (readable, value) = _source.FastPropertyReadableWithValue(binder.Name);
 
-                if (r.readable)
-                {
-                    result = r.value;
-                    return true;
+                    if (readable)
+                    {
+                        result = value;
+                        return true;
+                    }
                 }
 
                 if (_valueBag.ContainsKey(binder.Name))
@@ -165,11 +168,14 @@ namespace CodexMicroORM.Core.Services
         {
             using (new ReaderLock(_lock))
             {
-                var pi = _source.FastGetAllProperties(null, null, propName);
-
-                if (pi.Any())
+                if (_source != null)
                 {
-                    return pi.First().type;
+                    var pi = _source.FastGetAllProperties(null, null, propName);
+
+                    if (pi.Any())
+                    {
+                        return pi.First().type;
+                    }
                 }
 
                 if (_preferredType.ContainsKey(propName))
@@ -205,11 +211,14 @@ namespace CodexMicroORM.Core.Services
                     return _valueBag[propName];
                 }
 
-                var r = _source.FastPropertyReadableWithValue(propName);
-
-                if (r.readable)
+                if (_source != null)
                 {
-                    return r.value;
+                    var (readable, value) = _source.FastPropertyReadableWithValue(propName);
+
+                    if (readable)
+                    {
+                        return value;
+                    }
                 }
 
                 return null;
@@ -381,23 +390,26 @@ namespace CodexMicroORM.Core.Services
 
                 wl.Release();
 
-                var info = _source.FastGetAllProperties(true, true, propName);
-
-                if (info.Any())
+                if (_source != null)
                 {
-                    wl.Reacquire();
+                    var info = _source.FastGetAllProperties(true, true, propName);
 
-                    var oldVal = _source.FastGetValue(propName);
-
-                    if (!oldVal.IsSame(value))
+                    if (info.Any())
                     {
-                        _source.FastSetValue(propName, InternalChangeType(value, info.First().type));
+                        wl.Reacquire();
 
-                        wl.Release();
-                        OnPropertyChanged(propName, oldVal, value, false);
-                        return true;
+                        var oldVal = _source.FastGetValue(propName);
+
+                        if (!oldVal.IsSame(value))
+                        {
+                            _source.FastSetValue(propName, InternalChangeType(value, info.First().type));
+
+                            wl.Release();
+                            OnPropertyChanged(propName, oldVal, value, false);
+                            return true;
+                        }
+                        return false;
                     }
-                    return false;
                 }
 
                 wl.Reacquire();
@@ -442,7 +454,12 @@ namespace CodexMicroORM.Core.Services
         {
             using (new ReaderLock(_lock))
             {
-                return _valueBag.Keys.Concat(from pi in _source.FastGetAllProperties() select pi.name).ToArray();
+                if (_source != null)
+                {
+                    return _valueBag.Keys.Concat(from pi in _source.FastGetAllProperties() select pi.name).ToArray();
+                }
+
+                return Array.Empty<string>();
             }
         }
 
@@ -561,18 +578,21 @@ namespace CodexMicroORM.Core.Services
         {
             Dictionary<string, Type> info = new Dictionary<string, Type>(Globals.DefaultDictionaryCapacity);
 
-            using (new ReaderLock(_lock))
+            if (_source != null)
             {
-                foreach (var v in (from pi in _source.FastGetAllProperties(true)
-                                   where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
-                                   select new { Key = pi.name, Type = pi.type }).
-                    Concat(from a in _preferredType
-                           where (!onlySerializable || IsTypeSerializable(a.Value))
-                           select new { a.Key, Type = a.Value }))
+                using (new ReaderLock(_lock))
                 {
-                    if (!info.ContainsKey(v.Key))
+                    foreach (var v in (from pi in _source.FastGetAllProperties(true)
+                                       where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
+                                       select new { Key = pi.name, Type = pi.type }).
+                        Concat(from a in _preferredType
+                               where (!onlySerializable || IsTypeSerializable(a.Value))
+                               select new { a.Key, Type = a.Value }))
                     {
-                        info[v.Key] = v.Type;
+                        if (!info.ContainsKey(v.Key))
+                        {
+                            info[v.Key] = v.Type;
+                        }
                     }
                 }
             }
@@ -584,18 +604,21 @@ namespace CodexMicroORM.Core.Services
         {
             Dictionary<string, object> vals = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
 
-            using (new ReaderLock(_lock))
+            if (_source != null)
             {
-                foreach (var v in (from pi in _source.FastGetAllProperties(true)
-                                   where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
-                                   select new { Key = pi.name, Value = _source.FastGetValue(pi.name) }).
-                    Concat(from a in _valueBag
-                           where (!onlySerializable || a.Value == null || IsTypeSerializable(a.Value.GetType()))
-                           select new { a.Key, a.Value }))
+                using (new ReaderLock(_lock))
                 {
-                    if (!vals.ContainsKey(v.Key))
+                    foreach (var v in (from pi in _source.FastGetAllProperties(true)
+                                       where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
+                                       select new { Key = pi.name, Value = _source.FastGetValue(pi.name) }).
+                        Concat(from a in _valueBag
+                               where (!onlySerializable || a.Value == null || IsTypeSerializable(a.Value.GetType()))
+                               select new { a.Key, a.Value }))
                     {
-                        vals[v.Key] = v.Value;
+                        if (!vals.ContainsKey(v.Key))
+                        {
+                            vals[v.Key] = v.Value;
+                        }
                     }
                 }
             }

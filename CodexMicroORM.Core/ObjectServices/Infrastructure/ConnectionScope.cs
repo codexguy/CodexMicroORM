@@ -19,6 +19,7 @@ Major Changes:
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -33,7 +34,7 @@ namespace CodexMicroORM.Core.Services
         private IDBProviderConnection _conn = null;
         private bool _canCommit = false;
         private readonly string _connStringOverride = null;
-        private readonly object _sync = new object();
+        //private static object _sync = new object();
 
         public ConnectionScope(bool tx = true, string connStringOverride = null, int? timeoutOverride = null)
         {
@@ -44,6 +45,10 @@ namespace CodexMicroORM.Core.Services
         }
 
         #region "Properties"
+
+#if DEBUG
+        public string ID = Guid.NewGuid().ToString();
+#endif
 
         public IDictionary<string, object> LastOutputVariables
         {
@@ -83,17 +88,17 @@ namespace CodexMicroORM.Core.Services
             set;
         } = new HashSet<ICEFInfraWrapper>();
 
-        internal ConcurrentBag<(ICEFInfraWrapper row, IList<(string name, object value)> data)> ToRollbackList
+        internal ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object value)> data)> ToRollbackList
         {
             get;
             set;
-        } = new ConcurrentBag<(ICEFInfraWrapper row, IList<(string name, object value)> data)>();
+        } = new ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object value)> data)>();
 
         public IDBProviderConnection CurrentConnection
         {
             get
             {
-                lock (_sync)
+                lock (this)
                 {
                     if (_conn != null)
                     {
@@ -101,6 +106,7 @@ namespace CodexMicroORM.Core.Services
                     }
 
                     _conn = Provider.CreateOpenConnection("default", IsTransactional, _connStringOverride, null);
+                    //CEFDebug.WriteInfo($"New connection: " + _conn.ID() + " for " + ID);
                     return _conn;
                 }
             }
@@ -133,72 +139,65 @@ namespace CodexMicroORM.Core.Services
 
         #region IDisposable Support
 
-        public bool IsDisposed
-        {
-            get;
-            private set;
-        }
-
         protected virtual void Dispose(bool disposing)
         {
-            if (!IsDisposed)
+            Disposing?.Invoke();
+
+            IDBProviderConnection conn = null;
+
+            lock (this)
             {
-                Disposing?.Invoke();
-
-                IDBProviderConnection conn = null;
-
-                lock (_sync)
-                {
-                    conn = _conn;
-                }
-
-                if (conn != null)
-                {
-                    bool isRB = false;
-
-                    if (IsTransactional)
-                    {
-                        if (_canCommit)
-                        {
-                            conn.Commit();
-                        }
-                        else
-                        {
-                            conn.Rollback();
-                            ToAcceptList = null;
-                            isRB = true;
-                        }
-                    }
-
-                    if (ToAcceptList != null)
-                    {
-                        foreach (var r in ToAcceptList)
-                        {
-                            r.AcceptChanges();
-                        }
-
-                        ToAcceptList = null;
-                    }
-
-                    if (isRB && ToRollbackList != null)
-                    {
-                        foreach (var (row, data) in ToRollbackList)
-                        {
-                            foreach (var (name, value) in data)
-                            {
-                                row.SetValue(name, value);
-                            }
-                        }
-                    }
-
-                    conn.Dispose();
-                    _conn = null;
-                }
-
-                IsDisposed = true;
-
-                Disposed?.Invoke();
+                conn = _conn;
+                _conn = null;
             }
+
+            if (conn != null)
+            {
+                bool isRB = false;
+
+                if (IsTransactional)
+                {
+                    if (_canCommit)
+                    {
+                        conn.Commit();
+                    }
+                    else
+                    {
+                        conn.Rollback();
+                        ToAcceptList = null;
+                        isRB = true;
+                    }
+                }
+
+                if (ToAcceptList != null)
+                {
+                    foreach (var r in ToAcceptList)
+                    {
+                        r.AcceptChanges();
+                    }
+
+                    ToAcceptList = null;
+                }
+
+                if (isRB && ToRollbackList != null)
+                {
+                    foreach (var (row, prevstate, data) in ToRollbackList)
+                    {
+                        foreach (var (name, value) in data)
+                        {
+                            row.SetValue(name, value);
+                        }
+
+                        // We also restore original row state
+                        row.SetRowState(prevstate);
+                    }
+                }
+
+                //CEFDebug.WriteInfo($"Dispose connection: " + conn.ID() + " for " + ID);
+                conn.Dispose();
+            }
+
+            Disposed?.Invoke();
         }
 
         public void Dispose()

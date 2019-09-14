@@ -55,7 +55,10 @@ namespace CodexMicroORM.Core
             {
                 if ((Target?.IsAlive).GetValueOrDefault())
                 {
-                    return Infra;
+                    if (Infra.GetWrappedObject() != null)
+                    {
+                        return Infra;
+                    }
                 }
 
                 return null;

@@ -397,6 +397,8 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Minor enhancements (e.g. returning instance from Add)
 	* Changes: when adding to scopes, check for existence (slower but better behavior)
 	* Fixes: light-weight locks (race condition fix), FastCreateNoParm
+* 0.9.3 - Sept 2019
+    * Fixes: connection scope issues
 
 ## Roadmap / Plans
 Look for in coming releases:

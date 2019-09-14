@@ -1408,16 +1408,16 @@ namespace CodexMicroORM.Core.Services
                 {
                     foreach (var ck in Key.ChildResolvedKey)
                     {
-                        var forChild = LinkedScope.GetSetter(Child.GetInfraWrapperTarget(), ck);
+                        var (setter, type) = LinkedScope.GetSetter(Child.GetInfraWrapperTarget(), ck);
 
-                        if (forChild.setter == null)
+                        if (setter == null)
                         {
                             throw new CEFInvalidOperationException($"Could not find property {ck} on object of type {Child.GetTarget()?.GetType()?.Name}.");
                         }
 
                         try
                         {
-                            forChild.setter.Invoke(null);
+                            setter.Invoke(null);
                         }
                         catch (Exception ex)
                         {
@@ -1474,14 +1474,13 @@ namespace CodexMicroORM.Core.Services
                         }
 
                         var chCol = Key.ChildResolvedKey[ordinal];
-                        var forChild = LinkedScope.GetSetter(Child.GetInfraWrapperTarget(), chCol);
+                        var (setter, type) = LinkedScope.GetSetter(Child.GetInfraWrapperTarget(), chCol);
 
-                        if (forChild.setter == null)
+                        // Change - not necessarily an exception to be missing a setter here, related object may not longer be part of same scope (gone out of scope) and let's not throw an error but silently handle if it IS in scope
+                        if (setter != null)
                         {
-                            throw new CEFInvalidOperationException($"Could not find property {chCol} on object of type {Child.GetTarget()?.GetType()?.Name}.");
+                            setter.Invoke(forParent.Invoke());
                         }
-
-                        forChild.setter.Invoke(forParent.Invoke());
                     }
                 }
 

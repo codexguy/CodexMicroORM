@@ -183,20 +183,23 @@ namespace CodexMicroORM.Core.Services
 
         private void CEFValueTrackingWrapper_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            var (readable, value) = _source.FastPropertyReadableWithValue(e.PropertyName);
-
-            if (readable)
+            if (_source != null)
             {
-                if (_originalValues.TryGetValue(e.PropertyName, out object oldval))
+                var (readable, value) = _source.FastPropertyReadableWithValue(e.PropertyName);
+
+                if (readable)
                 {
-                    if (!oldval.IsSame(value))
+                    if (_originalValues.TryGetValue(e.PropertyName, out object oldval))
+                    {
+                        if (!oldval.IsSame(value))
+                        {
+                            OnPropertyChanged(e.PropertyName, oldval, value, _valueBag.ContainsKey(e.PropertyName));
+                        }
+                    }
+                    else
                     {
                         OnPropertyChanged(e.PropertyName, oldval, value, _valueBag.ContainsKey(e.PropertyName));
                     }
-                }
-                else
-                {
-                    OnPropertyChanged(e.PropertyName, oldval, value, _valueBag.ContainsKey(e.PropertyName));
                 }
             }
         }
@@ -218,9 +221,9 @@ namespace CodexMicroORM.Core.Services
                     if (_source != null)
                     {
                         // Handle CLR properties that are R/W
-                        foreach (var pi in _source.FastGetAllProperties(true, true))
+                        foreach (var (name, type, readable, writeable) in _source.FastGetAllProperties(true, true))
                         {
-                            _originalValues[pi.name] = _source.FastGetValue(pi.name);
+                            _originalValues[name] = _source.FastGetValue(name);
                         }
                     }
 
