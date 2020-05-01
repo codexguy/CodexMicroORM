@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 02/2018    0.2.4   Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -40,7 +41,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        internal DynamicWithValuesBagErrors(object o, ObjectState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, irs, props, types)
+        internal DynamicWithValuesBagErrors(object o, ObjectState irs, IDictionary<string, object?>? props, IDictionary<string, Type>? types) : base(o, irs, props, types)
         {
         }
 

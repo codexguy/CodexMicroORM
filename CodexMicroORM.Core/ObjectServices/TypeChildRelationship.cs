@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 05/2018    0.6     Moved from key.cs (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,7 +27,7 @@ namespace CodexMicroORM.Core.Services
 {
     public sealed class TypeChildRelationship : ICEFIndexedListItem
     {
-        private string _identity;
+        private string _identity = "";
 
         private void SetIdentity()
         {
@@ -48,13 +49,13 @@ namespace CodexMicroORM.Core.Services
 
         public override int GetHashCode()
         {
-            return _identity.GetHashCode();
+            return HashCode.Combine(_identity);
         }
 
         public override bool Equals(object obj) => this._identity.IsSame((obj as TypeChildRelationship)?._identity);
 
-        private Type _childType;
-        public Type ChildType
+        private Type? _childType;
+        public Type? ChildType
         {
             get { return _childType; }
             internal set
@@ -64,8 +65,8 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private Type _parentType;
-        public Type ParentType
+        private Type? _parentType;
+        public Type? ParentType
         {
             get { return _parentType; }
             internal set
@@ -75,8 +76,8 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private IList<string> _parentKey;
-        public IList<string> ParentKey
+        private IList<string>? _parentKey;
+        public IList<string>? ParentKey
         {
             get { return _parentKey; }
             internal set
@@ -86,8 +87,8 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private string _childPropertyName;
-        public string ChildPropertyName
+        private string? _childPropertyName;
+        public string? ChildPropertyName
         {
             get { return _childPropertyName; }
             internal set
@@ -97,32 +98,32 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public string FullParentChildPropertyName
+        public string? FullParentChildPropertyName
         {
             get
             {
                 if (!string.IsNullOrEmpty(ChildPropertyName))
                 {
-                    return $"{ParentType.Name}.{ChildPropertyName}";
+                    return $"{ParentType?.Name}.{ChildPropertyName}";
                 }
                 return null;
             }
         }
 
-        public string FullChildParentPropertyName
+        public string? FullChildParentPropertyName
         {
             get
             {
                 if (!string.IsNullOrEmpty(ParentPropertyName))
                 {
-                    return $"{ChildType.Name}.{ParentPropertyName}";
+                    return $"{ChildType?.Name}.{ParentPropertyName}";
                 }
                 return null;
             }
         }
 
-        private string _parentPropertyName;
-        public string ParentPropertyName
+        private string? _parentPropertyName;
+        public string? ParentPropertyName
         {
             get { return _parentPropertyName; }
             internal set
@@ -132,8 +133,8 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private IList<string> _childRoleName = null;
-        public IList<string> ChildRoleName
+        private IList<string>? _childRoleName = null;
+        public IList<string>? ChildRoleName
         {
             get
             {
@@ -150,7 +151,7 @@ namespace CodexMicroORM.Core.Services
         {
             get
             {
-                return _childRoleName ?? _parentKey;
+                return _childRoleName ?? _parentKey ?? Array.Empty<string>();
             }
         }
 
@@ -176,35 +177,20 @@ namespace CodexMicroORM.Core.Services
             return i;
         }
 
-        public object GetValue(string propName, bool unwrap)
+        public object? GetValue(string propName, bool unwrap)
         {
-            switch (propName)
+            return propName switch
             {
-                case nameof(TypeChildRelationship.ChildPropertyName):
-                    return ChildPropertyName;
-
-                case nameof(TypeChildRelationship.ChildRoleName):
-                    return ChildRoleName;
-
-                case nameof(TypeChildRelationship.ChildType):
-                    return ChildType;
-
-                case nameof(TypeChildRelationship.ParentKey):
-                    return ParentKey;
-
-                case nameof(TypeChildRelationship.ParentPropertyName):
-                    return ParentPropertyName;
-
-                case nameof(TypeChildRelationship.ParentType):
-                    return ParentType;
-
-                case nameof(TypeChildRelationship.FullParentChildPropertyName):
-                    return FullParentChildPropertyName;
-
-                case nameof(TypeChildRelationship.FullChildParentPropertyName):
-                    return FullChildParentPropertyName;
-            }
-            throw new NotSupportedException("Unsupported property name.");
+                nameof(TypeChildRelationship.ChildPropertyName) => ChildPropertyName,
+                nameof(TypeChildRelationship.ChildRoleName) => ChildRoleName,
+                nameof(TypeChildRelationship.ChildType) => ChildType,
+                nameof(TypeChildRelationship.ParentKey) => ParentKey,
+                nameof(TypeChildRelationship.ParentPropertyName) => ParentPropertyName,
+                nameof(TypeChildRelationship.ParentType) => ParentType,
+                nameof(TypeChildRelationship.FullParentChildPropertyName) => FullParentChildPropertyName,
+                nameof(TypeChildRelationship.FullChildParentPropertyName) => FullChildParentPropertyName,
+                _ => throw new NotSupportedException("Unsupported property name."),
+            };
         }
     }
 }

@@ -203,21 +203,21 @@ namespace CodexMicroORM.Core
 
                 if (typeAndFields.Length != 4)
                 {
-                    throw new ArgumentException($"Invalid relationship spec '{rel}'.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Invalid relationship spec '{rel}'.");
                 }
 
                 var childType = FindTypeByName(typeAndFields[0]);
 
                 if (childType == null)
                 {
-                    throw new ArgumentException($"Could not find child type '{typeAndFields[0]}'.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Could not find child type '{typeAndFields[0]}'.");
                 }
 
                 var fields = typeAndFields[1].Split(',');
 
                 if (fields.Length < 1)
                 {
-                    throw new ArgumentException($"Invalid relationship spec '{rel}'.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Invalid relationship spec '{rel}'.");
                 }
 
                 var tcr = (TypeChildRelationship) typeof(TypeChildRelationship).GetMethod("Create").MakeGenericMethod(childType).Invoke(null, new object[] { fields });

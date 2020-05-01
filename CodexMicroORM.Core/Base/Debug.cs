@@ -24,6 +24,7 @@ using System.Linq;
 using System.Data.SqlClient;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace CodexMicroORM.Core
 {
@@ -156,8 +157,255 @@ namespace CodexMicroORM.Core
             Debug.WriteLine($"I: {info} {sb.ToString()}");
         }
 
+        public static string ReturnIWTextFromList(System.Collections.IEnumerable list, string typename = null, bool dirty = false, bool origvals = true, params string[] fields)
+        {
+#if !DEBUG
+            throw new InvalidOperationException("Not intended for release builds.");
+#endif
+            StringBuilder sb2 = new StringBuilder();
+
+            // Build list of filter conditions
+            List<(string field, string value)> filters = new List<(string field, string value)>();
+            List<string> toreturn = new List<string>();
+
+            if (fields != null)
+            {
+                foreach (var f in fields)
+                {
+                    var m = Regex.Match(f, @"(?<f>\w+)=(?<v>.*)");
+
+                    if (m.Success)
+                    {
+                        filters.Add((m.Groups["f"].Value, m.Groups["v"].Value));
+                    }
+                    else
+                    {
+                        toreturn.Add(f);
+                    }
+                }
+            }
+
+            int i = 1;
+
+            foreach (object l in list)
+            {
+                var iw = l.AsInfraWrapped(false);
+
+                if (iw != null)
+                {
+                    if (typename == null || iw.GetBaseType().Name == typename)
+                    {
+                        var rs = iw.GetRowState();
+
+                        if (rs != ObjectState.Unchanged || !dirty)
+                        {
+                            if (!filters.Any() || (from a in filters from p in iw.GetAllValues() where string.Compare(a.field, p.Key, true) == 0 && string.Compare(a.value, p.Value?.ToString() ?? "", true) == 0 select a).Count() == filters.Count())
+                            {
+                                sb2.AppendLine($"{i}. {iw.GetBaseType().Name}, {iw.GetRowState()}");
+                                ++i;
+
+                                foreach (var p in iw.GetAllValues())
+                                {
+                                    if (!toreturn.Any() || (from a in toreturn where string.Compare(a, p.Key, true) == 0 select a).Any())
+                                    {
+                                        sb2.Append($"    {p.Key}={p.Value}");
+
+                                        if (rs == ObjectState.Modified || rs == ObjectState.ModifiedPriority)
+                                        {
+                                            var ov = iw.GetOriginalValue(p.Key, false);
+
+                                            if (ov != null && origvals && ov.ToString() != p.Value?.ToString())
+                                            {
+                                                sb2.Append(" // ");
+                                                sb2.Append(ov);
+                                            }
+                                        }
+
+                                        sb2.AppendLine();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return sb2.ToString();
+        }
+
+        public static int GetServiceScopeObjectCount(bool dirtyonly = false, params string[] types)
+        {
+            var ss = CEF.CurrentServiceScope;
+            var ol = ss.Objects;
+            int cnt = 0;
+
+            foreach (var i in ol)
+            {
+                if (i.IsAlive)
+                {
+                    if (types == null || types.Contains(i.BaseName))
+                    {
+                        if (!dirtyonly || i.GetInfra()?.GetRowState() != ObjectState.Unchanged)
+                        {
+                            ++cnt;
+                        }
+                    }
+                }
+            }
+
+            return cnt;
+        }
+
+        public static string ReturnServiceScopeLite(params string[] types)
+        {
+#if !DEBUG
+            throw new InvalidOperationException("Not intended for release builds.");
+#endif
+            StringBuilder sb2 = new StringBuilder();
+
+            var ss = CEF.CurrentServiceScope;
+            var ol = ss.Objects;
+
+            foreach (var i in (from a in ol 
+                               where a.IsAlive 
+                               && (types == null || types.Contains(a.BaseName))
+                               let b = a.GetInfra()?.GetRowState() 
+                               where b != ObjectState.Unchanged 
+                               group a by a.BaseName into g
+                               select new
+                               {
+                                   g.Key,
+                                   Items = (from c in g
+                                            let b2 = c.GetInfra()?.GetRowState()
+                                            let s = b2 == ObjectState.Added ? "A" : b2 == ObjectState.Deleted ? "D" : b2 == ObjectState.Unlinked ? "X" : "M"
+                                            group c by s into g2
+                                            select g2)
+                               }))
+            {
+                if (sb2.Length > 0)
+                {
+                    sb2.Append("; ");
+                }
+
+                sb2.Append(i.Key);
+
+                foreach (var i2 in i.Items)
+                {
+                    sb2.Append(" ");
+                    sb2.Append(i2.Key);
+                    sb2.Append("/");
+                    sb2.Append(i2.Count());
+                }
+            }
+
+            return sb2.ToString();
+        }
+
+        public static string ReturnServiceScope(ServiceScope ss = null, string typename = null, bool dirty = false, bool origvals = true, params string[] fields)
+        {
+#if !DEBUG
+            throw new InvalidOperationException("Not intended for release builds.");
+#endif
+            StringBuilder sb2 = new StringBuilder();
+
+            if (ss == null)
+            {
+                ss = CEF.CurrentServiceScope;
+            }
+
+            // Build list of filter conditions
+            List<(string field, string value)> filters = new List<(string field, string value)>();
+            List<string> toreturn = new List<string>();
+
+            if (fields != null)
+            {
+                foreach (var f in fields)
+                {
+                    var m = Regex.Match(f, @"(?<f>\w+)=(?<v>.*)");
+
+                    if (m.Success)
+                    {
+                        filters.Add((m.Groups["f"].Value, m.Groups["v"].Value));
+                    }
+                    else
+                    {
+                        toreturn.Add(f);
+                    }
+                }
+            }
+
+            var ol = ss.Objects;
+            int i = 1;
+
+            foreach (var d in ol)
+            {
+                if (d.IsAlive)
+                {
+                    if (typename == null || d.BaseName == typename)
+                    {
+                        var rs = d.GetInfra()?.GetRowState();
+
+                        if (rs.GetValueOrDefault(ObjectState.Unlinked) != ObjectState.Unchanged || !dirty)
+                        {
+                            var iw = d.GetInfra();
+
+                            if (iw != null)
+                            {
+                                if (!filters.Any() || (from a in filters from p in iw.GetAllValues() where string.Compare(a.field, p.Key, true) == 0 && string.Compare(a.value, p.Value?.ToString() ?? "", true) == 0 select a).Count() == filters.Count())
+                                {
+                                    sb2.AppendLine($"{i}. {d.BaseName}, {d.GetInfra()?.GetRowState()}, {(d.GetTarget() == null ? "-" : "+")}{(d.GetWrapper() == null ? "-" : "+")}{(d.GetInfra() == null ? "-" : "+")}");
+                                    ++i;
+
+                                    foreach (var p in iw.GetAllValues())
+                                    {
+                                        if (!toreturn.Any() || (from a in toreturn where string.Compare(a, p.Key, true) == 0 select a).Any())
+                                        {
+                                            sb2.Append($"    {p.Key}={p.Value}");
+
+                                            if (rs == ObjectState.Modified || rs == ObjectState.ModifiedPriority)
+                                            {
+                                                var ov = iw.GetOriginalValue(p.Key, false);
+
+                                                if (ov != null && origvals && ov.ToString() != p.Value?.ToString())
+                                                {
+                                                    sb2.Append(" // ");
+                                                    sb2.Append(ov);
+                                                }
+                                            }
+
+                                            sb2.AppendLine();
+                                        }
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                var o = d.GetWrapperTarget();
+
+                                if (o != null)
+                                {
+                                    foreach (var pi in o.GetType().GetProperties())
+                                    {
+                                        if (!toreturn.Any() || (from a in toreturn where string.Compare(a, pi.Name, true) == 0 select a).Any())
+                                        {
+                                            sb2.Append($"    {pi.Name}={pi.GetValue(o)}");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return sb2.ToString();
+        }
+
         public static string ReturnServiceScope(string typename = null)
         {
+#if !DEBUG
+            throw new InvalidOperationException("Not intended for release builds.");
+#endif
             StringBuilder sb2 = new StringBuilder();
 
             var ol = CEF.CurrentServiceScope.Objects;

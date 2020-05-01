@@ -17,6 +17,7 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 04/2018    0.6     ConcurrentObservableCollection, LightweightLongList, SlimConcurrentDictionary
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Collections;
@@ -29,7 +30,7 @@ namespace CodexMicroORM.Core.Collections
 {
     public interface ICEFIndexedListItem
     {
-        object GetValue(string propName, bool unwrap);
+        object? GetValue(string propName, bool unwrap);
     }
 
     /// <summary>
@@ -48,17 +49,21 @@ namespace CodexMicroORM.Core.Collections
         [Serializable]
         private class BucketInfo
         {
-            public Dictionary<TKey, TValue> Map;
+            public Dictionary<TKey, TValue> Map = new Dictionary<TKey, TValue>();
+
             public RWLockInfo Lock = new RWLockInfo() { AllowDirtyReads = false };
         }
 
         private BucketInfo[] _perThreadMap;
+
         private readonly object _lock = new object();
+
         private int _count = 0;
         private readonly int _initCapacity = Globals.DefaultDictionaryCapacity;
+
         private readonly HashSet<TKey> _building = new HashSet<TKey>();
 
-        public RWLockInfo ExternalLock
+        public RWLockInfo? ExternalLock
         {
             get;
             set;
@@ -239,7 +244,7 @@ namespace CodexMicroORM.Core.Collections
             if (dw == null)
             {
                 dw = new BucketInfo() { Map = new Dictionary<TKey, TValue>(_initCapacity) };
-                dw = Interlocked.CompareExchange(ref _perThreadMap[tkey], dw, null) ?? dw;
+                dw = Interlocked.CompareExchange(ref _perThreadMap[tkey], dw, null!) ?? dw;
             }
 
             using (new WriterLock(ExternalLock ?? dw.Lock))
@@ -249,7 +254,7 @@ namespace CodexMicroORM.Core.Collections
             }
         }
 
-        private (BucketInfo map, TValue value) FindByKey(TKey key)
+        private (BucketInfo? map, TValue value) FindByKey(TKey key)
         {
             foreach (var bi in _perThreadMap)
             {
@@ -284,7 +289,7 @@ namespace CodexMicroORM.Core.Collections
 
             if (map == null)
             {
-                throw new InvalidOperationException("Could not find value in dictionary.");
+                throw new CEFInvalidStateException(InvalidStateType.BadAction, "Could not find value in dictionary.");
             }
 
             return value;
@@ -401,7 +406,7 @@ namespace CodexMicroORM.Core.Collections
                 return true;
             }
 
-            value = default;
+            value = default!;
             return false;
         }
 
@@ -425,11 +430,6 @@ namespace CodexMicroORM.Core.Collections
             return FindByKey((TKey)key).map != null;
         }
 
-        //IDictionaryEnumerator IDictionary.GetEnumerator()
-        //{
-        //    throw new NotSupportedException();
-        //}
-
         public void Remove(object key)
         {
             RemoveInternal((TKey)key);
@@ -450,13 +450,19 @@ namespace CodexMicroORM.Core.Collections
     [Serializable]
     public class ConcurrentObservableCollection<T> : ICollection<T>, IEnumerable<T>, IList<T>, IEnumerable, INotifyCollectionChanged, INotifyPropertyChanged where T : class, new()
     {
+        [Serializable]
         private class Block
         {
-            public T[] Data;
-            public Block Next;
+            public T[]? Data;
+            public Block? Next;
 
             public ref T GetItem(int idx)
             {
+                if (Data == null)
+                {
+                    throw new CEFInvalidStateException(InvalidStateType.LowLevelState, "Data block not initialized.");
+                }
+
                 return ref Data[idx];
             }
         }
@@ -464,8 +470,8 @@ namespace CodexMicroORM.Core.Collections
         [Serializable]
         private class BucketInfo
         {
-            public Block Head;
-            public Block Tail;
+            public Block? Head;
+            public Block? Tail;
             public int TailNextPos;
             public int TotalSize;
             public RWLockInfo Lock = new RWLockInfo() { AllowDirtyReads = false };
@@ -473,8 +479,8 @@ namespace CodexMicroORM.Core.Collections
 
         private BucketInfo[] _perThreadMap;
         private int _count = 0;
-        private RWLockInfo _lock = new RWLockInfo() { AllowDirtyReads = false };
-        private int _initCapacity = Globals.DefaultListCapacity;
+        private readonly RWLockInfo _lock = new RWLockInfo() { AllowDirtyReads = false };
+        private readonly int _initCapacity = Globals.DefaultListCapacity;
 
         public ConcurrentObservableCollection(int? initCapacity = null, int? buckets = null)
         {
@@ -501,12 +507,10 @@ namespace CodexMicroORM.Core.Collections
 
         public object SyncRoot => _lock;
 
-        //object IList.this[int index] { get => All().Skip(index).FirstOrDefault(); set => throw new NotSupportedException(); }
-
         public T this[int index] { get => All().Skip(index).FirstOrDefault(); set => throw new NotSupportedException(); }
 
-        public event PropertyChangedEventHandler PropertyChanged;
-        public event NotifyCollectionChangedEventHandler CollectionChanged;
+        public event PropertyChangedEventHandler? PropertyChanged;
+        public event NotifyCollectionChangedEventHandler? CollectionChanged;
 
         public void Add(T item)
         {
@@ -517,7 +521,12 @@ namespace CodexMicroORM.Core.Collections
             {
                 var nb = new Block();
                 info = new BucketInfo() { Head = nb, Tail = nb, TailNextPos = 0 };
-                info = Interlocked.CompareExchange(ref _perThreadMap[tkey], info, null) ?? info;
+                info = Interlocked.CompareExchange(ref _perThreadMap[tkey], info, null!) ?? info;
+            }
+
+            if (info.Tail == null)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, "Missing Tail from bucket, corrupt state.");
             }
 
             using (new WriterLock(info.Lock))
@@ -551,7 +560,7 @@ namespace CodexMicroORM.Core.Collections
         {
             var (info, block, index) = Find(olditem);
 
-            if (block != null)
+            if (info != null && block != null)
             {
                 using (new WriterLock(info.Lock))
                 {
@@ -565,6 +574,11 @@ namespace CodexMicroORM.Core.Collections
 
         private void ResizeBucket(BucketInfo info, int newtotalsize)
         {
+            if (info.Tail == null || info.Tail.Data == null)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, "Missing Tail data from bucket, corrupt state.");
+            }
+
             // Below a "small" list threshold, we try to create/copy a new array - above the threshold, just create a new block and link it
             if (newtotalsize <= 32768)
             {
@@ -630,7 +644,7 @@ namespace CodexMicroORM.Core.Collections
             OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
         }
 
-        private (BucketInfo info, Block block, int index) Find(T item)
+        private (BucketInfo? info, Block? block, int index) Find(T item)
         {
             foreach (var bi in _perThreadMap)
             {
@@ -640,7 +654,7 @@ namespace CodexMicroORM.Core.Collections
                     {
                         var b = bi.Head;
 
-                        while (b != null)
+                        while (b != null && b.Data != null)
                         {
                             var len = (b == bi.Tail ? bi.TailNextPos : b.Data.Length);
 
@@ -673,7 +687,7 @@ namespace CodexMicroORM.Core.Collections
                     {
                         var b = bi.Head;
 
-                        while (b != null)
+                        while (b != null && b.Data != null)
                         {
                             var len = (b == bi.Tail ? bi.TailNextPos : b.Data.Length);
 
@@ -701,9 +715,9 @@ namespace CodexMicroORM.Core.Collections
 
         public void CopyTo(T[] array, int arrayIndex)
         {
-            if ((array ?? throw new ArgumentNullException("array")).Length + arrayIndex < this.Count)
+            if ((array ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(array))).Length + arrayIndex < this.Count)
             {
-                throw new ArgumentException("Target array is too small.");
+                throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Target array is too small.");
             }
 
             foreach (var t in this)
@@ -722,13 +736,31 @@ namespace CodexMicroORM.Core.Collections
         {
             var (info, block, index) = Find(item);
 
-            if (block != null)
+            if (block != null && info != null)
             {
                 ref var dp = ref block.GetItem(index);
 
-                using (var wl = new WriterLock(info.Lock))
+                using var wl = new WriterLock(info.Lock);
+
+                if (Interlocked.CompareExchange(ref dp, null!, item) == item)
                 {
-                    if (Interlocked.CompareExchange(ref dp, null, item) == item)
+                    Interlocked.Decrement(ref _count);
+
+                    wl.Release();
+                    OnPropertyChanged("Count");
+                    OnPropertyChanged("Item[]");
+                    OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, item));
+                    return true;
+                }
+
+                // Small chance was compacted or something else to move it so check one more time with lock in place
+                var found = Find(item);
+
+                if (found.block == block)
+                {
+                    ref var dp2 = ref found.block.GetItem(found.index);
+
+                    if (Interlocked.CompareExchange(ref dp2, null!, item) == item)
                     {
                         Interlocked.Decrement(ref _count);
 
@@ -738,28 +770,9 @@ namespace CodexMicroORM.Core.Collections
                         OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, item));
                         return true;
                     }
-
-                    // Small chance was compacted or something else to move it so check one more time with lock in place
-                    var found = Find(item);
-
-                    if (found.block == block)
-                    {
-                        ref var dp2 = ref found.block.GetItem(found.index);
-
-                        if (Interlocked.CompareExchange(ref dp2, null, item) == item)
-                        {
-                            Interlocked.Decrement(ref _count);
-
-                            wl.Release();
-                            OnPropertyChanged("Count");
-                            OnPropertyChanged("Item[]");
-                            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, item));
-                            return true;
-                        }
-                    }
-
-                    throw new InvalidOperationException("Failed to remove item from collection.");
                 }
+
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, "Failed to remove item from collection.");
             }
 
             return false;
@@ -797,13 +810,6 @@ namespace CodexMicroORM.Core.Collections
             Remove(this[index]);
         }
 
-        //public int Add(object value)
-        //{
-        //    var t = (value as T) ?? throw new ArgumentException("value must be type T.");
-        //    Add(t);
-        //    return IndexOf(t);
-        //}
-
         public bool Contains(object value)
         {
             if (value is T t)
@@ -824,18 +830,22 @@ namespace CodexMicroORM.Core.Collections
             return -1;
         }
 
+#pragma warning disable IDE0060 // Remove unused parameter
         public void Insert(int index, object value)
+#pragma warning restore IDE0060 // Remove unused parameter
         {
             throw new NotSupportedException();
         }
 
         public void Remove(object value)
         {
-            var t = (value as T) ?? throw new ArgumentException("value must be type T.");
+            var t = (value as T) ?? throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "value must be type T.");
             Remove(t);
         }
 
+#pragma warning disable IDE0060 // Remove unused parameter
         public void CopyTo(Array array, int index)
+#pragma warning restore IDE0060 // Remove unused parameter
         {
             throw new NotSupportedException();
         }
@@ -852,8 +862,8 @@ namespace CodexMicroORM.Core.Collections
     {
         private class Block
         {
-            public long[] Data;
-            public Block Next;
+            public long[] Data = Array.Empty<long>();
+            public Block? Next;
 
             public ref long GetItem(int idx)
             {
@@ -862,11 +872,11 @@ namespace CodexMicroORM.Core.Collections
         }
 
         private int _nextPos = 0;
-        private Block _head;
-        private Block _tail;
+        private Block? _head;
+        private Block? _tail;
         private int _count = 0;
         private int _curCapacity;
-        private object _sizingLock = new object();
+        private readonly object _sizingLock = new object();
 
         public IEnumerable<long> All()
         {
@@ -914,14 +924,17 @@ namespace CodexMicroORM.Core.Collections
                 var newdata = new long[newsize];
                 int pos = 0;
 
-                for (int i = 0; i < np; ++i)
+                if (_head != null)
                 {
-                    long v = _head.Data[i];
-
-                    if (v != long.MaxValue)
+                    for (int i = 0; i < np; ++i)
                     {
-                        newdata[pos] = v;
-                        ++pos;
+                        long v = _head.Data[i];
+
+                        if (v != long.MaxValue)
+                        {
+                            newdata[pos] = v;
+                            ++pos;
+                        }
                     }
                 }
 
@@ -970,7 +983,11 @@ namespace CodexMicroORM.Core.Collections
             }
             else
             {
-                _tail.Next = nb;
+                if (_tail != null)
+                {
+                    _tail.Next = nb;
+                }
+
                 _tail = nb;
             }
 
@@ -990,7 +1007,12 @@ namespace CodexMicroORM.Core.Collections
         {
             if (item == long.MaxValue)
             {
-                throw new ArgumentException("item cannot be max value.");
+                throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "item cannot be max value.");
+            }
+
+            if (_tail == null)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, "Missing tail.");
             }
 
             // Keep trying to add it to tail
@@ -1076,22 +1098,23 @@ namespace CodexMicroORM.Core.Collections
     {
         #region "Private state"
 
-        private static int _baseCapacity = Environment.ProcessorCount * 14;
-        private static object _asNull = new object();
-        private static T[] _empty = Array.Empty<T>();
+        private static readonly int _baseCapacity = Environment.ProcessorCount * 14;
+        private static readonly object _asNull = new object();
+        private static readonly T[] _empty = Array.Empty<T>();
 
         private long _dataID = long.MinValue;
-        private RWLockInfo _lock = new RWLockInfo();
+        private readonly RWLockInfo _lock = new RWLockInfo();
         private int _initCapacity = _baseCapacity;
 
         // Config related
-        private HashSet<string> _isUnique = new HashSet<string>();
-        private HashSet<string> _neverNull = new HashSet<string>();
+        private readonly HashSet<string> _isUnique = new HashSet<string>();
+        private readonly HashSet<string> _neverNull = new HashSet<string>();
 
         // Instance state
         private SlimConcurrentDictionary<long, T> _data;
         private SlimConcurrentDictionary<T, long> _contains;
-        private Dictionary<string, SlimConcurrentDictionary<object, LightweightLongList>> _masterIndex = new Dictionary<string, SlimConcurrentDictionary<object, LightweightLongList>>();
+
+        private readonly Dictionary<string, SlimConcurrentDictionary<object, LightweightLongList>> _masterIndex = new Dictionary<string, SlimConcurrentDictionary<object, LightweightLongList>>();
 
         #endregion
 
@@ -1099,20 +1122,26 @@ namespace CodexMicroORM.Core.Collections
 
         public RWLockInfo LockInfo => _lock;
 
+#pragma warning disable CS8618 // Non-nullable field is uninitialized. Consider declaring as nullable.
         public ConcurrentIndexedList(int lockTimeout, int initCapacity, params string[] propsToIndex)
+#pragma warning restore CS8618 // Non-nullable field is uninitialized. Consider declaring as nullable.
         {
             _initCapacity = initCapacity;
             _lock.Timeout = lockTimeout;
             Init(propsToIndex);
         }
 
+#pragma warning disable CS8618 // Non-nullable field is uninitialized. Consider declaring as nullable.
         public ConcurrentIndexedList(int initCapacity, params string[] propsToIndex)
+#pragma warning restore CS8618 // Non-nullable field is uninitialized. Consider declaring as nullable.
         {
             _initCapacity = initCapacity;
             Init(propsToIndex);
         }
 
+#pragma warning disable CS8618 // Non-nullable field is uninitialized. Consider declaring as nullable.
         public ConcurrentIndexedList(params string[] propsToIndex)
+#pragma warning restore CS8618 // Non-nullable field is uninitialized. Consider declaring as nullable.
         {
             Init(propsToIndex);
         }
@@ -1174,14 +1203,14 @@ namespace CodexMicroORM.Core.Collections
         /// </summary>
         /// <param name="source"></param>
         /// <returns></returns>
-        public T Find(T source)
+        public T? Find(T source)
         {
             if (_contains.TryGetValue(source, out long id))
             {
                 return _data[id];
             }
 
-            return null;
+            return default;
         }
 
         public static bool AssumeSafe
@@ -1237,7 +1266,7 @@ namespace CodexMicroORM.Core.Collections
         {
             using (new ReaderLock(_lock))
             {
-                if (_contains.ContainsKey(item ?? throw new ArgumentNullException("item")))
+                if (_contains.ContainsKey(item ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(item))))
                 {
                     return;
                 }
@@ -1267,7 +1296,7 @@ namespace CodexMicroORM.Core.Collections
                         {
                             if (bag.Count > 0 && _isUnique.Contains(dic.Key))
                             {
-                                throw new CEFInvalidOperationException($"Collection already contains an entry for '{propVal}'.");
+                                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection already contains an entry for '{propVal}'.");
                             }
 
                             bag.Add(id);
@@ -1297,7 +1326,7 @@ namespace CodexMicroORM.Core.Collections
         /// <param name="item"></param>
         public T Add(T item, bool checkExists)
         {
-            if (checkExists && _contains.TryGetValue(item ?? throw new ArgumentNullException("item"), out var existing))
+            if (checkExists && _contains.TryGetValue(item ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(item)), out var existing))
             {
                 return _data[existing];
             }
@@ -1361,7 +1390,7 @@ namespace CodexMicroORM.Core.Collections
                                     continue;
                                 }
 
-                                throw new CEFInvalidOperationException($"Collection already contains an entry for '{propVal}'.");
+                                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection already contains an entry for '{propVal}'.");
                             }
 
                             bag.Add(id);
@@ -1409,18 +1438,18 @@ namespace CodexMicroORM.Core.Collections
         /// <param name="propName">Property name of T, as returned by T's ICEFIndexListItem's GetValue().</param>
         /// <param name="propValue">Value to match for in the virtual column.</param>
         /// <returns></returns>
-        public T GetFirstByName(string propName, object propValue, Func<T, bool> preview)
+        public T? GetFirstByName(string propName, object propValue, Func<T, bool> preview)
         {
-            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(propName))))
             {
-                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection does not contain property {propName}.");
             }
 
             using (new ReaderLock(_lock))
             {
                 if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out LightweightLongList bag))
                 {
-                    T val = null;
+                    T? val = null;
                     return (from a in bag.All() where _data.TryGetValue(a, out val) && preview(val) select val).FirstOrDefault();
                 }
             }
@@ -1434,11 +1463,11 @@ namespace CodexMicroORM.Core.Collections
         /// <param name="propName"></param>
         /// <param name="propValue"></param>
         /// <returns></returns>
-        public T GetFirstByName(string propName, object propValue)
+        public T? GetFirstByName(string propName, object? propValue)
         {
-            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(propName))))
             {
-                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection does not contain property {propName}.");
             }
 
             using (new ReaderLock(_lock))
@@ -1459,16 +1488,16 @@ namespace CodexMicroORM.Core.Collections
         /// <param name="propValue"></param>
         /// <param name="preview"></param>
         /// <returns></returns>
-        public T GetFirstByNameNoLock(string propName, object propValue, Func<T, bool> preview)
+        public T? GetFirstByNameNoLock(string propName, object propValue, Func<T, bool> preview)
         {
-            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(propName))))
             {
-                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection does not contain property {propName}.");
             }
 
             if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out LightweightLongList bag))
             {
-                T val = null;
+                T? val = null;
                 return (from a in bag.All() where _data.TryGetValue(a, out val) && preview(val) select val).FirstOrDefault();
             }
 
@@ -1481,11 +1510,11 @@ namespace CodexMicroORM.Core.Collections
         /// <param name="propName"></param>
         /// <param name="propValue"></param>
         /// <returns></returns>
-        public T GetFirstByNameNoLock(string propName, object propValue)
+        public T? GetFirstByNameNoLock(string propName, object propValue)
         {
-            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(propName))))
             {
-                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection does not contain property {propName}.");
             }
 
             if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out LightweightLongList bag))
@@ -1504,16 +1533,16 @@ namespace CodexMicroORM.Core.Collections
         /// <returns>Sequence of T for matches on value in the propName virtual column.</returns>
         public IEnumerable<T> GetAllByName(string propName, object propValue, Func<T, bool> preview)
         {
-            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(propName))))
             {
-                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection does not contain property {propName}.");
             }
 
             using (new ReaderLock(_lock))
             {
                 if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out LightweightLongList bag))
                 {
-                    T val = null;
+                    T? val = null;
                     return (from a in bag.All() where _data.TryGetValue(a, out val) && preview(val) select val).ToArray();
                 }
             }
@@ -1529,9 +1558,9 @@ namespace CodexMicroORM.Core.Collections
         /// <returns></returns>
         public IEnumerable<T> GetAllByName(string propName, object propValue)
         {
-            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(propName))))
             {
-                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection does not contain property {propName}.");
             }
 
             using (new ReaderLock(_lock))
@@ -1554,14 +1583,14 @@ namespace CodexMicroORM.Core.Collections
         /// <returns></returns>
         public IEnumerable<T> GetAllByNameNoLock(string propName, object propValue, Func<T, bool> preview)
         {
-            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(propName))))
             {
-                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection does not contain property {propName}.");
             }
 
             if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out LightweightLongList bag))
             {
-                T val = null;
+                T val = default!;
                 return (from a in bag.All() where _data.TryGetValue(a, out val) && preview(val) select val);
             }
 
@@ -1576,9 +1605,9 @@ namespace CodexMicroORM.Core.Collections
         /// <returns></returns>
         public IEnumerable<T> GetAllByNameNoLock(string propName, object propValue)
         {
-            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(propName))))
             {
-                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection does not contain property {propName}.");
             }
 
             if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out LightweightLongList bag))
@@ -1597,9 +1626,9 @@ namespace CodexMicroORM.Core.Collections
         /// <param name="newval"></param>
         public void UpdateFieldIndex(string propName, object oldval, object newval)
         {
-            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new ArgumentNullException("propName")))
+            if (!AssumeSafe && !_masterIndex.ContainsKey(propName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(propName))))
             {
-                throw new CEFInvalidOperationException($"Collection does not contain property {propName}.");
+                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection does not contain property {propName}.");
             }
 
             var index = _masterIndex[propName];
@@ -1612,7 +1641,7 @@ namespace CodexMicroORM.Core.Collections
                 {
                     if (_isUnique.Contains(propName) && newBag.Count > 0)
                     {
-                        throw new CEFInvalidOperationException($"Collection already contains an entry for '{newval}'.");
+                        throw new CEFInvalidStateException(InvalidStateType.LowLevelState, $"Collection already contains an entry for '{newval}'.");
                     }
 
                     oldBag.AddRange(from a in newBag.All() where !oldBag.Contains(a) select a);
@@ -1634,7 +1663,7 @@ namespace CodexMicroORM.Core.Collections
         /// <returns></returns>
         public bool Contains(T item)
         {
-            return _contains.ContainsKey(item ?? throw new ArgumentNullException("item"));
+            return _contains.ContainsKey(item ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(item)));
         }
 
         public void CopyTo(T[] array, int arrayIndex)
@@ -1665,7 +1694,7 @@ namespace CodexMicroORM.Core.Collections
         {
             using (new WriterLock(_lock))
             {
-                if (!_contains.ContainsKey(item ?? throw new ArgumentNullException("item")))
+                if (!_contains.ContainsKey(item ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(item))))
                 {
                     return false;
                 }

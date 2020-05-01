@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -36,19 +37,19 @@ namespace CodexMicroORM.Core.Services
             set;
         } = () => { return DateTime.UtcNow; };
 
-        public string IsDeletedField
+        public string? IsDeletedField
         {
             get;
             set;
         } = "IsDeleted";
 
-        public string LastUpdatedByField
+        public string? LastUpdatedByField
         {
             get;
             set;
         } = "LastUpdatedBy";
 
-        public string LastUpdatedDateField
+        public string? LastUpdatedDateField
         {
             get;
             set;
@@ -109,17 +110,17 @@ namespace CodexMicroORM.Core.Services
             return saving;
         }
 
-        IList<Type> ICEFService.RequiredServices()
+        IList<Type>? ICEFService.RequiredServices()
         {
             return null;
         }
 
-        Type ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
+        Type? ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
         {
             return null;
         }
 
-        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object replaced, ServiceScope ss, bool isNew)
+        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object? replaced, ServiceScope ss, bool isNew)
         {
             if ((!string.IsNullOrEmpty(LastUpdatedByField) && !(replaced ?? o).HasProperty(LastUpdatedByField)) ||
                 (!string.IsNullOrEmpty(LastUpdatedDateField) && !(replaced ?? o).HasProperty(LastUpdatedDateField)) ||
@@ -131,7 +132,7 @@ namespace CodexMicroORM.Core.Services
             return WrappingSupport.None;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
         {
         }
 

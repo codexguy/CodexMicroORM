@@ -15,7 +15,9 @@ limitations under the License.
 
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
+2/2020     0.9.5   Enabled nullable (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.ComponentModel;
 using System.Collections.Generic;
@@ -96,6 +98,11 @@ namespace CodexMicroORM.Core
             return i2;
         }
 
+        public static T[] Arrayize<T>(this T item)
+        {
+            return new T[] { item };
+        }
+
         public static string LeftWithEllipsis(this string str, int count)
         {
             if (string.IsNullOrEmpty(str))
@@ -151,7 +158,7 @@ namespace CodexMicroORM.Core
             return xn.InnerText ?? defval;
         }
 
-        public static bool IsSame(this object o1, object o2, bool canCompareNull = true)
+        public static bool IsSame(this object? o1, object? o2, bool canCompareNull = true)
         {
             if (canCompareNull)
             {
@@ -170,7 +177,7 @@ namespace CodexMicroORM.Core
                     return false;
             }
 
-            if (o1.GetType() == o2.GetType())
+            if (o1!.GetType() == o2!.GetType())
             {
                 return o1.Equals(o2);
             }
@@ -191,7 +198,7 @@ namespace CodexMicroORM.Core
             }
         }
 
-        public static object CoerceType(this string source, Type prefType, object defaultIfFail = null)
+        public static object? CoerceType(this string source, Type prefType, object? defaultIfFail = null)
         {
             if (source == null)
                 return null;
@@ -291,7 +298,7 @@ namespace CodexMicroORM.Core
             return Activator.CreateInstance(nullType, source);
         }
 
-        public static object CoerceDBNullableType(this object source, Type prefType)
+        public static object? CoerceDBNullableType(this object? source, Type prefType)
         {
             if (source == null || DBNull.Value.Equals(source))
             {
@@ -312,11 +319,11 @@ namespace CodexMicroORM.Core
             return source.ToString().CoerceType(prefType);
         }
 
-        public static T CoerceType<T>(this string source)
+        public static T CoerceType<T>(this string? source)
         {
             if (source == null)
             {
-                return default(T);
+                return default!;
             }
 
             if (typeof(T) == typeof(string))
@@ -360,7 +367,7 @@ namespace CodexMicroORM.Core
         /// <param name="toSave">EntitySet to use as a save filter.</param>
         /// <param name="settings">Optional save config settings.</param>
         /// <returns></returns>
-        public static EntitySet<T> DBSave<T>(this EntitySet<T> toSave, DBSaveSettings settings = null) where T: class, new()
+        public static EntitySet<T> DBSave<T>(this EntitySet<T> toSave, DBSaveSettings? settings = null) where T: class, new()
         {
             if (settings == null)
             {
@@ -368,7 +375,7 @@ namespace CodexMicroORM.Core
             }
 
             settings.SourceList = toSave;
-            settings.EntityPersistName = settings.EntityPersistName ?? CEF.GetEntityPersistName<T>(toSave);
+            settings.EntityPersistName ??= CEF.GetEntityPersistName<T>(toSave);
             settings.EntityPersistType = typeof(T);
 
             CEF.DBSave(settings);
@@ -380,17 +387,17 @@ namespace CodexMicroORM.Core
             foreach (var t in toCheck)
             {
                 var iw = t.AsInfraWrapped();
-                var ov = iw.GetValue(field);
+                var ov = iw?.GetValue(field);
 
                 if (string.Compare(value?.ToString(), ov?.ToString(), true) != 0)
                 {
                     if (ov?.ToString().Length == 0 && value?.ToString().Length > 0)
                     {
-                        iw.SetValue(field, value);
+                        iw?.SetValue(field, value);
                     }
                     else
                     {
-                        throw new InvalidOperationException("Data is in an invalid data.");
+                        throw new CEFInvalidStateException(InvalidStateType.LowLevelState);
                     }
                 }
             }
@@ -399,15 +406,18 @@ namespace CodexMicroORM.Core
             {
                 var iw = to.GetCreateInfra();
 
-                if (iw.GetRowState() == ObjectState.Deleted)
+                if (iw != null)
                 {
-                    var ov = iw.GetOriginalValue(field, false);
-
-                    if (string.Compare(value?.ToString(), ov?.ToString(), true) != 0)
+                    if (iw.GetRowState() == ObjectState.Deleted)
                     {
-                        if (ov?.ToString().Length != 0 || value?.ToString().Length == 0)
+                        var ov = iw.GetOriginalValue(field, false);
+
+                        if (string.Compare(value?.ToString(), ov?.ToString(), true) != 0)
                         {
-                            throw new InvalidOperationException("Data is in an invalid data.");
+                            if (ov?.ToString().Length != 0 || value?.ToString().Length == 0)
+                            {
+                                throw new CEFInvalidStateException(InvalidStateType.LowLevelState);
+                            }
                         }
                     }
                 }
@@ -420,7 +430,7 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="unwrapped">Any object that's tracked within the current service scope.</param>
         /// <returns></returns>
-        public static dynamic AsDynamic(this object unwrapped)
+        public static dynamic? AsDynamic(this object unwrapped)
         {
             return CEF.CurrentServiceScope.GetDynamicWrapperFor(unwrapped);
         }
@@ -431,26 +441,48 @@ namespace CodexMicroORM.Core
         /// <param name="o">Any object that's tracked within the current service scope.</param>
         /// <param name="canCreate">If false, the object must have an existing infrastructure wrapper or null is returned; if true, a new wrapper can be created.</param>
         /// <returns></returns>
-        public static ICEFInfraWrapper AsInfraWrapped(this object o, bool canCreate = true)
+        public static ICEFInfraWrapper? AsInfraWrapped(this object o, bool canCreate = true, ServiceScope? ss = null)
         {
-            ICEFInfraWrapper w = CEF.CurrentServiceScope.GetOrCreateInfra(o, canCreate);
+            ss ??= CEF.CurrentServiceScope;
+
+            ICEFInfraWrapper? w = ss.GetOrCreateInfra(o, canCreate);
 
             if (w == null && canCreate)
             {
-                var t = CEF.CurrentServiceScope.IncludeObjectNonGeneric(o, null);
+                var t = ss.IncludeObjectNonGeneric(o, null);
                 
                 if (t != null)
                 {
-                    w = CEF.CurrentServiceScope.GetOrCreateInfra(t, canCreate);
+                    w = ss.GetOrCreateInfra(t, canCreate);
                 }
 
                 if (w == null)
                 {
-                    throw new CEFInvalidOperationException("Failed to identify wrapper object, current scope may be invalid.");
+                    throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
                 }
             }
 
             return w;
+        }
+
+        public static T? AsNullValue<T>(this object v) where T : struct
+        {
+            if (v == null)
+            {
+                return null;
+            }
+
+            if (v is T?)
+            {
+                return (T?)v;
+            }
+
+            if (v is T)
+            {
+                return new T?((T)v);
+            }
+
+            throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}?.");
         }
 
         /// <summary>
@@ -462,7 +494,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static T? PropertyNullValue<T>(this object o, string propName) where T : struct
         {
-            var iw = o.AsInfraWrapped(true);
+            var iw = o.AsInfraWrapped(true) ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
 
             if (iw.HasProperty(propName))
             {
@@ -483,10 +515,135 @@ namespace CodexMicroORM.Core
                     return new T?((T)v);
                 }
 
-                throw new InvalidOperationException($"Invalid cast of type {typeof(T).Name}?.");
+                throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}?.");
             }
 
             return null;
+        }
+
+        public static T WrappedValueTypeValue<T>(this ICEFInfraWrapper iw, string propName) where T : struct
+        {
+            if (iw.HasProperty(propName))
+            {
+                var v = iw.GetValue(propName);
+
+                if (v != null)
+                {
+                    if (v is T?)
+                    {
+                        return (T)v;
+                    }
+
+                    if (v is T)
+                    {
+                        return (T)v;
+                    }
+
+                    throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}?.");
+                }
+            }
+
+            return default;
+        }
+
+        public static T? WrappedValueTypeNullValue<T>(this ICEFInfraWrapper iw, string propName) where T : struct
+        {
+            if (iw.HasProperty(propName))
+            {
+                var v = iw.GetValue(propName);
+
+                if (v == null)
+                {
+                    return default;
+                }
+
+                if (v is T?)
+                {
+                    return (T?)v;
+                }
+
+                if (v is T)
+                {
+                    return new T?((T)v);
+                }
+
+                throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}?.");
+            }
+
+            return default;
+        }
+
+        public static T WrappedRefTypeValue<T>(this ICEFInfraWrapper iw, string propName) where T : class
+        {
+            if (iw.HasProperty(propName))
+            {
+                var v = iw.GetValue(propName);
+
+                if (v != null)
+                {
+                    if (typeof(T) == typeof(string))
+                    {
+                        return (T)(object)v.ToString();
+                    }
+
+                    if (v is T)
+                    {
+                        return (T)v;
+                    }
+
+                    return (T)Convert.ChangeType(v, typeof(T));
+                }
+            }
+
+            throw new NullReferenceException($"Property {propName} expects a non-null value.");
+        }
+
+        public static T? WrappedRefTypeNullValue<T>(this ICEFInfraWrapper iw, string propName) where T : class
+        {
+            if (iw.HasProperty(propName))
+            {
+                var v = iw.GetValue(propName);
+
+                if (v == null)
+                {
+                    return default;
+                }
+
+                if (typeof(T) == typeof(string))
+                {
+                    return (T)(object)v.ToString();
+                }
+
+                if (v is T)
+                {
+                    return (T)v;
+                }
+
+                return (T)Convert.ChangeType(v, typeof(T));
+            }
+
+            return default;
+        }
+
+        public static void SetMultipleProperties(this object target, object src, ServiceScope? ss = null)
+        {
+            ss ??= CEF.CurrentServiceScope;
+
+            using (CEF.UseServiceScope(ss))
+            {
+                var iw = src.AsInfraWrapped(false);
+
+                if (iw != null)
+                {
+                    foreach (var (name, type, readable, writeable) in target.FastGetAllProperties(true, true))
+                    {
+                        if (iw.BagValuesOnly().TryGetValue(name, out var sv))
+                        {
+                            target.FastSetValue(name, sv);
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -498,7 +655,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static T PropertyValue<T>(this object o, string propName)
         {
-            var iw = o.AsInfraWrapped(true);
+            var iw = o.AsInfraWrapped(true) ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
 
             if (iw.HasProperty(propName))
             {
@@ -506,7 +663,7 @@ namespace CodexMicroORM.Core
 
                 if (v == null)
                 {
-                    return default(T);
+                    return default!;
                 }
 
                 if (v is T)
@@ -514,10 +671,10 @@ namespace CodexMicroORM.Core
                     return (T)v;
                 }
 
-                throw new InvalidOperationException($"Invalid cast of type {typeof(T).Name}.");
+                throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}.");
             }
 
-            return default(T);
+            return default!;
         }
 
         public static IEnumerable<ICEFInfraWrapper> AllAsInfraWrapped<T>(this IEnumerable<T> items) where T: class, new()
@@ -528,7 +685,7 @@ namespace CodexMicroORM.Core
 
                 if (iw != null)
                 {
-                    yield return i.AsInfraWrapped();
+                    yield return iw;
                 }
             }
         }
@@ -537,26 +694,31 @@ namespace CodexMicroORM.Core
         {
             foreach (var i in items)
             {
-                yield return i.AsDynamic();
+                var d = i.AsDynamic();
+
+                if (d != null)
+                {
+                    yield return d;
+                }
             }
         }
 
-        public static (int code, string message) AsString(this IEnumerable<(ValidationErrorCode error, string message)> msgs, ValidationErrorCode? only = null, string concat = " ")
+        public static (int code, string message) AsString(this IEnumerable<(ValidationErrorCode error, string? message)> msgs, ValidationErrorCode? only = null, string concat = " ")
         {
             int code = 0;
             StringBuilder sb = new StringBuilder();
 
-            foreach (var m in msgs)
+            foreach (var (error, message) in msgs)
             {
-                if (!only.HasValue || (only.Value & m.error) != 0)
+                if (!only.HasValue || (only.Value & error) != 0)
                 {
                     if (sb.Length > 0)
                     {
                         sb.Append(concat);
                     }
 
-                    sb.Append(m.message);
-                    code |= (int)m.error;
+                    sb.Append(message);
+                    code |= (int)error;
                 }
             }
 
@@ -572,7 +734,7 @@ namespace CodexMicroORM.Core
         {
             if (wrapped == null)
             {
-                throw new ArgumentNullException("wrapped");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(wrapped));
             }
 
             if (wrapped is ICEFInfraWrapper)
@@ -611,7 +773,7 @@ namespace CodexMicroORM.Core
                 // It's an error if the wrapped object presents itself as an IW object at this point!
                 if (wrapped is ICEFInfraWrapper)
                 {
-                    throw new CEFInvalidOperationException("Cannot determine base type for infrastructure wrapped object, no contained object available.");
+                    throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
                 }
 
                 _typeMap[wt] = wt;
@@ -627,11 +789,13 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="wrapped">An object in the current service scope (can be wrapped or unwrapped).</param>
         /// <returns>The "least wrapped" instance of the input object.</returns>
-        public static object AsUnwrapped(this object wrapped)
+        public static object? AsUnwrapped(this object wrapped)
         {
             if (wrapped != null)
             {
-                if (wrapped is ICEFWrapper w)
+                ICEFWrapper? w;
+
+                if ((w = (wrapped as ICEFWrapper)) != null)
                 {
                     var uw = w.GetCopyTo();
 
@@ -675,7 +839,7 @@ namespace CodexMicroORM.Core
         /// <typeparam name="T"></typeparam>
         /// <param name="unwrapped">A potentially unwrapped object.</param>
         /// <returns></returns>
-        public static T AsWrapped<T>(this object unwrapped) where T : class, ICEFWrapper
+        public static T? AsWrapped<T>(this object unwrapped) where T : class, ICEFWrapper
         {
             return CEF.CurrentServiceScope.GetWrapperFor(unwrapped) as T;
         }
@@ -701,7 +865,7 @@ namespace CodexMicroORM.Core
         /// <param name="o">Object to serialize.</param>
         /// <param name="mode">Serialization mode (applicable if an infrastructure wrapped object).</param>
         /// <returns>String representation of object.</returns>
-        public static string AsJSON(this object o, SerializationMode? mode = null)
+        public static string? AsJSON(this object o, SerializationMode? mode = null)
         {
             if (o == null)
                 return null;
@@ -717,9 +881,7 @@ namespace CodexMicroORM.Core
                 return ((ICEFList)o).GetSerializationText(mode);
             }
 
-            var iw = o.AsInfraWrapped(false) as ICEFSerializable;
-
-            if (iw == null)
+            if (!(o.AsInfraWrapped(false) is ICEFSerializable iw))
             {
                 return JsonConvert.SerializeObject(o);
             }
@@ -740,7 +902,7 @@ namespace CodexMicroORM.Core
         public static void AcceptAllChanges(this ICEFInfraWrapper iw, Type onlyForType)
         {
             if (onlyForType == null)
-                throw new ArgumentNullException("onlyForType");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(onlyForType));
 
             WrappingHelper.NodeVisiter(iw, (iw2) =>
             {
@@ -754,7 +916,7 @@ namespace CodexMicroORM.Core
         public static void AcceptAllChanges(this ICEFInfraWrapper iw, Func<ICEFInfraWrapper, bool> check)
         {
             if (check == null)
-                throw new ArgumentNullException("check");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(check));
 
             WrappingHelper.NodeVisiter(iw, (iw2) =>
             {
@@ -793,9 +955,9 @@ namespace CodexMicroORM.Core
             // A natural key must be available!
             var key = KeyService.ResolveKeyDefinitionForType(typeof(T));
 
-            if ((key?.Count).GetValueOrDefault() == 0)
+            if (key == null || key.Count == 0)
             {
-                throw new ArgumentException($"Type {typeof(T).Name} does not have a key defined.");
+                throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Type {typeof(T).Name} does not have a key defined.");
             }
 
             var nonKeyCol = (from a in source.Table.Columns.Cast<DataColumn>() where !(from b in key where b == a.ColumnName select b).Any() select a);
@@ -825,20 +987,25 @@ namespace CodexMicroORM.Core
 
                 var iw = entRow.AsInfraWrapped();
 
-                foreach (DataColumn dc in nonKeyCol)
+                if (iw != null)
                 {
-                    var setter = ss.GetSetter(iw, dc.ColumnName);
-                    setter.setter.Invoke(drv[dc.ColumnName].CoerceDBNullableType(setter.type ?? dc.DataType));
+                    foreach (DataColumn dc in nonKeyCol)
+                    {
+                        var setter = ss.GetSetter(iw, dc.ColumnName);
+                        setter.setter?.Invoke(drv[dc.ColumnName].CoerceDBNullableType(setter.type ?? dc.DataType));
+                    }
                 }
             }
 
             // Second pass for deletes - use a separate DV we can sort for fast lookup
-            using (DataView dv = new DataView(source.Table, source.RowFilter, string.Join(",", key.ToArray()), source.RowStateFilter))
-            {
-                foreach (var kvp in setData.ToList())
-                {
-                    var iw = kvp.Value.AsInfraWrapped();
+            using DataView dv = new DataView(source.Table, source.RowFilter, string.Join(",", key.ToArray()), source.RowStateFilter);
 
+            foreach (var kvp in setData.ToList())
+            {
+                var iw = kvp.Value.AsInfraWrapped();
+
+                if (iw != null)
+                {
                     if (dv.Find((from a in key select iw.GetValue(a)).ToArray()) < 0)
                     {
                         CEF.DeleteObject(kvp.Value);
@@ -860,7 +1027,7 @@ namespace CodexMicroORM.Core
 
             if (src != null)
             {
-                foreach (var (name, type, readable, writeable) in typeof(T).FastGetAllProperties(true, true))
+                foreach (var (name, _, _, _) in typeof(T).FastGetAllProperties(true, true))
                 {
                     n.FastSetValue(name, src.FastGetValue(name));
                 }
@@ -878,10 +1045,10 @@ namespace CodexMicroORM.Core
         public static void CopySharedTo(this object src, object dest)
         {
             if (src == null)
-                throw new ArgumentNullException("src");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(src));
 
             if (dest == null)
-                throw new ArgumentNullException("dest");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(dest));
 
             // We can copy from non-nullable to nullable (always)
             foreach (var name in (from a in src.FastGetAllProperties(true, true)
@@ -913,10 +1080,10 @@ namespace CodexMicroORM.Core
         public static void CopySharedTo(this object src, object dest, bool isExclude, params string[] fields)
         {
             if (src == null)
-                throw new ArgumentNullException("src");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(src));
 
             if (dest == null)
-                throw new ArgumentNullException("dest");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(dest));
 
             foreach (var name in (from a in src.FastGetAllProperties(true, true) join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                   where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type) &&
@@ -949,10 +1116,10 @@ namespace CodexMicroORM.Core
         public static IEnumerable<string> FindDifferentSharedValues(this object src, object dest)
         {
             if (src == null)
-                throw new ArgumentNullException("src");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(src));
 
             if (dest == null)
-                throw new ArgumentNullException("dest");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(dest));
 
             foreach (var name in (from a in src.FastGetAllProperties(true, true)
                                   join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
@@ -987,10 +1154,10 @@ namespace CodexMicroORM.Core
         public static void CopySharedToOnlyOverwriteDefault(this object src, object dest)
         {
             if (src == null)
-                throw new ArgumentNullException("src");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(src));
 
             if (dest == null)
-                throw new ArgumentNullException("dest");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(dest));
 
             foreach (var name in (from a in src.FastGetAllProperties(true, true)
                                   join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
@@ -1028,12 +1195,12 @@ namespace CodexMicroORM.Core
         public static void CopyToObject<T>(this T src, T dest) where T : class, new()
         {
             if (src == null)
-                throw new ArgumentNullException("src");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(src));
 
             if (dest == null)
-                throw new ArgumentNullException("dest");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(dest));
 
-            foreach (var (name, type, readable, writeable) in typeof(T).FastGetAllProperties(true, true))
+            foreach (var (name, _, _, _) in typeof(T).FastGetAllProperties(true, true))
             {
                 dest.FastSetValue(name, src.FastGetValue(name));
             }
@@ -1054,9 +1221,12 @@ namespace CodexMicroORM.Core
                 // Use first row's properties (could include extended props)
                 var iw = source.First().AsInfraWrapped();
 
-                columns.AddRange(from a in iw.GetAllValues(false, true)
-                                 let pt = (from b in iw.GetAllPreferredTypes(false, true) where b.Key == a.Key select b.Value).FirstOrDefault() ?? (a.Value == null ? typeof(object) : a.Value.GetType())
-                                 select (a.Key, pt, pt.IsGenericType && pt.GetGenericTypeDefinition() == typeof(Nullable<>)));
+                if (iw != null)
+                {
+                    columns.AddRange(from a in iw.GetAllValues(false, true)
+                                     let pt = (from b in iw.GetAllPreferredTypes(false, true) where b.Key == a.Key select b.Value).FirstOrDefault() ?? (a.Value == null ? typeof(object) : a.Value.GetType())
+                                     select (a.Key, pt, pt.IsGenericType && pt.GetGenericTypeDefinition() == typeof(Nullable<>)));
+                }
             }
             else
             {
@@ -1081,30 +1251,34 @@ namespace CodexMicroORM.Core
             foreach (var i in source)
             {
                 var iw = i.AsInfraWrapped();
-                var rs = iw.GetRowState();
 
-                if (rs != ObjectState.Deleted && rs != ObjectState.Unlinked)
+                if (iw != null)
                 {
-                    var dr = dt.NewRow();
+                    var rs = iw.GetRowState();
 
-                    if (rs == ObjectState.Modified || rs == ObjectState.ModifiedPriority)
+                    if (rs != ObjectState.Deleted && rs != ObjectState.Unlinked)
                     {
-                        dr.AcceptChanges();
-                    }
+                        var dr = dt.NewRow();
 
-                    foreach (var v in iw.GetAllValues(true))
-                    {
-                        if (v.Value != null && dt.Columns.Contains(v.Key))
+                        if (rs == ObjectState.Modified || rs == ObjectState.ModifiedPriority)
                         {
-                            dr[v.Key] = v.Value;
+                            dr.AcceptChanges();
                         }
-                    }
 
-                    dt.Rows.Add(dr);
+                        foreach (var v in iw.GetAllValues(true))
+                        {
+                            if (v.Value != null && dt.Columns.Contains(v.Key))
+                            {
+                                dr[v.Key] = v.Value;
+                            }
+                        }
 
-                    if (rs == ObjectState.Unchanged)
-                    {
-                        dr.AcceptChanges();
+                        dt.Rows.Add(dr);
+
+                        if (rs == ObjectState.Unchanged)
+                        {
+                            dr.AcceptChanges();
+                        }
                     }
                 }
             }
@@ -1120,7 +1294,7 @@ namespace CodexMicroORM.Core
         /// <param name="sort"></param>
         /// <param name="filter"></param>
         /// <returns></returns>
-        public static DataView DeepCopyDataView<T>(this EntitySet<T> source, string sort = null, string filter = null) where T : class, new()
+        public static DataView DeepCopyDataView<T>(this EntitySet<T> source, string? sort = null, string? filter = null) where T : class, new()
         {
             var dv = DeepCopyDataTable(source).DefaultView;
             dv.Sort = sort;
@@ -1138,33 +1312,40 @@ namespace CodexMicroORM.Core
             if (o == null)
                 return;
 
-            foreach (var pi in o.FastGetAllProperties(true, null))
+            foreach (var (name, type, _, _) in o.FastGetAllProperties(true, null))
             {
-                if (o.FastPropertyReadable(pi.name))
+                if (o.FastPropertyReadable(name))
                 {
-                    var val = o.FastGetValue(pi.name);
+                    var val = o.FastGetValue(name);
 
-                    if (WrappingHelper.IsWrappableListType(pi.type, val))
+                    if (WrappingHelper.IsWrappableListType(type, val))
                     {
                         if (!(val is ICEFList))
                         {
-                            var wrappedCol = WrappingHelper.CreateWrappingList(CEF.CurrentServiceScope, pi.type, o, pi.name);
-                            o.FastSetValue(pi.name, wrappedCol);
+                            var wrappedCol = WrappingHelper.CreateWrappingList(CEF.CurrentServiceScope, type, o, name);
+                            o.FastSetValue(name, wrappedCol);
 
-                            if (val != null)
+                            if (wrappedCol != null)
                             {
-                                // Based on the above type checks, we know this thing supports IEnumerable
-                                var sValEnum = ((System.Collections.IEnumerable)val).GetEnumerator();
-
-                                while (sValEnum.MoveNext())
+                                if (val != null)
                                 {
-                                    // Need to use non-generic method for this!
-                                    var wi = CEF.CurrentServiceScope.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, null, true, false);
-                                    wrappedCol.AddWrappedItem(wi);
-                                }
-                            }
+                                    // Based on the above type checks, we know this thing supports IEnumerable
+                                    var sValEnum = ((System.Collections.IEnumerable)val).GetEnumerator();
 
-                            ((ISupportInitializeNotification)wrappedCol).EndInit();
+                                    while (sValEnum.MoveNext())
+                                    {
+                                        // Need to use non-generic method for this!
+                                        var wi = CEF.CurrentServiceScope.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, null, true, false);
+
+                                        if (wi != null)
+                                        {
+                                            wrappedCol.AddWrappedItem(wi);
+                                        }
+                                    }
+                                }
+
+                                ((ISupportInitializeNotification)wrappedCol).EndInit();
+                            }
                         }
                     }
                 }

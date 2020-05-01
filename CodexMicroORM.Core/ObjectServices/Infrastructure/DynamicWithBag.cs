@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -37,19 +38,19 @@ namespace CodexMicroORM.Core.Services
     public class DynamicWithBag : DynamicObject, ICEFInfraWrapper, ICEFSerializable
     {
         protected RWLockInfo _lock = new RWLockInfo() { AllowDirtyReads = false };
-        protected Dictionary<string, object> _valueBag = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
+        protected Dictionary<string, object?> _valueBag = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
         protected Dictionary<string, Type> _preferredType = new Dictionary<string, Type>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
         protected object _source;
         protected bool _isBagChanged = false;
         protected int _shadowPropCount = 0;
 
-        internal DynamicWithBag(object o, IDictionary<string, object> props, IDictionary<string, Type> types)
+        internal DynamicWithBag(object o, IDictionary<string, object?>? props, IDictionary<string, Type>? types)
         {
             _source = o;
             SetInitialProps(props, types);
         }
 
-        protected virtual void SetInitialProps(IDictionary<string, object> props, IDictionary<string, Type> types)
+        protected virtual void SetInitialProps(IDictionary<string, object?>? props, IDictionary<string, Type>? types)
         {
             if (props != null)
             {
@@ -105,7 +106,7 @@ namespace CodexMicroORM.Core.Services
             return base.GetHashCode();
         }
 
-        protected virtual void OnPropertyChanged(string propName, object oldVal, object newVal, bool isBag)
+        protected virtual void OnPropertyChanged(string propName, object? oldVal, object? newVal, bool isBag)
         {
         }
 
@@ -115,7 +116,7 @@ namespace CodexMicroORM.Core.Services
         /// <param name="binder"></param>
         /// <param name="result"></param>
         /// <returns></returns>
-        public override bool TryGetMember(GetMemberBinder binder, out object result)
+        public override bool TryGetMember(GetMemberBinder binder, out object? result)
         {
             using (new ReaderLock(_lock))
             {
@@ -164,7 +165,7 @@ namespace CodexMicroORM.Core.Services
             return SetValue(binder.Name, value);
         }
 
-        public Type GetPropertyType(string propName)
+        public Type? GetPropertyType(string propName)
         {
             using (new ReaderLock(_lock))
             {
@@ -190,14 +191,14 @@ namespace CodexMicroORM.Core.Services
                         return typeof(object);
                     }
 
-                    return _valueBag[propName].GetType();
+                    return _valueBag[propName]?.GetType();
                 }
 
                 return null;
             }
         }
 
-        public virtual object GetValue(string propName)
+        public virtual object? GetValue(string propName)
         {
             using (new ReaderLock(_lock))
             {
@@ -225,10 +226,12 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private object InternalChangeType(object source, Type targetType)
+        private object? InternalChangeType(object? source, Type targetType)
         {
             if (source == null)
+            {
                 return null;
+            }
 
             if (targetType == typeof(string))
             {
@@ -236,7 +239,9 @@ namespace CodexMicroORM.Core.Services
             }
 
             if (source.GetType() == targetType)
+            {
                 return source;
+            }
 
             var ntt = Nullable.GetUnderlyingType(targetType);
 
@@ -296,7 +301,7 @@ namespace CodexMicroORM.Core.Services
                 return Convert.ChangeType(source, targetType);
             }
 
-            if (!source.GetType().IsValueType)
+            if (source != null && !source.GetType().IsValueType)
             {
                 return source;
             }
@@ -317,137 +322,135 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public virtual bool SetValue(string propName, object value, Type preferredType = null, bool isRequired = false)
+        public virtual bool SetValue(string propName, object? value, Type? preferredType = null, bool isRequired = false)
         {
-            using (var wl = new WriterLock(_lock))
+            using var wl = new WriterLock(_lock);
+            if (preferredType != null)
             {
-                if (preferredType != null)
+                if (preferredType.IsValueType && !isRequired && !(preferredType.IsGenericType && preferredType.GetGenericTypeDefinition() == typeof(Nullable<>)))
                 {
-                    if (preferredType.IsValueType && !isRequired && !(preferredType.IsGenericType && preferredType.GetGenericTypeDefinition() == typeof(Nullable<>)))
-                    {
-                        preferredType = typeof(Nullable<>).MakeGenericType(preferredType);
-                    }
-
-                    _preferredType[propName] = preferredType;
+                    preferredType = typeof(Nullable<>).MakeGenericType(preferredType);
                 }
 
-                if (_preferredType.TryGetValue(propName, out Type pt))
-                {
-                    try
-                    {
-                        bool isnull = pt.IsGenericType && pt.GetGenericTypeDefinition() == typeof(Nullable<>);
+                _preferredType[propName] = preferredType;
+            }
 
-                        if (value != null)
+            if (_preferredType.TryGetValue(propName, out Type pt))
+            {
+                try
+                {
+                    bool isnull = pt.IsGenericType && pt.GetGenericTypeDefinition() == typeof(Nullable<>);
+
+                    if (value != null)
+                    {
+                        if (value.GetType() != pt && (!isnull || value.GetType() != Nullable.GetUnderlyingType(pt)))
                         {
-                            if (value.GetType() != pt && (!isnull || value.GetType() != Nullable.GetUnderlyingType(pt)))
+                            if (value is IConvertible)
                             {
-                                if (value is IConvertible)
+                                if (isnull)
                                 {
-                                    if (isnull)
-                                    {
-                                        value = InternalChangeType(value, Nullable.GetUnderlyingType(pt));
-                                    }
-                                    else
-                                    {
-                                        value = InternalChangeType(value, pt);
-                                    }
+                                    value = InternalChangeType(value, Nullable.GetUnderlyingType(pt));
                                 }
                                 else
                                 {
-                                    throw new InvalidCastException("Cannot coerce type.");
+                                    value = InternalChangeType(value, pt);
                                 }
                             }
-                        }
-                        else
-                        {
-                            if (isnull)
+                            else
                             {
-                                value = pt.FastCreateNoParm();
+                                throw new InvalidCastException("Cannot coerce type.");
                             }
                         }
                     }
-                    catch
+                    else
                     {
-                    }
-                }
-
-                // Special case - if setting a property where there exists a shadow property already AND the new prop is NOT default - blow away the shadow property!
-                if (value != null && _shadowPropCount > 0 && propName[0] != KeyService.SHADOW_PROP_PREFIX && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
-                {
-                    var defVal = WrappingHelper.GetDefaultForType(value.GetType());
-
-                    if (!defVal.IsSame(value))
-                    {
-                        var k = KeyService.SHADOW_PROP_PREFIX + propName;
-
-                        if (_valueBag.ContainsKey(k))
+                        if (isnull)
                         {
-                            _valueBag.Remove(k);
-                            _shadowPropCount--;
+                            value = pt.FastCreateNoParm();
                         }
                     }
                 }
-
-                wl.Release();
-
-                if (_source != null)
+                catch
                 {
-                    var info = _source.FastGetAllProperties(true, true, propName);
-
-                    if (info.Any())
-                    {
-                        wl.Reacquire();
-
-                        var oldVal = _source.FastGetValue(propName);
-
-                        if (!oldVal.IsSame(value))
-                        {
-                            _source.FastSetValue(propName, InternalChangeType(value, info.First().type));
-
-                            wl.Release();
-                            OnPropertyChanged(propName, oldVal, value, false);
-                            return true;
-                        }
-                        return false;
-                    }
                 }
-
-                wl.Reacquire();
-
-                if (_valueBag.ContainsKey(propName))
-                {
-                    if (propName[0] != KeyService.SHADOW_PROP_PREFIX)
-                    {
-                        var oldVal = _valueBag[propName];
-
-                        if (!oldVal.IsSame(value))
-                        {
-                            _isBagChanged = true;
-                            _valueBag[propName] = value;
-
-                            wl.Release();
-                            OnPropertyChanged(propName, oldVal, value, true);
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                _valueBag[propName] = value;
-
-                if (propName[0] == KeyService.SHADOW_PROP_PREFIX)
-                {
-                    _shadowPropCount++;
-                    return false;
-                }
-
-                _isBagChanged = true;
-
-                wl.Release();
-                OnPropertyChanged(propName, null, value, true);
-                return true;
             }
+
+            // Special case - if setting a property where there exists a shadow property already AND the new prop is NOT default - blow away the shadow property!
+            if (value != null && _shadowPropCount > 0 && propName[0] != KeyService.SHADOW_PROP_PREFIX && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
+            {
+                var defVal = WrappingHelper.GetDefaultForType(value.GetType());
+
+                if (!defVal.IsSame(value))
+                {
+                    var k = KeyService.SHADOW_PROP_PREFIX + propName;
+
+                    if (_valueBag.ContainsKey(k))
+                    {
+                        _valueBag.Remove(k);
+                        _shadowPropCount--;
+                    }
+                }
+            }
+
+            wl.Release();
+
+            if (_source != null)
+            {
+                var info = _source.FastGetAllProperties(true, true, propName);
+
+                if (info.Any())
+                {
+                    wl.Reacquire();
+
+                    var oldVal = _source.FastGetValue(propName);
+
+                    if (!oldVal.IsSame(value))
+                    {
+                        _source.FastSetValue(propName, InternalChangeType(value, info.First().type));
+
+                        wl.Release();
+                        OnPropertyChanged(propName, oldVal, value, false);
+                        return true;
+                    }
+                    return false;
+                }
+            }
+
+            wl.Reacquire();
+
+            if (_valueBag.ContainsKey(propName))
+            {
+                if (propName[0] != KeyService.SHADOW_PROP_PREFIX)
+                {
+                    var oldVal = _valueBag[propName];
+
+                    if (!oldVal.IsSame(value))
+                    {
+                        _isBagChanged = true;
+                        _valueBag[propName] = value;
+
+                        wl.Release();
+                        OnPropertyChanged(propName, oldVal, value, true);
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            _valueBag[propName] = value;
+
+            if (propName[0] == KeyService.SHADOW_PROP_PREFIX)
+            {
+                _shadowPropCount++;
+                return false;
+            }
+
+            _isBagChanged = true;
+
+            wl.Release();
+            OnPropertyChanged(propName, null, value, true);
+            return true;
         }
 
         public override IEnumerable<string> GetDynamicMemberNames()
@@ -472,8 +475,10 @@ namespace CodexMicroORM.Core.Services
         {
             if (_source != null)
             {
-                HashSet<object> hs = new HashSet<object>();
-                hs.Add(_source);
+                HashSet<object> hs = new HashSet<object>
+                {
+                    _source
+                };
                 CEF.CurrentServiceScope.ReconcileModifiedState(hs);
             }
         }
@@ -550,7 +555,7 @@ namespace CodexMicroORM.Core.Services
             throw new NotSupportedException();
         }
 
-        private static ConcurrentDictionary<Type, bool> _serializableCahce = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, bool> _serializableCahce = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         private bool IsTypeSerializable(Type t)
         {
@@ -600,9 +605,9 @@ namespace CodexMicroORM.Core.Services
             return info;
         }
 
-        public IDictionary<string, object> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false)
+        public IDictionary<string, object?> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false)
         {
-            Dictionary<string, object> vals = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
+            Dictionary<string, object?> vals = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity);
 
             if (_source != null)
             {
@@ -624,6 +629,11 @@ namespace CodexMicroORM.Core.Services
             }
 
             return vals;
+        }
+
+        public IDictionary<string, object?> BagValuesOnly()
+        {
+            return _valueBag;
         }
 
         public virtual void AcceptChanges()
@@ -668,12 +678,12 @@ namespace CodexMicroORM.Core.Services
             return sb.ToString();
         }
 
-        public virtual void SetOriginalValue(string propName, object value)
+        public virtual void SetOriginalValue(string propName, object? value)
         {
             throw new NotSupportedException();
         }
 
-        public virtual object GetOriginalValue(string propName, bool throwIfNotSet)
+        public virtual object? GetOriginalValue(string propName, bool throwIfNotSet)
         {
             throw new NotSupportedException();
         }

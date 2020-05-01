@@ -20,6 +20,16 @@ using System;
 
 namespace CodexMicroORM.Core
 {
+    [Flags]
+    public enum DBSaveTriggerFlags
+    {
+        Insert = 1,
+        Update = 2,
+        Delete = 4,
+        Before = 32,
+        After = 64
+    }
+
     public enum PropertyDateStorage
     {
         None = 0,

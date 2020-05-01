@@ -17,6 +17,7 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 02/2018    0.2.4   Primary implementation (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using CodexMicroORM.Core.Helper;
 using System;
 using System.Collections.Concurrent;
@@ -30,11 +31,11 @@ namespace CodexMicroORM.Core.Services
 {
     public class ValidationService : ICEFValidationHost
     {
-        private static ConcurrentDictionary<Type, List<(string prop, object defval)>> _typePropRequired = new ConcurrentDictionary<Type, List<(string prop, object defval)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, List<(string prop, int maxlength)>> _typePropMaxLength = new ConcurrentDictionary<Type, List<(string prop, int maxlength)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>> _typePropRange = new ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, List<(string prop, Func<object, string> fn)>> _typeCustomValidator = new ConcurrentDictionary<Type, List<(string prop, Func<object, string> fn)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, List<string>> _typeIllegalUpdate = new ConcurrentDictionary<Type, List<string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<(string prop, object? defval)>> _typePropRequired = new ConcurrentDictionary<Type, List<(string prop, object? defval)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<(string prop, int maxlength)>> _typePropMaxLength = new ConcurrentDictionary<Type, List<(string prop, int maxlength)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>> _typePropRange = new ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<(string? prop, Func<object, string?> fn)>> _typeCustomValidator = new ConcurrentDictionary<Type, List<(string? prop, Func<object, string?> fn)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<string>> _typeIllegalUpdate = new ConcurrentDictionary<Type, List<string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         /// <summary>
         /// Registers a global validation for a specific type / specific property, indicating it cannot be updated after having been assigned a value.
@@ -45,9 +46,7 @@ namespace CodexMicroORM.Core.Services
         {
             CEF.RegisterForType<T>(new ValidationService());
 
-            List<string> vl = null;
-
-            _typeIllegalUpdate.TryGetValue(typeof(T), out vl);
+            _typeIllegalUpdate.TryGetValue(typeof(T), out var vl);
 
             if (vl == null)
             {
@@ -85,13 +84,11 @@ namespace CodexMicroORM.Core.Services
         {
             CEF.RegisterForType<T>(new ValidationService());
 
-            List<(string prop, object defval)> vl = null;
-
-            _typePropRequired.TryGetValue(typeof(T), out vl);
+            _typePropRequired.TryGetValue(typeof(T), out var vl);
 
             if (vl == null)
             {
-                vl = new List<(string prop, object defval)>();
+                vl = new List<(string prop, object? defval)>();
             }
 
             vl.Add((propName, default(V)));
@@ -108,13 +105,11 @@ namespace CodexMicroORM.Core.Services
         {
             CEF.RegisterForType<T>(new ValidationService());
 
-            List<(string prop, object defval)> vl = null;
-
-            _typePropRequired.TryGetValue(typeof(T), out vl);
+            _typePropRequired.TryGetValue(typeof(T), out var vl);
 
             if (vl == null)
             {
-                vl = new List<(string prop, object defval)>();
+                vl = new List<(string prop, object? defval)>();
             }
 
             if (propType.IsValueType)
@@ -135,17 +130,15 @@ namespace CodexMicroORM.Core.Services
         /// <typeparam name="T"></typeparam>
         /// <param name="validator"></param>
         /// <param name="propName"></param>
-        public static void RegisterCustomValidation<T>(Func<T, string> validator, string propName = null) where T : class
+        public static void RegisterCustomValidation<T>(Func<T, string?> validator, string? propName = null) where T : class
         {
             CEF.RegisterForType<T>(new ValidationService());
 
-            List<(string prop, Func<object, string> fn)> vl = null;
-
-            _typeCustomValidator.TryGetValue(typeof(T), out vl);
+            _typeCustomValidator.TryGetValue(typeof(T), out var vl);
 
             if (vl == null)
             {
-                vl = new List<(string prop, Func<object, string> fn)>();
+                vl = new List<(string? prop, Func<object, string?> fn)>();
             }
 
             vl.Add((propName, (object p) => validator.Invoke((T)p)));
@@ -262,32 +255,49 @@ namespace CodexMicroORM.Core.Services
         /// <typeparam name="T"></typeparam>
         /// <param name="o"></param>
         /// <returns></returns>
-        public IEnumerable<(ValidationErrorCode error, string message)> GetObjectMessage<T>(T o) where T : class
+        public IEnumerable<(ValidationErrorCode error, string? message)> GetObjectMessage<T>(T? o) where T : class
         {
+            List<(ValidationErrorCode error, string? message)> messages = new List<(ValidationErrorCode error, string? message)>();
+
+            if (o == null)
+            {
+                return messages;
+            }
+
             var uw = o.AsUnwrapped();
+
+            if (uw == null)
+            {
+                return messages;
+            }
+
             var iw = uw.AsInfraWrapped();
+
+            if (iw == null)
+            {
+                return messages;
+            }
+
             var bt = uw.GetBaseType();
 
-            List<(ValidationErrorCode error, string message)> messages = new List<(ValidationErrorCode error, string message)>();
-
-            if (_typePropRequired.TryGetValue(bt, out List<(string prop, object defval)> vl))
+            if (_typePropRequired.TryGetValue(bt, out var vl))
             {
-                foreach (var v in vl)
+                foreach (var (prop, defval) in vl)
                 {
-                    if (v.defval.IsSame(iw.GetValue(v.prop)))
+                    if (defval.IsSame(iw.GetValue(prop)))
                     {
-                        messages.Add((ValidationErrorCode.MissingRequired, BuildMessageForProperty(RequiredFieldMessage, v.prop)));
+                        messages.Add((ValidationErrorCode.MissingRequired, BuildMessageForProperty(RequiredFieldMessage, prop)));
                     }
                 }
             }
 
             if (_typePropMaxLength.TryGetValue(bt, out List<(string prop, int maxlength)> vl2))
             {
-                foreach (var v in vl2)
+                foreach (var (prop, maxlength) in vl2)
                 {
-                    if (iw.GetValue(v.prop)?.ToString().Length > v.maxlength)
+                    if (iw.GetValue(prop)?.ToString().Length > maxlength)
                     {
-                        messages.Add((ValidationErrorCode.TooLarge, BuildMessageForProperty(TooLargeFieldMessage, v.prop, v.maxlength)));
+                        messages.Add((ValidationErrorCode.TooLarge, BuildMessageForProperty(TooLargeFieldMessage, prop, maxlength)));
                     }
                 }
             }
@@ -312,25 +322,25 @@ namespace CodexMicroORM.Core.Services
 
             if (_typePropRange.TryGetValue(bt, out List<(string prop, double minval, double maxval)> vl3))
             {
-                foreach (var v in vl3)
+                foreach (var (prop, minval, maxval) in vl3)
                 {
-                    if (double.TryParse(iw.GetValue(v.prop)?.ToString(), out double val))
+                    if (double.TryParse(iw.GetValue(prop)?.ToString(), out double val))
                     {
-                        if (val < v.minval || val > v.maxval)
+                        if (val < minval || val > maxval)
                         {
-                            if (v.minval != double.MinValue && v.maxval != double.MaxValue)
+                            if (minval != double.MinValue && maxval != double.MaxValue)
                             {
-                                messages.Add((ValidationErrorCode.NumericRange, BuildMessageForProperty(RangeBetweenFieldMessage, v.prop, v.minval, v.maxval)));
+                                messages.Add((ValidationErrorCode.NumericRange, BuildMessageForProperty(RangeBetweenFieldMessage, prop, minval, maxval)));
                             }
                             else
                             {
-                                if (v.minval == double.MinValue)
+                                if (minval == double.MinValue)
                                 {
-                                    messages.Add((ValidationErrorCode.NumericRange, BuildMessageForProperty(RangeLessThanFieldMessage, v.prop, v.maxval)));
+                                    messages.Add((ValidationErrorCode.NumericRange, BuildMessageForProperty(RangeLessThanFieldMessage, prop, maxval)));
                                 }
                                 else
                                 {
-                                    messages.Add((ValidationErrorCode.NumericRange, BuildMessageForProperty(RangeGreaterThanFieldMessage, v.prop, v.minval)));
+                                    messages.Add((ValidationErrorCode.NumericRange, BuildMessageForProperty(RangeGreaterThanFieldMessage, prop, minval)));
                                 }
                             }
                         }
@@ -338,11 +348,11 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            if (_typeCustomValidator.TryGetValue(bt, out List<(string prop, Func<object, string> fn)> vl4))
+            if (_typeCustomValidator.TryGetValue(bt, out var vl4))
             {
-                foreach (var v in vl4)
+                foreach (var (prop, fn) in vl4)
                 {
-                    var msg = v.fn.Invoke(uw);
+                    var msg = fn.Invoke(uw);
 
                     if (!string.IsNullOrEmpty(msg))
                     {
@@ -361,15 +371,32 @@ namespace CodexMicroORM.Core.Services
         /// <param name="o"></param>
         /// <param name="propName"></param>
         /// <returns></returns>
-        public IEnumerable<(ValidationErrorCode error, string message)> GetPropertyMessages<T>(T o, string propName) where T : class
+        public IEnumerable<(ValidationErrorCode error, string? message)> GetPropertyMessages<T>(T? o, string propName) where T : class
         {
+            List<(ValidationErrorCode error, string? message)> messages = new List<(ValidationErrorCode error, string? message)>();
+
+            if (o == null)
+            {
+                return messages;
+            }
+
             var uw = o.AsUnwrapped();
+
+            if (uw == null)
+            {
+                return messages;
+            }
+
             var iw = uw.AsInfraWrapped();
+
+            if (iw == null)
+            {
+                return messages;
+            }
+
             var bt = uw.GetBaseType();
 
-            List<(ValidationErrorCode error, string message)> messages = new List<(ValidationErrorCode error, string message)>();
-
-            if (_typePropRequired.TryGetValue(bt, out List<(string prop, object defval)> vl))
+            if (_typePropRequired.TryGetValue(bt, out var vl))
             {
                 var pmatch = (from a in vl where string.Compare(propName, a.prop, !Globals.CaseSensitiveDictionaries) == 0 select a);
 
@@ -403,7 +430,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            if (_typeCustomValidator.TryGetValue(bt, out List<(string prop, Func<object, string> fn)> vl3))
+            if (_typeCustomValidator.TryGetValue(bt, out var vl3))
             {
                 var pmatch = (from a in vl3 where string.Compare(propName, a.prop, !Globals.CaseSensitiveDictionaries) == 0 select a);
 
@@ -421,7 +448,7 @@ namespace CodexMicroORM.Core.Services
             return (from b in (from a in messages select new { a.error, a.message }).Distinct() select (b.error, b.message));
         }
 
-        private static string BuildMessageForProperty(string msg, string propName, object opt1 = null, object opt2 = null)
+        private static string BuildMessageForProperty(string msg, string propName, object? opt1 = null, object? opt2 = null)
         {
             if (SplitCamelCaseWords)
             {
@@ -438,11 +465,11 @@ namespace CodexMicroORM.Core.Services
         {
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
         {
         }
 
-        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object replaced, ServiceScope ss, bool isNew)
+        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object? replaced, ServiceScope ss, bool isNew)
         {
             var bt = o.GetBaseType();
 
@@ -455,12 +482,12 @@ namespace CodexMicroORM.Core.Services
             return WrappingSupport.None;
         }
 
-        Type ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
+        Type? ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
         {
             return null;
         }
 
-        IList<Type> ICEFService.RequiredServices()
+        IList<Type>? ICEFService.RequiredServices()
         {
             return null;
         }

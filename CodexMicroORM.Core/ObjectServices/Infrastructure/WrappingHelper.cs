@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -38,19 +39,19 @@ namespace CodexMicroORM.Core.Services
     /// You may choose to treat your generated regular wrappers as if your poco objects (i.e. you're fine with using what's generated from the database: database-first design); you'll likely also use infra wrappers under the covers too unless you build very heavy biz objects and advertise this capability.
     /// You may choose to just work directly with infra wrappers only. I personally dislike this: no strong typing means schema changes can cut you.
     /// </summary>
-    internal static class WrappingHelper
+    public static class WrappingHelper
     {
-        private static ConcurrentDictionary<Type, Type> _directTypeMap = new ConcurrentDictionary<Type, Type>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, string> _cachedTypeMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, object> _defValMap = new ConcurrentDictionary<Type, object>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, bool> _isWrapListCache = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, IDictionary<string, Type>> _propCache = new ConcurrentDictionary<Type, IDictionary<string, Type>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, bool> _sourceValTypeOk = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static SlimConcurrentDictionary<string, Type> _typeByName = new SlimConcurrentDictionary<string, Type>();
+        private readonly static ConcurrentDictionary<Type, Type> _directTypeMap = new ConcurrentDictionary<Type, Type>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, string> _cachedTypeMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, object> _defValMap = new ConcurrentDictionary<Type, object>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, bool> _isWrapListCache = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, IDictionary<string, Type>> _propCache = new ConcurrentDictionary<Type, IDictionary<string, Type>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, bool> _sourceValTypeOk = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static SlimConcurrentDictionary<string, Type> _typeByName = new SlimConcurrentDictionary<string, Type>();
         private static long _copyNesting = 0;
 
 
-        public static object GetDefaultForType(Type t)
+        public static object? GetDefaultForType(Type t)
         {
             if (t == null)
                 return null;
@@ -62,19 +63,21 @@ namespace CodexMicroORM.Core.Services
 
             MethodInfo mi = typeof(WrappingHelper).GetMethod("InternalGetDefaultForType", BindingFlags.NonPublic | BindingFlags.InvokeMethod | BindingFlags.Static);
             mi = mi.MakeGenericMethod(t);
-            var val2 = mi.Invoke(null, new object[] { });
+            var val2 = mi.Invoke(null, Array.Empty<object>());
             _defValMap[t] = val2;
             return val2;
         }
 
-        private static object InternalGetDefaultForType<T>()
+#pragma warning disable IDE0051 // Remove unused private members
+        private static object? InternalGetDefaultForType<T>()
+#pragma warning restore IDE0051 // Remove unused private members
         {
             return default(T);
         }
 
         private static string GetFullyQualifiedWrapperName(object o)
         {
-            var ot = o?.GetType() ?? throw new ArgumentNullException("o");
+            var ot = o?.GetType() ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(o));
 
             if (_directTypeMap.ContainsKey(ot))
             {
@@ -86,7 +89,7 @@ namespace CodexMicroORM.Core.Services
                 return _cachedTypeMap[ot];
             }
 
-            string cn = null;
+            string? cn;
 
             if (!string.IsNullOrEmpty(Globals.WrapperClassNamePattern))
             {
@@ -97,7 +100,7 @@ namespace CodexMicroORM.Core.Services
                 cn = ot.Name;
             }
 
-            string ns = null;
+            string? ns;
 
             if (!string.IsNullOrEmpty(Globals.WrappingClassNamespace))
             {
@@ -108,7 +111,7 @@ namespace CodexMicroORM.Core.Services
                 ns = ot.Namespace;
             }
 
-            string ass = null;
+            string? ass;
 
             if (!string.IsNullOrEmpty(Globals.WrapperClassAssembly))
             {
@@ -126,7 +129,7 @@ namespace CodexMicroORM.Core.Services
             return fullName;
         }
 
-        internal static bool IsWrappableListType(Type sourceType, object sourceVal)
+        internal static bool IsWrappableListType(Type sourceType, object? sourceVal)
         {
             if (_isWrapListCache.TryGetValue(sourceType, out bool v))
             {
@@ -151,19 +154,36 @@ namespace CodexMicroORM.Core.Services
             return v2;
         }
 
-        internal static ICEFList CreateWrappingList(ServiceScope ss, Type sourceType, object host, string propName)
+        internal static ICEFList? CreateWrappingList(ServiceScope ss, Type sourceType, object? host, string? propName)
         {
             var setWrapType = Globals.PreferredEntitySetType.MakeGenericType(sourceType.GenericTypeArguments[0]);
             var wrappedCol = setWrapType.FastCreateNoParm() as ICEFList;
 
-            ((ISupportInitializeNotification)wrappedCol).BeginInit();
-            ((ICEFList)wrappedCol).Initialize(ss, host, host.GetBaseType().Name, propName);
+            if (wrappedCol != null)
+            {
+                ((ISupportInitializeNotification)wrappedCol).BeginInit();
+                wrappedCol.Initialize(ss, host, host?.GetBaseType()?.Name, propName);
+            }
+
             return wrappedCol;
         }
 
-        internal static void CopyParsePropertyValues(IDictionary<string, object> sourceProps, object source, object target, bool isNew, ServiceScope ss, IDictionary<object, object> visits, bool justTraverse)
+        /// <summary>
+        /// Recursively parse property values for an object graph. This not only adjusts collection types to be trackable concrete types, but registers child objects into the current service scope.
+        /// </summary>
+        /// <param name="sourceProps"></param>
+        /// <param name="target"></param>
+        /// <param name="isNew"></param>
+        /// <param name="ss"></param>
+        /// <param name="visits"></param>
+        /// <param name="justTraverse"></param>
+        internal static void CopyParsePropertyValues(IDictionary<string, object?>? sourceProps, object target, bool isNew, ServiceScope? ss, IDictionary<object, object> visits, bool justTraverse)
         {
-            // Recursively parse property values for an object graph. This not only adjusts collection types to be trackable concrete types, but registers child objects into the current service scope.
+            // Can disable this to improve performance - default is enabled
+            if (!Globals.DoCopyParseProperties)
+            {
+                return;
+            }
 
             _propCache.TryGetValue(target.GetType(), out var dic);
 
@@ -183,13 +203,13 @@ namespace CodexMicroORM.Core.Services
 
             try
             {
-                Action<(string PropName, object SourceVal, Type TargPropType)> a = ((string PropName, object SourceVal, Type TargPropType) info) =>
+                void a((string PropName, object SourceVal, Type TargPropType) info)
                 {
-                    object wrapped = null;
+                    object? wrapped = null;
 
                     if (ss != null && IsWrappableListType(info.TargPropType, info.SourceVal))
                     {
-                        ICEFList wrappedCol = null;
+                        ICEFList? wrappedCol = null;
 
                         if (ss.Settings.InitializeNullCollections || info.SourceVal != null)
                         {
@@ -220,11 +240,14 @@ namespace CodexMicroORM.Core.Services
                                     wrapped = ss.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, visits, true, true);
                                 }
 
-                                wrappedCol.AddWrappedItem(wrapped);
+                                if (wrapped != null)
+                                {
+                                    wrappedCol.AddWrappedItem(wrapped);
+                                }
                             }
                         }
 
-                        if (ss.Settings.InitializeNullCollections || info.SourceVal != null)
+                        if (wrappedCol != null && (ss.Settings.InitializeNullCollections || info.SourceVal != null))
                         {
                             ((ISupportInitializeNotification)wrappedCol).EndInit();
                         }
@@ -235,9 +258,8 @@ namespace CodexMicroORM.Core.Services
                         if (ss != null && info.SourceVal != null)
                         {
                             var svt = info.SourceVal.GetType();
-                            bool svtok;
 
-                            if (!_sourceValTypeOk.TryGetValue(svt, out svtok))
+                            if (!_sourceValTypeOk.TryGetValue(svt, out bool svtok))
                             {
                                 svtok = !svt.IsValueType && svt != typeof(string) && KeyService.ResolveKeyDefinitionForType(svt).Any();
                                 _sourceValTypeOk[svt] = svtok;
@@ -284,7 +306,7 @@ namespace CodexMicroORM.Core.Services
                             }
                         }
                     }
-                };
+                }
 
                 int resdop = Interlocked.Read(ref _copyNesting) > 12 ? 1 : maxdop;
 
@@ -292,16 +314,18 @@ namespace CodexMicroORM.Core.Services
                 {
                     foreach (var info in iter)
                     {
-                        a.Invoke(info);
+                        a(info);
                     }
                 }
                 else
                 {
+                    ss ??= CEF.CurrentServiceScope;
+
                     Parallel.ForEach(iter, new ParallelOptions() { MaxDegreeOfParallelism = resdop }, (info) =>
                     {
                         using (CEF.UseServiceScope(ss))
                         {
-                            a.Invoke(info);
+                            a(info);
                         }
                     });
                 }
@@ -312,30 +336,30 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        internal static void CopyPropertyValuesObject(object source, object target, bool isNew, ServiceScope ss, IDictionary<string, object> removeIfSet, IDictionary<object, object> visits)
+        internal static void CopyPropertyValuesObject(object source, object target, bool isNew, ServiceScope ss, IDictionary<string, object>? removeIfSet, IDictionary<object, object> visits)
         {
-            Dictionary<string, object> props = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
+            Dictionary<string, object?> props = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity);
 
             var pkFields = KeyService.ResolveKeyDefinitionForType(source.GetBaseType());
 
-            foreach (var pi in source.FastGetAllProperties(true, true))
+            foreach (var (name, _, _, _) in source.FastGetAllProperties(true, true))
             {
                 // For new rows, ignore the PK since it should be assigned by key service
-                if ((!isNew || !pkFields.Contains(pi.name)))
+                if ((!isNew || !pkFields.Contains(name)))
                 {
-                    props[pi.name] = source.FastGetValue(pi.name);
+                    props[name] = source.FastGetValue(name);
 
-                    if (removeIfSet != null && removeIfSet.ContainsKey(pi.name))
+                    if (removeIfSet != null && removeIfSet.ContainsKey(name))
                     {
-                        removeIfSet.Remove(pi.name);
+                        removeIfSet.Remove(name);
                     }
                 }
             }
 
-            CopyParsePropertyValues(props, source, target, isNew, ss, visits, false);
+            CopyParsePropertyValues(props, target, isNew, ss, visits, false);
         }
 
-        private static ICEFWrapper InternalCreateWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, bool missingAllowed, ServiceScope ss, IDictionary<object, ICEFWrapper> wrappers, IDictionary<string, object> props, IDictionary<string, Type> types, IDictionary<object, object> visits)
+        private static ICEFWrapper? InternalCreateWrapper(bool isNew, object o, bool missingAllowed, ServiceScope ss, IDictionary<object, ICEFWrapper> wrappers, IDictionary<object, object> visits)
         {
             // Try to not duplicate wrappers: return one if previously generated in this parsing instance
             if (wrappers.ContainsKey(o))
@@ -343,7 +367,7 @@ namespace CodexMicroORM.Core.Services
                 return wrappers[o];
             }
 
-            ICEFWrapper replwrap = null;
+            ICEFWrapper? replwrap = null;
 
             if (Globals.DefaultWrappingAction == WrappingAction.PreCodeGen)
             {
@@ -351,7 +375,7 @@ namespace CodexMicroORM.Core.Services
 
                 if (string.IsNullOrEmpty(fqn))
                 {
-                    throw new CEFInvalidOperationException($"Failed to determine name of wrapper class for object of type {o.GetType().Name}.");
+                    throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue, $"Failed to determine name of wrapper class for object of type {o.GetType().Name}.");
                 }
 
                 if (!_typeByName.TryGetValue(fqn, out Type t))
@@ -366,7 +390,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         return null;
                     }
-                    throw new CEFInvalidOperationException($"Failed to create wrapper object of type {fqn} for object of type {o.GetType().Name}.");
+                    throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue, $"Failed to create wrapper object of type {fqn} for object of type {o.GetType().Name}.");
                 }
 
                 // Relies on parameterless constructor
@@ -378,7 +402,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         return null;
                     }
-                    throw new CEFInvalidOperationException($"Failed to create wrapper object of type {fqn} for object of type {o.GetType().Name}.");
+                    throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue, $"Failed to create wrapper object of type {fqn} for object of type {o.GetType().Name}.");
                 }
 
                 if (!(wrapper is ICEFWrapper))
@@ -387,7 +411,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         return null;
                     }
-                    throw new CEFInvalidOperationException($"Wrapper object of type {fqn} for object of type {o.GetType().Name} does not implement ICEFWrapper.");
+                    throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue, $"Wrapper object of type {fqn} for object of type {o.GetType().Name} does not implement ICEFWrapper.");
                 }
 
                 visits[o] = wrapper;
@@ -404,15 +428,15 @@ namespace CodexMicroORM.Core.Services
             return replwrap;
         }
 
-        public static ICEFWrapper CreateWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ServiceScope ss, IDictionary<string, object> props = null, IDictionary<string, Type> types = null, IDictionary<object, object> visits = null)
+        public static ICEFWrapper? CreateWrapper(bool isNew, object o, ServiceScope ss, IDictionary<object, object>? visits = null)
         {
-            return InternalCreateWrapper(need, action, isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(Globals.DefaultDictionaryCapacity), props, types, visits ?? new Dictionary<object, object>(Globals.DefaultDictionaryCapacity));
+            return InternalCreateWrapper(isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(Globals.DefaultDictionaryCapacity), visits ?? new Dictionary<object, object>(Globals.DefaultDictionaryCapacity));
         }
 
-        public static ICEFInfraWrapper CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ObjectState? initState, IDictionary<string, object> props, IDictionary<string, Type> types)
+        public static ICEFInfraWrapper? CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ObjectState? initState, IDictionary<string, object?>? props, IDictionary<string, Type>? types)
         {
             // Goal is to provision the lowest overhead object based on need!
-            ICEFInfraWrapper infrawrap = null;
+            ICEFInfraWrapper? infrawrap = null;
 
             if (action != WrappingAction.NoneOrProvisionedAlready)
             {

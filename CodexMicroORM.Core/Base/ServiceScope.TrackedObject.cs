@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 05/2018    0.6     Split from servicescope.cs (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using CodexMicroORM.Core.Services;
@@ -28,12 +29,12 @@ namespace CodexMicroORM.Core
     {
         public sealed class TrackedObject : ICEFIndexedListItem
         {
-            public string BaseName { get; set; }
-            public Type BaseType { get; set; }
-            public CEFWeakReference<object> Target { get; set; }
-            public CEFWeakReference<ICEFWrapper> Wrapper { get; set; }
-            public ICEFInfraWrapper Infra { get; set; }
-            public List<ICEFService> Services { get; set; }
+            public string? BaseName { get; set; }
+            public Type? BaseType { get; set; }
+            public CEFWeakReference<object>? Target { get; set; }
+            public CEFWeakReference<ICEFWrapper>? Wrapper { get; set; }
+            public ICEFInfraWrapper? Infra { get; set; }
+            public List<ICEFService>? Services { get; set; }
             
             public bool ValidTarget
             {
@@ -43,19 +44,19 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            public object GetTarget()
+            public object? GetTarget()
             {
-                if ((Target?.IsAlive).GetValueOrDefault() && Target.Target != null)
+                if ((Target?.IsAlive).GetValueOrDefault() && Target?.Target != null)
                     return Target.Target;
 
                 return null;
             }
 
-            public ICEFInfraWrapper GetInfra()
+            public ICEFInfraWrapper? GetInfra()
             {
                 if ((Target?.IsAlive).GetValueOrDefault())
                 {
-                    if (Infra.GetWrappedObject() != null)
+                    if (Infra?.GetWrappedObject() != null)
                     {
                         return Infra;
                     }
@@ -64,20 +65,18 @@ namespace CodexMicroORM.Core
                 return null;
             }
 
-            public INotifyPropertyChanged GetNotifyFriendly()
+            public INotifyPropertyChanged? GetNotifyFriendly()
             {
-                var test1 = GetTarget() as INotifyPropertyChanged;
-                if (test1 != null)
+                if (GetTarget() is INotifyPropertyChanged test1)
                     return test1;
 
-                var test2 = GetWrapper() as INotifyPropertyChanged;
-                if (test2 != null)
+                if (GetWrapper() is INotifyPropertyChanged test2)
                     return test2;
 
                 return GetInfra() as INotifyPropertyChanged;
             }
 
-            public ICEFInfraWrapper GetCreateInfra()
+            public ICEFInfraWrapper? GetCreateInfra()
             {
                 var infra = GetInfra();
 
@@ -88,15 +87,15 @@ namespace CodexMicroORM.Core
                 var wt = GetWrapperTarget();
 
                 if (wt == null)
-                    throw new CEFInvalidOperationException("Failed to identify target object to create infrastructure wrapper for.");
+                    throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
 
                 Infra = WrappingHelper.CreateInfraWrapper(WrappingSupport.All, WrappingAction.Dynamic, false, wt, null, null, null);
                 return Infra;
             }
 
-            public ICEFWrapper GetWrapper()
+            public ICEFWrapper? GetWrapper()
             {
-                if ((Wrapper?.IsAlive).GetValueOrDefault() && Wrapper.Target != null)
+                if ((Wrapper?.IsAlive).GetValueOrDefault() && Wrapper?.Target != null)
                     return Wrapper.Target as ICEFWrapper;
 
                 return null;
@@ -104,15 +103,15 @@ namespace CodexMicroORM.Core
 
             public object GetInfraWrapperTarget()
             {
-                return GetInfra() ?? GetWrapper() ?? GetTarget();
+                return GetInfra() ?? GetWrapper() ?? GetTarget() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
             }
 
-            public object GetWrapperTarget()
+            public object? GetWrapperTarget()
             {
                 return GetWrapper() ?? GetTarget();
             }
 
-            public object GetValue(string propName, bool unwrap)
+            public object? GetValue(string propName, bool unwrap)
             {
                 switch (propName)
                 {
@@ -124,13 +123,13 @@ namespace CodexMicroORM.Core
 
                     case nameof(Target):
                         if (unwrap)
-                            return Target.IsAlive ? Target.Target : null;
+                            return Target != null && Target.IsAlive ? Target.Target : null;
                         else
                             return Target;
 
                     case nameof(Wrapper):
                         if (unwrap)
-                            return Wrapper.IsAlive ? Wrapper.Target : null;
+                            return Wrapper != null && Wrapper.IsAlive ? Wrapper.Target : null;
                         else
                             return Wrapper;
 
@@ -147,8 +146,8 @@ namespace CodexMicroORM.Core
             {
                 get
                 {
-                    return !((!(Target?.IsAlive).GetValueOrDefault() || Target.Target == null)
-                        && (!(Wrapper?.IsAlive).GetValueOrDefault() || Wrapper.Target == null));
+                    return !((!(Target?.IsAlive).GetValueOrDefault() || Target?.Target == null)
+                        && (!(Wrapper?.IsAlive).GetValueOrDefault() || Wrapper?.Target == null));
                 }
             }
         }

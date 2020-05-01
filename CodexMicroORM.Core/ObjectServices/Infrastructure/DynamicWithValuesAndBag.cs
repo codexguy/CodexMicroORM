@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -32,12 +33,12 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithValuesAndBag : DynamicWithBag, IDisposable
     {
-        protected Dictionary<string, object> _originalValues = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
+        protected Dictionary<string, object?> _originalValues = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
         protected ObjectState _rowState;
 
-        public event EventHandler<DirtyStateChangeEventArgs> DirtyStateChange;
+        public event EventHandler<DirtyStateChangeEventArgs>? DirtyStateChange;
 
-        internal DynamicWithValuesAndBag(object o, ObjectState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, props, types)
+        internal DynamicWithValuesAndBag(object o, ObjectState irs, IDictionary<string, object?>? props, IDictionary<string, Type>? types) : base(o, props, types)
         {
             if (o is INotifyPropertyChanged)
             {
@@ -94,13 +95,13 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public static Func<Type, string, bool> CheckIgnorePropertyModifiedState
+        public static Func<Type, string, bool>? CheckIgnorePropertyModifiedState
         {
             get;
             set;
         }
 
-        public bool ReconcileModifiedState(Action<string, object, object> onChanged = null, bool force = false)
+        public bool ReconcileModifiedState(Action<string, object?, object?>? onChanged = null, bool force = false)
         {
             // For cases where live binding was not possible, tries to identify possible changes in object state (typically at the time of saving)
             if ((!force && _rowState == ObjectState.Unchanged) || (force && (_rowState == ObjectState.Modified || _rowState == ObjectState.ModifiedPriority || _rowState == ObjectState.Unchanged)))
@@ -109,7 +110,7 @@ namespace CodexMicroORM.Core.Services
                 {
                     var nval = GetValue(oval.Key);
 
-                    if (CheckIgnorePropertyModifiedState != null && CheckIgnorePropertyModifiedState.Invoke(_source?.GetBaseType(), oval.Key))
+                    if (CheckIgnorePropertyModifiedState != null && (_source == null || CheckIgnorePropertyModifiedState.Invoke(_source.GetBaseType(), oval.Key)))
                     {
                         continue;
                     }
@@ -118,9 +119,12 @@ namespace CodexMicroORM.Core.Services
                     {
                         if (_rowState == ObjectState.Unchanged)
                         {
-                            SetRowState(ObjectState.Modified);
-                            onChanged?.Invoke(oval.Key, oval, nval);
-                            return true;
+                            if (!Globals.GlobalPropertiesExcludedFromDirtyCheck.Contains(oval.Key))
+                            {
+                                SetRowState(ObjectState.Modified);
+                                onChanged?.Invoke(oval.Key, oval, nval);
+                                return true;
+                            }
                         }
                         else
                         {
@@ -165,7 +169,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        protected override void OnPropertyChanged(string propName, object oldVal, object newVal, bool isBag)
+        protected override void OnPropertyChanged(string propName, object? oldVal, object? newVal, bool isBag)
         {
             if (propName[0] != KeyService.SHADOW_PROP_PREFIX)
             {
@@ -175,8 +179,17 @@ namespace CodexMicroORM.Core.Services
 
                 if (SafeGetState() == ObjectState.Unchanged)
                 {
-                    SetRowState(ObjectState.Modified);
-                    DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(ObjectState.Modified));
+                    if (!Globals.GlobalPropertiesExcludedFromDirtyCheck.Contains(propName))
+                    {
+#if DEBUG
+                        if (CEFDebug.DebugEnabled)
+                        {
+                            CEFDebug.WriteInfo($"PropChange: {propName}, {oldVal}, {newVal}");
+                        }
+#endif
+                        SetRowState(ObjectState.Modified);
+                        DirtyStateChange?.Invoke(this, new DirtyStateChangeEventArgs(ObjectState.Modified));
+                    }
                 }
             }
         }
@@ -189,7 +202,7 @@ namespace CodexMicroORM.Core.Services
 
                 if (readable)
                 {
-                    if (_originalValues.TryGetValue(e.PropertyName, out object oldval))
+                    if (_originalValues.TryGetValue(e.PropertyName, out var oldval))
                     {
                         if (!oldval.IsSame(value))
                         {
@@ -216,21 +229,18 @@ namespace CodexMicroORM.Core.Services
                     return;
                 }
 
-                if (_originalValues != null)
+                if (_source != null)
                 {
-                    if (_source != null)
+                    // Handle CLR properties that are R/W
+                    foreach (var (name, type, readable, writeable) in _source.FastGetAllProperties(true, true))
                     {
-                        // Handle CLR properties that are R/W
-                        foreach (var (name, type, readable, writeable) in _source.FastGetAllProperties(true, true))
-                        {
-                            _originalValues[name] = _source.FastGetValue(name);
-                        }
+                        _originalValues[name] = _source.FastGetValue(name);
                     }
+                }
 
-                    foreach (var kvp in _valueBag)
-                    {
-                        _originalValues[kvp.Key] = kvp.Value;
-                    }
+                foreach (var kvp in _valueBag)
+                {
+                    _originalValues[kvp.Key] = kvp.Value;
                 }
 
                 changed = (_rowState != ObjectState.Unchanged);
@@ -267,7 +277,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public override void SetOriginalValue(string propName, object value)
+        public override void SetOriginalValue(string propName, object? value)
         {
             using (new WriterLock(_lock))
             {
@@ -275,7 +285,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public override object GetOriginalValue(string propName, bool throwIfNotSet)
+        public override object? GetOriginalValue(string propName, bool throwIfNotSet)
         {
             using (new ReaderLock(_lock))
             {
@@ -283,7 +293,7 @@ namespace CodexMicroORM.Core.Services
                 {
                     if (throwIfNotSet)
                     {
-                        throw new CEFInvalidOperationException($"Property {propName} does not exist on this wrapper.");
+                        throw new CEFInvalidStateException(InvalidStateType.BadAction, $"Property {propName} does not exist on this wrapper.");
                     }
 
                     return null;
@@ -308,8 +318,8 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                _originalValues = null;
-                _source = null;
+                _originalValues = null!;
+                _source = null!;
                 _disposedValue = true;
             }
         }

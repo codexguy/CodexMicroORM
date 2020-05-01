@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -44,13 +45,13 @@ namespace CodexMicroORM.Providers
         public string ID = Guid.NewGuid().ToString();
 #endif
 
-        public static RowActionPreviewCallback GlobalRowActionPreview
+        public static RowActionPreviewCallback? GlobalRowActionPreview
         {
             get;
             set;
         } = null;
 
-        private static ConcurrentDictionary<string, string> _csMap = new ConcurrentDictionary<string, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
+        private readonly static ConcurrentDictionary<string, string> _csMap = new ConcurrentDictionary<string, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
 
         public enum CommandType
         {
@@ -76,61 +77,61 @@ namespace CodexMicroORM.Providers
 
         // These global settings control the interaction of the framework with the data layer - e.g. naming conventions of procedures, optional standard status parameters, etc.
 
-        public static string ProcedurePrefix
+        public static string? ProcedurePrefix
         {
             get;
             set;
         } = "up_";
 
-        public static string InsertPrefix
+        public static string? InsertPrefix
         {
             get;
             set;
         }
 
-        public static string UpdatePrefix
+        public static string? UpdatePrefix
         {
             get;
             set;
         }
 
-        public static string DeletePrefix
+        public static string? DeletePrefix
         {
             get;
             set;
         }
 
-        public static string InsertSuffix
+        public static string? InsertSuffix
         {
             get;
             set;
         } = "_i";
 
-        public static string UpdateSuffix
+        public static string? UpdateSuffix
         {
             get;
             set;
         } = "_u";
 
-        public static string DeleteSuffix
+        public static string? DeleteSuffix
         {
             get;
             set;
         } = "_d";
 
-        public static string ByKeyPrefix
+        public static string? ByKeyPrefix
         {
             get;
             set;
         }
 
-        public static string ByKeySuffix
+        public static string? ByKeySuffix
         {
             get;
             set;
         } = "_ByKey";
 
-        public static string ForListSuffix
+        public static string? ForListSuffix
         {
             get;
             set;
@@ -148,7 +149,7 @@ namespace CodexMicroORM.Providers
             set;
         } = "RetVal";
 
-        public static string DefaultSchema
+        public static string? DefaultSchema
         {
             get;
             set;
@@ -174,12 +175,6 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        public sealed class ListItem
-        {
-            public ListItem Next;
-            public int ID;
-        }
-
         public T ExecuteScalar<T>(ConnectionScope cs, string cmdText)
         {
             var firstRow = CreateRawCommand((MSSQLConnection)cs.CurrentConnection, System.Data.CommandType.Text, cmdText, null, cs.TimeoutOverride).ExecuteReadRows().FirstOrDefault();
@@ -189,12 +184,12 @@ namespace CodexMicroORM.Providers
                 return (T)Convert.ChangeType(firstRow.First().Value.value, typeof(T));
             }
 
-            return default;
+            return default!;
         }
 
         public void ExecuteRaw(ConnectionScope cs, string cmdText, bool doThrow = true, bool stopOnError = true)
         {
-            Exception lastEx = null;
+            Exception? lastEx = null;
 
             // Split into multiple commands if GO separated
             foreach (Match mat in Regex.Matches(cmdText, @"(?<t>(?:.|\n)+?)(?:[\n\r]GO[\n\r]|\s*$)", RegexOptions.IgnoreCase))
@@ -220,22 +215,22 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        public IDBProviderConnection CreateOpenConnection(string config = "default", bool transactional = true, string connStringOverride = null, int? timeoutOverride = null)
+        public IDBProviderConnection CreateOpenConnection(string config = "default", bool transactional = true, string? connStringOverride = null, int? timeoutOverride = null)
         {
-            string cs = null;
+            string? cs = null;
             CommandTimeout = timeoutOverride;
 
             if (connStringOverride == null && !_csMap.TryGetValue(config, out cs))
             {
-                throw new CEFInvalidOperationException($"Connection string {config} is not recognized / was not registered.");
+                throw new CEFInvalidStateException(InvalidStateType.SQLLayer, $"Connection token {config} is not recognized / was not registered.");
             }
 
-            var connString = connStringOverride ?? cs ?? throw new CEFInvalidOperationException($"Connection string {config} is not recognized / was not registered.");
+            var connString = connStringOverride ?? cs ?? throw new CEFInvalidStateException(InvalidStateType.SQLLayer, $"Connection token {config} is not recognized / was not registered.");
 
             var conn = new SqlConnection(connString);
             conn.Open();
 
-            SqlTransaction tx = null;
+            SqlTransaction? tx = null;
 
             if (transactional)
             {
@@ -245,13 +240,19 @@ namespace CodexMicroORM.Providers
             return new MSSQLConnection(conn, tx);
         }
 
-        private MSSQLCommand CreateRawCommand(MSSQLConnection conn, System.Data.CommandType cmdType, string cmdText, IList<object> parms, int? timeoutOverride)
+        private MSSQLCommand CreateRawCommand(MSSQLConnection conn, System.Data.CommandType cmdType, string cmdText, IList<object?>? parms, int? timeoutOverride)
         {
             var cmd = new MSSQLCommand(conn, cmdText, cmdType, timeoutOverride ?? CommandTimeout);
-            return cmd.MapParameters(parms);
+            
+            if (parms != null)
+            {
+                return cmd.MapParameters(parms);
+            }
+
+            return cmd;
         }
 
-        private MSSQLCommand CreateProcCommand(MSSQLConnection conn, CommandType cmdType, string schemaName, string objName, ICEFInfraWrapper row, IList<object> parms, int? timeoutOverride)
+        private MSSQLCommand CreateProcCommand(MSSQLConnection conn, CommandType cmdType, string? schemaName, string objName, ICEFInfraWrapper? row, IList<object?>? parms, int? timeoutOverride)
         {
             string proc = "";
 
@@ -286,7 +287,7 @@ namespace CodexMicroORM.Providers
 
             if (row != null)
             {
-                cmd.MapParameters(row.GetBaseType(), row.AsUnwrapped(), row.GetAllValues());
+                cmd.MapParameters(row.GetBaseType(), row.AsUnwrapped() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue), row.GetAllValues());
             }
             else
             {
@@ -311,106 +312,108 @@ namespace CodexMicroORM.Providers
             return cmd;
         }
 
-        private void InsertRowsWithBulk(ConnectionScope conn, IEnumerable<ICEFInfraWrapper> rows, string schema, string name, DBSaveSettings settings)
+        private void InsertRowsWithBulk(ConnectionScope conn, IEnumerable<ICEFInfraWrapper> rows, string? schema, string name, DBSaveSettings settings)
         {
-            schema = schema ?? DefaultSchema ?? DEFAULT_DB_SCHEMA;
+            schema ??= DefaultSchema ?? DEFAULT_DB_SCHEMA;
 
-            using (DataTable dt = new DataTable())
+            using DataTable dt = new DataTable();
+
+            // Issue independent SELECT * to get schema from underlying table
+            var cc = ((ICloneable?)((MSSQLConnection)conn.CurrentConnection).CurrentConnection) ?? throw new CEFInvalidStateException(InvalidStateType.SQLLayer, "Missing current data connection.");
+
+            using (var discoverConn = (SqlConnection)cc.Clone())
             {
-                // Issue independent SELECT * to get schema from underlying table
-                using (var discoverConn = (SqlConnection)((ICloneable)((MSSQLConnection)conn.CurrentConnection).CurrentConnection).Clone())
-                {
-                    discoverConn.Open();
+                discoverConn.Open();
 
-                    using (var da = new SqlDataAdapter($"SELECT * FROM [{schema}].[{name}] WHERE 1=0", discoverConn))
-                    {
-                        da.Fill(dt);
-                    }
+#pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
+                using var da = new SqlDataAdapter($"SELECT * FROM [{schema}].[{name}] WHERE 1=0", discoverConn);
+#pragma warning restore CA2100 // Review SQL queries for security vulnerabilities
+                da.Fill(dt);
+            }
+
+            var aud = CEF.CurrentServiceScope.GetService<ICEFAuditHost>();
+
+            if (aud != null)
+            {
+                // Remove PK if DB-assigned, along with LastUpdatedBy/Date if DB assigned
+                if (!string.IsNullOrEmpty(aud.LastUpdatedByField) && aud.IsLastUpdatedByDBAssigned && dt.Columns.Contains(aud.LastUpdatedByField))
+                {
+                    dt.Columns.Remove(aud.LastUpdatedByField);
                 }
 
-                var aud = CEF.CurrentServiceScope.GetService<ICEFAuditHost>();
-
-                if (aud != null)
+                if (!string.IsNullOrEmpty(aud.LastUpdatedDateField) && aud.IsLastUpdatedDateDBAssigned && dt.Columns.Contains(aud.LastUpdatedDateField))
                 {
-                    // Remove PK if DB-assigned, along with LastUpdatedBy/Date if DB assigned
-                    if (!string.IsNullOrEmpty(aud.LastUpdatedByField) && aud.IsLastUpdatedByDBAssigned && dt.Columns.Contains(aud.LastUpdatedByField))
-                    {
-                        dt.Columns.Remove(aud.LastUpdatedByField);
-                    }
-
-                    if (!string.IsNullOrEmpty(aud.LastUpdatedDateField) && aud.IsLastUpdatedDateDBAssigned && dt.Columns.Contains(aud.LastUpdatedDateField))
-                    {
-                        dt.Columns.Remove(aud.LastUpdatedDateField);
-                    }
-                }
-
-                if (KeyService.DefaultPrimaryKeysCanBeDBAssigned)
-                {
-                    var rowType = rows.FirstOrDefault()?.GetBaseType();
-
-                    if (rowType != null)
-                    {
-                        foreach (string pkf in KeyService.ResolveKeyDefinitionForType(rowType))
-                        {
-                            if (dt.Columns.Contains(pkf))
-                            {
-                                dt.Columns.Remove(pkf);
-                            }
-                        }
-                    }
-                }
-
-                dt.BeginLoadData();
-
-                foreach (var r in rows)
-                {
-                    var data = r.GetAllValues();
-                    var dr = dt.NewRow();
-
-                    foreach (DataColumn dc in dt.Columns)
-                    {
-                        if (data.ContainsKey(dc.ColumnName))
-                        {
-                            dr[dc] = data[dc.ColumnName] ?? DBNull.Value;
-                        }
-                    }
-
-                    dt.Rows.Add(dr);
-
-                    if (!settings.NoAcceptChanges)
-                    {
-                        if (settings.DeferAcceptChanges.GetValueOrDefault(conn.IsTransactional))
-                        {
-                            lock (conn.ToAcceptList)
-                            {
-                                conn.ToAcceptList.Add(r);
-                            }
-                        }
-                        else
-                        {
-                            r.AcceptChanges();
-                        }
-                    }
-                }
-
-                dt.EndLoadData();
-
-                using (SqlBulkCopy sbc = new SqlBulkCopy(((MSSQLConnection)conn.CurrentConnection).CurrentConnection, SqlBulkCopyOptions.Default, ((MSSQLConnection)conn.CurrentConnection).CurrentTransaction))
-                {
-                    sbc.DestinationTableName = $"[{schema}].[{name}]";
-                    sbc.ColumnMappings.Clear();
-
-                    foreach (DataColumn dc in dt.Columns)
-                    {
-                        sbc.ColumnMappings.Add(dc.ColumnName, dc.ColumnName);
-                    }
-
-                    sbc.WriteToServer(dt);
+                    dt.Columns.Remove(aud.LastUpdatedDateField);
                 }
             }
+
+            if (KeyService.DefaultPrimaryKeysCanBeDBAssigned)
+            {
+                var rowType = rows.FirstOrDefault()?.GetBaseType();
+
+                if (rowType != null)
+                {
+                    foreach (string pkf in KeyService.ResolveKeyDefinitionForType(rowType))
+                    {
+                        if (dt.Columns.Contains(pkf))
+                        {
+                            dt.Columns.Remove(pkf);
+                        }
+                    }
+                }
+            }
+
+            dt.BeginLoadData();
+
+            foreach (var r in rows)
+            {
+                var data = r.GetAllValues();
+                var dr = dt.NewRow();
+
+                foreach (DataColumn dc in dt.Columns)
+                {
+                    if (data.ContainsKey(dc.ColumnName))
+                    {
+                        dr[dc] = data[dc.ColumnName] ?? DBNull.Value;
+                    }
+                }
+
+                dt.Rows.Add(dr);
+
+                if (!settings.NoAcceptChanges)
+                {
+                    if (settings.DeferAcceptChanges.GetValueOrDefault(conn.IsTransactional))
+                    {
+                        lock (conn.ToAcceptList)
+                        {
+                            conn.ToAcceptList.Add(r);
+                        }
+                    }
+                    else
+                    {
+                        r.AcceptChanges();
+                    }
+                }
+            }
+
+            dt.EndLoadData();
+
+            using SqlBulkCopy sbc = new SqlBulkCopy(((MSSQLConnection)conn.CurrentConnection).CurrentConnection, SqlBulkCopyOptions.Default, ((MSSQLConnection)conn.CurrentConnection).CurrentTransaction)
+            {
+                DestinationTableName = $"[{schema}].[{name}]"
+            };
+
+            sbc.ColumnMappings.Clear();
+
+            foreach (DataColumn dc in dt.Columns)
+            {
+                sbc.ColumnMappings.Add(dc.ColumnName, dc.ColumnName);
+            }
+
+            sbc.WriteToServer(dt);
         }
 
-        IEnumerable<(string name, object value)> IDBProvider.ExecuteNoResultSet(ConnectionScope conn, System.Data.CommandType cmdType, string cmdText, params object[] parms)
+        IEnumerable<(string name, object? value)>? IDBProvider.ExecuteNoResultSet(ConnectionScope conn, System.Data.CommandType cmdType, string cmdText, params object?[] parms)
         {
             var sn = MSSQLCommand.SplitIntoSchemaAndName(cmdText);
 
@@ -421,7 +424,7 @@ namespace CodexMicroORM.Providers
                 schema = sn.schema;
             }
 
-            IEnumerable<(string name, object value)> outVar = null;
+            IEnumerable<(string name, object? value)>? outVar;
 
             if (cmdType == System.Data.CommandType.StoredProcedure)
             {
@@ -454,10 +457,10 @@ namespace CodexMicroORM.Providers
         /// <param name="cmdType">Nature of the command being issued.</param>
         /// <param name="settings">Database save settings for this request.</param>
         /// <returns>A compatible number of "rows" as input with per row save status.</returns>
-        private IEnumerable<(ICEFInfraWrapper row, string msg, int status)> SaveRows(ServiceScope ss, ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, CommandType cmdType, DBSaveSettings settings)
+        private IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> SaveRows(ServiceScope ss, ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, CommandType cmdType, DBSaveSettings settings)
         {
-            ConcurrentBag<(ICEFInfraWrapper row, string msg, int status)> rowsOut = new ConcurrentBag<(ICEFInfraWrapper row, string msg, int status)>();
-            Exception stopEx = null;
+            ConcurrentBag<(ICEFInfraWrapper row, string? msg, int status)> rowsOut = new ConcurrentBag<(ICEFInfraWrapper row, string? msg, int status)>();
+            Exception? stopEx = null;
 
             conn.LastOutputVariables.Clear();
 
@@ -467,7 +470,7 @@ namespace CodexMicroORM.Providers
             {
                 using (CEF.UseServiceScope(ss))
                 {
-                    string msg = null;
+                    string? msg = null;
                     int status = 0;
 
                     try
@@ -480,8 +483,8 @@ namespace CodexMicroORM.Providers
 
                         var msconn = (MSSQLConnection)conn.CurrentConnection;
                         var outVals = CreateProcCommand(msconn, cmdType, r.Schema, r.Name, r.Row, null, conn.TimeoutOverride).ExecuteNoResultSet().GetOutputValues();
-                        var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(false /*conn.IsTransactional*/);
-                        List<(string name, object value)> toRB = new List<(string name, object value)>();
+                        var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(false);
+                        List<(string name, object? value)> toRB = new List<(string name, object? value)>();
 
                         foreach (var (name, value) in outVals)
                         {
@@ -531,6 +534,12 @@ namespace CodexMicroORM.Providers
                     }
                     catch (Exception ex)
                     {
+#if DEBUG
+                        if (System.Diagnostics.Debugger.IsAttached)
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+#endif
                         if (!conn.ContinueOnError)
                         {
                             pls.Break();
@@ -546,8 +555,6 @@ namespace CodexMicroORM.Providers
                 }
             });
 
-            materialized = null;
-
             if (stopEx != null)
             {
                 throw stopEx;
@@ -556,27 +563,23 @@ namespace CodexMicroORM.Providers
             return rowsOut;
         }
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.InsertRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
+        IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> IDBProvider.InsertRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, bool isLeaf, DBSaveSettings settings)
         {
-            List<(ICEFInfraWrapper row, string msg, int status)> retVal = new List<(ICEFInfraWrapper row, string msg, int status)>();
+            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new List<(ICEFInfraWrapper row, string? msg, int status)>();
 
             if (settings.BulkInsertRules == BulkRules.Never)
             {
-                // Apply sequential break by level, inserts are ascending level counts
-                foreach (var level in (from a in rows orderby a.level select a))
-                {
-                    retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, level.rows, CommandType.Insert, settings));
-                }
+                retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rows, CommandType.Insert, settings));
             }
             else
             {
                 // Need to further partition by name since we judge thresholds, etc. by name
-                foreach (var byname in (from a in rows from b in a.rows group b by new { Level = a.level, Name = b.name, Schema = b.schema } into g orderby g.Key.Level select new { g.Key.Level, g.Key.Schema, g.Key.Name, Rows = g, RowsRaw = (from cr in g select cr.row) }))
+                foreach (var byname in (from a in rows group a by new { Name = a.name, Schema = a.schema } into g select new { g.Key.Schema, g.Key.Name, Rows = g, RowsRaw = (from cr in g select cr.row) }))
                 {
                     if ((settings.BulkInsertRules & BulkRules.Always) != 0 ||
                         (
                             ((settings.BulkInsertRules & BulkRules.Threshold) == 0 || (byname.RowsRaw.Count() >= settings.BulkInsertMinimumRows))
-                            && ((settings.BulkInsertRules & BulkRules.LeafOnly) == 0 || (byname.Level == (from a in rows select a.level).Max()))
+                            && ((settings.BulkInsertRules & BulkRules.LeafOnly) == 0 || isLeaf)
                             && ((settings.BulkInsertRules & BulkRules.ByType) == 0 || (from a in settings.BulkInsertTypes where string.Compare(byname.Name, a.Name, true) == 0 select a).Any())
                         ))
                     {
@@ -593,39 +596,27 @@ namespace CodexMicroORM.Providers
             return retVal;
         }
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.UpdateRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
+        IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> IDBProvider.UpdateRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, DBSaveSettings settings)
         {
-            List<(ICEFInfraWrapper row, string msg, int status)> retVal = new List<(ICEFInfraWrapper row, string msg, int status)>();
-
-            // Apply sequential break by level, updates are ascending level counts
-            foreach (var rowsforlevel in (from a in rows orderby a.level select a.rows))
-            {
-                retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rowsforlevel, CommandType.Update, settings));
-            }
-
+            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new List<(ICEFInfraWrapper row, string? msg, int status)>();
+            retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rows, CommandType.Update, settings));
             return retVal;
         }
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> IDBProvider.DeleteRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings)
+        IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> IDBProvider.DeleteRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, DBSaveSettings settings)
         {
-            List<(ICEFInfraWrapper row, string msg, int status)> retVal = new List<(ICEFInfraWrapper row, string msg, int status)>();
-
-            // Apply sequential break by level, deletes are descending level counts
-            foreach (var rowsforlevel in (from a in rows orderby a.level descending select a.rows))
-            {
-                retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rowsforlevel, CommandType.Delete, settings));
-            }
-
+            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new List<(ICEFInfraWrapper row, string? msg, int status)>();
+            retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rows, CommandType.Delete, settings));
             return retVal;
         }
 
-        private IEnumerable<T> CommonRetrieveRows<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, string cmdText, CommandType type, CEF.ColumnDefinitionCallback cc, IList<object> parms) where T: class, new()
+        private IEnumerable<T> CommonRetrieveRows<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, string? cmdText, CommandType type, CEF.ColumnDefinitionCallback? cc, IList<object?>? parms) where T: class, new()
         {
             var ss = CEF.CurrentServiceScope;
 
             // Why do this? "wo" might end up telling us an explicit (overridden) schema/name
             var no = new T();
-            var wo = WrappingHelper.CreateWrapper(WrappingSupport.All, Globals.DefaultWrappingAction, false, no, ss);
+            var wo = WrappingHelper.CreateWrapper(false, no, ss);
 
             var schema = wo?.GetSchemaName() ?? db.GetSchemaNameByType(no.GetBaseType()) ?? DefaultSchema ?? DEFAULT_DB_SCHEMA;
             var name = db.GetEntityNameByType(no.GetBaseType(), wo);
@@ -635,12 +626,22 @@ namespace CodexMicroORM.Providers
 
             if (type == CommandType.RetrieveByText)
             {
+                if (string.IsNullOrWhiteSpace(cmdText))
+                {
+                    throw new CEFInvalidStateException(InvalidStateType.SQLLayer, "Missing command text");
+                }
+
                 sqlcmd = CreateRawCommand(dbconn, System.Data.CommandType.Text, cmdText, parms, conn.TimeoutOverride);
             }
             else
             {
                 if (type == CommandType.RetrieveByProc)
                 {
+                    if (string.IsNullOrWhiteSpace(cmdText))
+                    {
+                        throw new CEFInvalidStateException(InvalidStateType.SQLLayer, "Missing command text");
+                    }
+
                     var sn = MSSQLCommand.SplitIntoSchemaAndName(cmdText);
                     
                     if (!string.IsNullOrEmpty(sn.schema))
@@ -662,7 +663,7 @@ namespace CodexMicroORM.Providers
 
                 bool fetchedOutput = false;
                 bool hasData = false;
-                HashSet<string> dateFields = null;
+                HashSet<string>? dateFields = null;
 
                 foreach (var row in sqlcmd.ExecuteReadRows())
                 {
@@ -703,16 +704,18 @@ namespace CodexMicroORM.Providers
                     {
                         if (row[df].value != null)
                         {
-                            switch (ss.ResolvedDateStorageForTypeAndProperty(typeof(T), df))
+                            var dfv = (DateTime)row[df].value!;
+
+                            switch (ServiceScope.ResolvedDateStorageForTypeAndProperty(typeof(T), df))
                             {
                                 case PropertyDateStorage.TwoWayConvertUtc:
-                                    row[df] = (DateTime.SpecifyKind((DateTime)row[df].value, DateTimeKind.Utc).ToLocalTime(), typeof(DateTime));
+                                    row[df] = (DateTime.SpecifyKind(dfv, DateTimeKind.Utc).ToLocalTime(), typeof(DateTime));
                                     break;
 
                                 case PropertyDateStorage.TwoWayConvertUtcOnlyWithTime:
-                                    if (((DateTime)row[df].value).TimeOfDay.Milliseconds != 0)
+                                    if ((dfv).TimeOfDay.Milliseconds != 0)
                                     {
-                                        row[df] = (DateTime.SpecifyKind((DateTime)row[df].value, DateTimeKind.Utc).ToLocalTime(), typeof(DateTime));
+                                        row[df] = (DateTime.SpecifyKind(dfv, DateTimeKind.Utc).ToLocalTime(), typeof(DateTime));
                                     }
                                     break;
                             }
@@ -722,11 +725,11 @@ namespace CodexMicroORM.Providers
                     if (doWrap)
                     {
                         // If "the same" object exists in current scope, this will "merge" it with new values, avoids duplicating it in scope
-                        no = CEF.CurrentServiceScope.IncludeObjectWithType<T>(new T(), ObjectState.Unchanged, row);
+                        no = CEF.CurrentServiceScope.IncludeObjectWithType(new T(), ObjectState.Unchanged, row);
                     }
                     else
                     {
-                        var propVals = new Dictionary<string, object>(Globals.DefaultDictionaryCapacity);
+                        var propVals = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity);
 
                         foreach (var kvp in row)
                         {
@@ -734,7 +737,7 @@ namespace CodexMicroORM.Providers
                         }
 
                         no = new T();
-                        WrappingHelper.CopyParsePropertyValues(propVals, null, no, false, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), false);
+                        WrappingHelper.CopyParsePropertyValues(propVals, no, false, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), false);
                     }
 
                     // Handle property groups if they exist for this type
@@ -782,7 +785,7 @@ namespace CodexMicroORM.Providers
             return CommonRetrieveRows<T>(db, conn, doWrap, null, CommandType.RetrieveByKey, null, key);
         }
 
-        public IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback cc, object[] parms) where T : class, new()
+        public IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, object?[] parms) where T : class, new()
         {
             return CommonRetrieveRows<T>(db, conn, doWrap, cmdText, cmdType == System.Data.CommandType.StoredProcedure ? CommandType.RetrieveByProc : CommandType.RetrieveByText, cc, parms);
         }

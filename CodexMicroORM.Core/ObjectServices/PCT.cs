@@ -17,6 +17,7 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 01/2018    0.2.2   Primary implementation (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
@@ -32,7 +33,7 @@ namespace CodexMicroORM.Core.Services
 {
     public class PCTService : ICEFPersistenceHost
     {
-        Type ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
+        Type? ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
         {
             return null;
         }
@@ -67,7 +68,7 @@ namespace CodexMicroORM.Core.Services
 
             visits.Objects.Add(o);
 
-            var wot = o.AsInfraWrapped().GetWrappedObject()?.GetType() ?? o.GetBaseType();
+            var wot = o.AsInfraWrapped()?.GetWrappedObject()?.GetType() ?? o.GetBaseType();
 
             if (!visits.Types.Contains(wot))
             {
@@ -115,7 +116,7 @@ namespace CodexMicroORM.Core.Services
                             {
                                 if (jo.Count < 2 || jo.Count > 3)
                                 {
-                                    throw new CEFInvalidOperationException("Invalid JSON format.");
+                                    throw new CEFInvalidStateException(InvalidStateType.Serialization, "Invalid JSON format.");
                                 }
 
                                 JProperty pn = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldNameName) select b).FirstOrDefault();
@@ -124,7 +125,7 @@ namespace CodexMicroORM.Core.Services
 
                                 if (pn == null || pt == null)
                                 {
-                                    throw new CEFInvalidOperationException("Invalid JSON format.");
+                                    throw new CEFInvalidStateException(InvalidStateType.Serialization, "Invalid JSON format.");
                                 }
 
                                 var t = settings.GetDataType(pt.Value.ToString());
@@ -153,24 +154,27 @@ namespace CodexMicroORM.Core.Services
                             var obj = CEF.Deserialize<T>(itemInfo.ToString());
                             var iw = obj.AsInfraWrapped();
 
-                            // We need to apply property type settings after-the-fact
-                            var allProp = iw.GetAllValues();
-
-                            foreach (var propInfo in schema)
+                            if (iw != null)
                             {
-                                var existingInfo = (from a in allProp where a.Key == propInfo.Key select (propInfo.Value, a.Value));
+                                // We need to apply property type settings after-the-fact
+                                var allProp = iw.GetAllValues();
 
-                                if (existingInfo.Any())
+                                foreach (var propInfo in schema)
                                 {
-                                    iw.SetValue(propInfo.Key, existingInfo.First().Item2, existingInfo.First().Item1);
+                                    var existingInfo = (from a in allProp where a.Key == propInfo.Key select (propInfo.Value, a.Value));
+
+                                    if (existingInfo.Any())
+                                    {
+                                        iw.SetValue(propInfo.Key, existingInfo.First().Item2, existingInfo.First().Item1);
+                                    }
+                                    else
+                                    {
+                                        iw.SetValue(propInfo.Key, null, propInfo.Value);
+                                    }
                                 }
-                                else
-                                {
-                                    iw.SetValue(propInfo.Key, null, propInfo.Value);
-                                }
+
+                                yield return obj;
                             }
-
-                            yield return obj;
                         }
 
                         break;
@@ -207,39 +211,42 @@ namespace CodexMicroORM.Core.Services
                         tw.WritePropertyName(kvp.Key);
                         tw.WriteStartArray();
 
-                        var asEnum = (kvp.Value as IEnumerable).GetEnumerator();
-
-                        while (asEnum.MoveNext())
+                        if (kvp.Value is IEnumerable asenum)
                         {
-                            var i = asEnum.Current;
+                            var enumerator = asenum.GetEnumerator();
 
-                            // We only need to do this for tracked objects, for now we only do for value types or non-system (TODO)
-                            if (i == null || i.GetType().IsValueType || i.GetType().FullName.StartsWith("System."))
+                            while (enumerator.MoveNext())
                             {
-                                tw.WriteValue(i);
-                            }
-                            else
-                            {
-                                if ((mode & SerializationMode.SingleLevel) == 0)
+                                var i = enumerator.Current;
+
+                                // We only need to do this for tracked objects, for now we only do for value types or non-system (TODO)
+                                if (i == null || i.GetType().IsValueType || i.GetType().FullName.StartsWith("System."))
                                 {
-                                    var iw2 = i.AsInfraWrapped();
+                                    tw.WriteValue(i);
+                                }
+                                else
+                                {
+                                    if ((mode & SerializationMode.SingleLevel) == 0)
+                                    {
+                                        var iw2 = i.AsInfraWrapped();
 
-                                    if (iw2 != null)
-                                    {
-                                        SaveContents(tw, iw2, nextmode, visits);
-                                    }
-                                    else
-                                    {
-                                        if (i.GetType().IsSerializable)
+                                        if (iw2 != null)
                                         {
-                                            tw.WriteValue(i);
+                                            SaveContents(tw, iw2, nextmode, visits);
+                                        }
+                                        else
+                                        {
+                                            if (i.GetType().IsSerializable)
+                                            {
+                                                tw.WriteValue(i);
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        tw.WriteEndArray();
+                            tw.WriteEndArray();
+                        }
                     }
                     else
                     {
@@ -394,9 +401,7 @@ namespace CodexMicroORM.Core.Services
                 Parallel.ForEach(av, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (kvp, pls) =>
                 {
                     // If it's a tracked list, recurse each item
-                    var asEnum = kvp.Value as IEnumerable;
-
-                    if (asEnum != null)
+                    if (kvp.Value is IEnumerable asEnum)
                     {
                         var sValEnum = asEnum.GetEnumerator();
 
@@ -439,11 +444,11 @@ namespace CodexMicroORM.Core.Services
             return false;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
         {
         }
 
-        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object replaced, ServiceScope ss, bool isNew)
+        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object? replaced, ServiceScope ss, bool isNew)
         {
             if ((replaced ?? o) is INotifyPropertyChanged)
             {
@@ -455,7 +460,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        IList<Type> ICEFService.RequiredServices()
+        IList<Type>? ICEFService.RequiredServices()
         {
             // TODO - verify this is ok! I see no reason to hold this dependency at this point.
             return null;

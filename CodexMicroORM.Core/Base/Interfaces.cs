@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using CodexMicroORM.Core.Services;
 using Newtonsoft.Json;
 using System;
@@ -33,16 +34,16 @@ namespace CodexMicroORM.Core
     public interface ICEFService
     {
         // Identifies services that this service relies on
-        IList<Type> RequiredServices();
+        IList<Type>? RequiredServices();
 
         // Identifies the type of state object this service needs, if any
-        Type IdentifyStateType(object o, ServiceScope ss, bool isNew);
+        Type? IdentifyStateType(object o, ServiceScope ss, bool isNew);
 
         // Main purpose: will observe replacements having taken place, from these can determine infra wrapping needs
-        WrappingSupport IdentifyInfraNeeds(object o, object replaced, ServiceScope ss, bool isNew);
+        WrappingSupport IdentifyInfraNeeds(object o, object? replaced, ServiceScope ss, bool isNew);
 
         // Main purposes: all infra wrappers are now in place, can complete init
-        void FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate);
+        void FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate);
 
         void Disposing(ServiceScope ss);
     }
@@ -54,25 +55,26 @@ namespace CodexMicroORM.Core
 
     public interface IDBProvider
     {
-        IDBProviderConnection CreateOpenConnection(string config, bool transactional, string connStringOverride, int? timeoutOverride);
+        IDBProviderConnection CreateOpenConnection(string config, bool transactional, string? connStringOverride, int? timeoutOverride);
 
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> DeleteRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> InsertRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
-        IEnumerable<(ICEFInfraWrapper row, string msg, int status)> UpdateRows(ConnectionScope conn, IEnumerable<(int level, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows)> rows, DBSaveSettings settings);
+        // Note: we've changed the interface such that these 3 calls *assume* ordering has been pre-applied (we no longer pass in level as this induces more passes over the row data than is necessary)
+        IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> DeleteRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, DBSaveSettings settings);
+        IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> InsertRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, bool isLeaf, DBSaveSettings settings);
+        IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> UpdateRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, DBSaveSettings settings);
 
         IEnumerable<T> RetrieveAll<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap) where T : class, new();
         IEnumerable<T> RetrieveByKey<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, object[] key) where T : class, new();
-        IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback cc, object[] parms) where T : class, new();
+        IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, object?[] parms) where T : class, new();
 
         void ExecuteRaw(ConnectionScope conn, string cmdText, bool doThrow = true, bool stopOnError = true);
         T ExecuteScalar<T>(ConnectionScope conn, string cmdText);
 
-        IEnumerable<(string name, object value)> ExecuteNoResultSet(ConnectionScope conn, System.Data.CommandType cmdType, string cmdText, params object[] parms);
+        IEnumerable<(string name, object? value)>? ExecuteNoResultSet(ConnectionScope conn, System.Data.CommandType cmdType, string cmdText, params object?[] parms);
     }
 
     public interface ICEFStorageNaming
     {
-        string EntityPersistedName { get; set; }
+        string? EntityPersistedName { get; set; }
     }
 
     public interface IDBProviderConnection : IDisposable
@@ -88,19 +90,21 @@ namespace CodexMicroORM.Core
         void IncrementWorking();
 
         void DecrementWorking();
+
+        bool IsOpen();
     }
 
     public interface IDBProviderCommand
     {
-        IDictionary<string, object> GetParameterValues();
+        IDictionary<string, object?> GetParameterValues();
 
-        IEnumerable<Dictionary<string, (object value, Type type)>> ExecuteReadRows();
+        IEnumerable<Dictionary<string, (object? value, Type type)>> ExecuteReadRows();
 
         IDBProviderCommand ExecuteNoResultSet();
 
         IDictionary<string, Type> GetResultSetShape();
 
-        IEnumerable<(string name, object value)> GetOutputValues();
+        IEnumerable<(string name, object? value)> GetOutputValues();
     }
 
     public interface ICEFDataHost : ICEFService
@@ -113,9 +117,9 @@ namespace CodexMicroORM.Core
 
         void AddCompletionException(Exception ex);
 
-        IList<(object item, string message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings);
+        IList<(object item, string? message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings);
 
-        void CopyPropertyGroupValues(object o);
+        void CopyPropertyGroupValues(object? o);
 
         IEnumerable<string> GetPropertyGroupFields(Type t);
 
@@ -129,17 +133,17 @@ namespace CodexMicroORM.Core
 
         T ExecuteScalar<T>(string cmdText);
 
-        void ExecuteNoResultSet(CommandType cmdType, string cmdText, params object[] args);
+        void ExecuteNoResultSet(CommandType cmdType, string cmdText, params object?[] args);
 
         IEnumerable<T> RetrieveAll<T>() where T : class, new();
 
         IEnumerable<T> RetrieveByKey<T>(params object[] key) where T : class, new();
 
-        IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback cc, params object[] parms) where T : class, new();
+        IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, params object?[] parms) where T : class, new();
 
-        string GetSchemaNameByType(Type bt);
+        string? GetSchemaNameByType(Type bt);
 
-        string GetEntityNameByType(Type bt, ICEFWrapper w);
+        string GetEntityNameByType(Type bt, ICEFWrapper? w);
     }
 
     public interface ICEFKeyHost : ICEFService
@@ -148,7 +152,7 @@ namespace CodexMicroORM.Core
 
         void UnlinkChildFromParentContainer(ServiceScope ss, string parentTypeName, string parentFieldName, object parContainer, object child);
 
-        void UpdateBoundKeys(ServiceScope.TrackedObject to, ServiceScope ss, string fieldName, object oval, object nval);
+        void UpdateBoundKeys(ServiceScope.TrackedObject to, ServiceScope ss, string fieldName, object? oval, object? nval);
 
         void WireDependents(object o, object replaced, ServiceScope ss, ICEFList list, bool? objectModelOnly);
 
@@ -156,13 +160,13 @@ namespace CodexMicroORM.Core
 
         IEnumerable<object> GetParentObjects(ServiceScope ss, object o, RelationTypes types = RelationTypes.None);
 
-        List<(int ordinal, string name, object value)> GetKeyValues(object o, IEnumerable<string> cols = null);
+        List<(int ordinal, string name, object? value)> GetKeyValues(object o, IEnumerable<string>? cols = null);
 
         int GetObjectNestLevel(object o);
 
         IEnumerable<TypeChildRelationship> GetRelationsForChild(Type childType);
 
-        object RemoveFK(ServiceScope ss, TypeChildRelationship key, ServiceScope.TrackedObject parent, ServiceScope.TrackedObject child, INotifyPropertyChanged parentWrapped, bool nullifyChild);
+        object? RemoveFK(ServiceScope ss, TypeChildRelationship key, ServiceScope.TrackedObject parent, ServiceScope.TrackedObject child, INotifyPropertyChanged? parentWrapped, bool nullifyChild);
     }
 
     public interface ICEFPersistenceHost : ICEFService
@@ -176,21 +180,21 @@ namespace CodexMicroORM.Core
     {
         void Shutdown();
 
-        string Start();
+        string? Start();
 
-        T GetByIdentity<T>(object[] key) where T : class, new();
+        T? GetByIdentity<T>(object[] key) where T : class, new();
 
-        IEnumerable<T> GetByQuery<T>(string text, object[] parms) where T : class, new();
+        IEnumerable<T>? GetByQuery<T>(string text, object?[]? parms) where T : class, new();
 
-        void AddByIdentity<T>(T o, object[] key = null, int? expirySeconds = null) where T : class, new();
+        void AddByIdentity<T>(T o, object[]? key = null, int? expirySeconds = null) where T : class, new();
 
-        void AddByQuery<T>(IEnumerable<T> list, string text, object[] parms = null, int? expirySeconds = null, CacheBehavior? mode = null) where T : class, new();
+        void AddByQuery<T>(IEnumerable<T> list, string text, object?[]? parms = null, int? expirySeconds = null, CacheBehavior? mode = null) where T : class, new();
 
         void InvalidateForByQuery(Type t, bool typeSpecific);
 
-        void InvalidateIdentityEntry(Type baseType, IDictionary<string, object> props);
+        void InvalidateIdentityEntry(Type baseType, IDictionary<string, object?> props);
 
-        void UpdateByIdentity(Type baseType, IDictionary<string, object> props, object[] key = null, int? expirySeconds = null);
+        void UpdateByIdentity(Type baseType, IDictionary<string, object?> props, object[]? key = null, int? expirySeconds = null);
 
         bool IsCacheBusy();
 
@@ -208,9 +212,9 @@ namespace CodexMicroORM.Core
 
     public interface ICEFValidationHost : ICEFService
     {
-        IEnumerable<(ValidationErrorCode error, string message)> GetObjectMessage<T>(T o) where T : class;
+        IEnumerable<(ValidationErrorCode error, string? message)> GetObjectMessage<T>(T? o) where T : class;
 
-        IEnumerable<(ValidationErrorCode error, string message)> GetPropertyMessages<T>(T o, string propName) where T : class;
+        IEnumerable<(ValidationErrorCode error, string? message)> GetPropertyMessages<T>(T? o, string propName) where T : class;
     }
 
     public interface ICEFAuditHost : ICEFService
@@ -229,19 +233,19 @@ namespace CodexMicroORM.Core
             set;
         }
 
-        string IsDeletedField
+        string? IsDeletedField
         {
             get;
             set;
         }
 
-        string LastUpdatedByField
+        string? LastUpdatedByField
         {
             get;
             set;
         }
 
-        string LastUpdatedDateField
+        string? LastUpdatedDateField
         {
             get;
             set;
@@ -293,17 +297,19 @@ namespace CodexMicroORM.Core
 
         void SetRowState(ObjectState rs);
 
-        IDictionary<string, object> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false);
+        IDictionary<string, object?> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false);
+
+        IDictionary<string, object?> BagValuesOnly();
 
         IDictionary<string, Type> GetAllPreferredTypes(bool onlyWriteable = false, bool onlySerializable = false);
 
-        bool SetValue(string propName, object value, Type preferredType = null, bool isRequired = false);
+        bool SetValue(string propName, object? value, Type? preferredType = null, bool isRequired = false);
 
-        object GetValue(string propName);
+        object? GetValue(string propName);
 
-        object GetOriginalValue(string propName, bool throwIfNotSet);
+        object? GetOriginalValue(string propName, bool throwIfNotSet);
 
-        void SetOriginalValue(string propName, object value);
+        void SetOriginalValue(string propName, object? value);
 
         void AcceptChanges();
 
@@ -325,7 +331,7 @@ namespace CodexMicroORM.Core
     {
         bool AddWrappedItem(object o, bool allowLinking = true);
 
-        void Initialize(ServiceScope ss, object parentContainer, string parentTypeName, string parentFieldName);
+        void Initialize(ServiceScope ss, object? parentContainer, string? parentTypeName, string? parentFieldName);
 
         void SuspendNotifications(bool stop);
 

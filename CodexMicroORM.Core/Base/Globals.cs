@@ -37,6 +37,7 @@ namespace CodexMicroORM.Core
         private static Type _defaultValidationServiceType = typeof(ValidationService);
         private static Type _entitySetType = typeof(EntitySet<>);
         private static bool _useGlobalServiceScope = false;
+        private static HashSet<string> _globalPropExclDirtyCheck = new HashSet<string>();
 
         [ThreadStatic]
         private static string _currentThreadUser = null;
@@ -115,7 +116,7 @@ namespace CodexMicroORM.Core
             {
                 if (value != null && value.GetInterface(typeof(ICEFPersistenceHost).Name) == null)
                 {
-                    throw new ArgumentException("Type does not implement ICEFPersistenceHost.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFPersistenceHost.");
                 }
 
                 _defaultPCTServiceType = value;
@@ -132,7 +133,7 @@ namespace CodexMicroORM.Core
             {
                 if (value != null && value.GetInterface(typeof(ICEFAuditHost).Name) == null)
                 {
-                    throw new ArgumentException("Type does not implement ICEFAuditHost.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFAuditHost.");
                 }
 
                 _defaultAuditServiceType = value;
@@ -149,7 +150,7 @@ namespace CodexMicroORM.Core
             {
                 if (value != null && value.GetInterface(typeof(ICEFDataHost).Name) == null)
                 {
-                    throw new ArgumentException("Type does not implement ICEFDataHost.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFDataHost.");
                 }
 
                 _defaultDBServiceType = value;
@@ -166,7 +167,7 @@ namespace CodexMicroORM.Core
             {
                 if (value != null && value.GetInterface(typeof(ICEFValidationHost).Name) == null)
                 {
-                    throw new ArgumentException("Type does not implement ICEFValidationHost.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFValidationHost.");
                 }
 
                 _defaultValidationServiceType = value;
@@ -183,7 +184,7 @@ namespace CodexMicroORM.Core
             {
                 if (value != null && value.GetInterface(typeof(ICEFKeyHost).Name) == null)
                 {
-                    throw new ArgumentException("Type does not implement ICEFKeyHost.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFKeyHost.");
                 }
 
                 _defaultKeyServiceType = value;
@@ -203,12 +204,12 @@ namespace CodexMicroORM.Core
             {
                 if (value == null)
                 {
-                    throw new ArgumentNullException("PreferredEntityType is required.");
+                    throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(PreferredEntitySetType));
                 }
 
                 if (!typeof(ICEFList).IsAssignableFrom(value))
                 {
-                    throw new ArgumentException("Value does not implement ICEFList.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Value does not implement ICEFList.");
                 }
 
                 _entitySetType = value;
@@ -248,6 +249,12 @@ namespace CodexMicroORM.Core
             set;
         } = PropertyDateStorage.None;
 
+        public static bool DoCopyParseProperties
+        {
+            get;
+            set;
+        } = true;
+
         public static bool UseGlobalServiceScope
         {
             get
@@ -261,7 +268,7 @@ namespace CodexMicroORM.Core
                     var settings = GlobalServiceScopeSettings ?? new ServiceScopeSettings();
                     settings.CanDispose = false;
 
-                    CEF._globalServiceScope = CEF.NewServiceScope(settings);
+                    CEF.InternalGlobalServiceScope = CEF.NewServiceScope(settings);
                     _useGlobalServiceScope = true;
                 }
             }
@@ -533,6 +540,20 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = typeof(int);
+
+
+        public static HashSet<string> GlobalPropertiesExcludedFromDirtyCheck
+        {
+            get
+            {
+                return _globalPropExclDirtyCheck;
+            }
+        }
+
+        public static void AddGlobalPropertyExcludedFromDirtyCheck(string propName)
+        {
+            _globalPropExclDirtyCheck.Add(propName);
+        }
 
         public static bool? ByKeyRetrievalChecksScopeFirst
         {

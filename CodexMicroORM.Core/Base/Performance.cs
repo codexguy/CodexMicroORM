@@ -19,6 +19,7 @@ Major Changes:
 12/2017    0.2.1   Initial release (Joel Champagne)
 4/2018     0.5.3   Performance mods
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -31,9 +32,9 @@ namespace CodexMicroORM.Core.Helper
 {
     internal struct DelegateCacheKey
     {
-        private Type _type;
-        private string _prop;
-        private int _prophash;
+        private readonly Type _type;
+        private readonly string _prop;
+        private readonly int _prophash;
 
         public DelegateCacheKey(Type type, string prop)
         {
@@ -76,12 +77,12 @@ namespace CodexMicroORM.Core.Helper
     /// </summary>
     public static class CEFHelper
     {
-        private static RWLockInfo _lock = new RWLockInfo();
-        private static RWLockInfo _lockAllProp = new RWLockInfo();
-        private static Dictionary<DelegateCacheKey, Func<object, object>> _getterCache = new Dictionary<DelegateCacheKey, Func<object, object>>(Globals.DefaultDictionaryCapacity);
-        private static Dictionary<DelegateCacheKey, Action<object, object>> _setterCache = new Dictionary<DelegateCacheKey, Action<object, object>>(Globals.DefaultDictionaryCapacity);
-        private static ConcurrentDictionary<Type, ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>> _allProps = new ConcurrentDictionary<Type, ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static Dictionary<Type, Func<object>> _constructorCache = new Dictionary<Type, Func<object>>(Globals.DefaultDictionaryCapacity);
+        private readonly static RWLockInfo _lock = new RWLockInfo();
+        private readonly static RWLockInfo _lockAllProp = new RWLockInfo();
+        private readonly static Dictionary<DelegateCacheKey, Func<object, object?>?> _getterCache = new Dictionary<DelegateCacheKey, Func<object, object?>?>(Globals.DefaultDictionaryCapacity);
+        private readonly static Dictionary<DelegateCacheKey, Action<object, object?>?> _setterCache = new Dictionary<DelegateCacheKey, Action<object, object?>?>(Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>> _allProps = new ConcurrentDictionary<Type, ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static Dictionary<Type, Func<object>> _constructorCache = new Dictionary<Type, Func<object>>(Globals.DefaultDictionaryCapacity);
 
         public static void FlushCaches()
         {
@@ -123,7 +124,7 @@ namespace CodexMicroORM.Core.Helper
             return Activator.CreateInstance(t);
         }
 
-        public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this Type t, bool? canRead = null, bool? canWrite = null, string name = null)
+        public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this Type t, bool? canRead = null, bool? canWrite = null, string? name = null)
         {
             if (!_allProps.TryGetValue(t, out var pnmap))
             {
@@ -144,7 +145,7 @@ namespace CodexMicroORM.Core.Helper
                     return new(string name, Type type, bool readable, bool writeable)[] { (name, info.type, info.readable, info.writeable) };
                 }
 
-                return new(string name, Type type, bool readable, bool writeable)[] { };
+                return Array.Empty<(string name, Type type, bool readable, bool writeable)>();
             }
             else
             {
@@ -155,16 +156,16 @@ namespace CodexMicroORM.Core.Helper
             }
         }
 
-        public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this object o, bool? canRead = null, bool? canWrite = null, string name = null)
+        public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this object o, bool? canRead = null, bool? canWrite = null, string? name = null)
         {
-            return FastGetAllProperties(o?.GetType() ?? throw new ArgumentNullException("o"), canRead, canWrite, name);
+            return FastGetAllProperties(o?.GetType() ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(o)), canRead, canWrite, name);
         }
 
-        public static (bool readable, object value) FastPropertyReadableWithValue(this object o, string propName)
+        public static (bool readable, object? value) FastPropertyReadableWithValue(this object o, string propName)
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_getterCache.TryGetValue(key, out Func<object, object> call))
+            if (_getterCache.TryGetValue(key, out Func<object, object?>? call))
             {
                 return (call != null, call == null ? null : call(o));
             }
@@ -199,7 +200,7 @@ namespace CodexMicroORM.Core.Helper
                 }
                 catch (TargetInvocationException)
                 {
-                    return (true, o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, new object[] { }));
+                    return (true, o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, Array.Empty<object>()));
                 }
             }
             catch (Exception)
@@ -213,11 +214,11 @@ namespace CodexMicroORM.Core.Helper
             }
         }
 
-        public static (bool readable, object value) FastPropertyReadableWithValueNoLock(this object o, string propName)
+        public static (bool readable, object? value) FastPropertyReadableWithValueNoLock(this object o, string propName)
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_getterCache.TryGetValue(key, out Func<object, object> call))
+            if (_getterCache.TryGetValue(key, out Func<object, object?>? call))
             {
                 return (call != null, call == null ? null : call(o));
             }
@@ -244,7 +245,7 @@ namespace CodexMicroORM.Core.Helper
                 }
                 catch (TargetInvocationException)
                 {
-                    return (true, o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, new object[] { }));
+                    return (true, o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, Array.Empty<object>()));
                 }
             }
             catch (Exception)
@@ -263,7 +264,7 @@ namespace CodexMicroORM.Core.Helper
 
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_getterCache.TryGetValue(key, out Func<object, object> call))
+            if (_getterCache.TryGetValue(key, out Func<object, object?>? call))
             {
                 return call != null;
             }
@@ -315,7 +316,7 @@ namespace CodexMicroORM.Core.Helper
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_getterCache.TryGetValue(key, out Func<object, object> call))
+            if (_getterCache.TryGetValue(key, out Func<object, object?>? call))
             {
                 return call != null;
             }
@@ -352,13 +353,13 @@ namespace CodexMicroORM.Core.Helper
             }
         }
 
-        public static object FastGetValue(this object o, string propName)
+        public static object? FastGetValue(this object o, string propName)
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_getterCache.TryGetValue(key, out Func<object, object> call))
+            if (_getterCache.TryGetValue(key, out Func<object, object?>? call))
             {
-                return call(o);
+                return call != null ? call(o) : null;
             }
 
             var pi = o.GetType().GetProperty(propName);
@@ -378,17 +379,17 @@ namespace CodexMicroORM.Core.Helper
             }
             catch (TargetInvocationException)
             {
-                return o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, new object[] { });
+                return o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, Array.Empty<object>());
             }
         }
 
-        public static object FastGetValueNoLock(this object o, string propName)
+        public static object? FastGetValueNoLock(this object o, string propName)
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_getterCache.TryGetValue(key, out Func<object, object> call))
+            if (_getterCache.TryGetValue(key, out Func<object, object?>? call))
             {
-                return call(o);
+                return call != null ? call(o) : null;
             }
 
             var pi = o.GetType().GetProperty(propName);
@@ -404,11 +405,13 @@ namespace CodexMicroORM.Core.Helper
             catch (TargetInvocationException)
             {
                 // Fallback - to investigate some cases where the above can fail (todo)
-                return o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, new object[] { });
+                return o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, Array.Empty<object>());
             }
         }
 
-        private static Func<object, object> InternalGet<TTarget, TReturn>(MethodInfo method)
+#pragma warning disable IDE0051 // Remove unused private members
+        private static Func<object, object?> InternalGet<TTarget, TReturn>(MethodInfo method)
+#pragma warning restore IDE0051 // Remove unused private members
         {
             var func = (Func<TTarget, TReturn>)Delegate.CreateDelegate(typeof(Func<TTarget, TReturn>), method);
             return (object target) => func((TTarget)target);
@@ -418,7 +421,7 @@ namespace CodexMicroORM.Core.Helper
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_setterCache.TryGetValue(key, out Action<object, object> call))
+            if (_setterCache.TryGetValue(key, out Action<object, object?>? call))
             {
                 return call != null;
             }
@@ -442,7 +445,7 @@ namespace CodexMicroORM.Core.Helper
 
                 try
                 {
-                    var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+                    var asCast = (Action<object, object?>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
                     using (new WriterLock(_lock))
                     {
@@ -470,7 +473,7 @@ namespace CodexMicroORM.Core.Helper
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_setterCache.TryGetValue(key, out Action<object, object> call))
+            if (_setterCache.TryGetValue(key, out Action<object, object?>? call))
             {
                 return call != null;
             }
@@ -490,7 +493,7 @@ namespace CodexMicroORM.Core.Helper
 
                 try
                 {
-                    var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+                    var asCast = (Action<object, object?>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
                     _setterCache[key] = asCast;
                 }
@@ -507,13 +510,13 @@ namespace CodexMicroORM.Core.Helper
             }
         }
 
-        public static void FastSetValue(this object o, string propName, object value)
+        public static void FastSetValue(this object o, string propName, object? value)
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_setterCache.TryGetValue(key, out Action<object, object> call))
+            if (_setterCache.TryGetValue(key, out Action<object, object?>? call))
             {
-                call(o, value);
+                call?.Invoke(o, value);
                 return;
             }
 
@@ -523,7 +526,7 @@ namespace CodexMicroORM.Core.Helper
 
             try
             {
-                var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+                var asCast = (Action<object, object?>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
                 using (new WriterLock(_lock))
                 {
@@ -534,17 +537,17 @@ namespace CodexMicroORM.Core.Helper
             }
             catch (TargetInvocationException)
             {
-                o.GetType().GetProperty(propName).GetSetMethod().Invoke(o, new object[] { value });
+                o.GetType().GetProperty(propName).GetSetMethod().Invoke(o, new object?[] { value });
             }
         }
 
-        public static void FastSetValueNoLock(this object o, string propName, object value)
+        public static void FastSetValueNoLock(this object o, string propName, object? value)
         {
             var key = new DelegateCacheKey(o.GetType(), propName);
 
-            if (_setterCache.TryGetValue(key, out Action<object, object> call))
+            if (_setterCache.TryGetValue(key, out Action<object, object?>? call))
             {
-                call(o, value);
+                call?.Invoke(o, value);
                 return;
             }
 
@@ -554,7 +557,7 @@ namespace CodexMicroORM.Core.Helper
 
             try
             {
-                var asCast = (Action<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+                var asCast = (Action<object, object?>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
 
                 _setterCache[key] = asCast;
 
@@ -562,14 +565,16 @@ namespace CodexMicroORM.Core.Helper
             }
             catch (TargetInvocationException)
             {
-                o.GetType().GetProperty(propName).GetSetMethod().Invoke(o, new object[] { value });
+                o.GetType().GetProperty(propName).GetSetMethod().Invoke(o, new object?[] { value });
             }
         }
 
-        private static Action<object, object> InternalSet<TTarget, TProp>(MethodInfo method)
+#pragma warning disable IDE0051 // Remove unused private members
+        private static Action<object, object?> InternalSet<TTarget, TProp>(MethodInfo method)
+#pragma warning restore IDE0051 // Remove unused private members
         {
             var func = (Action<TTarget, TProp>)Delegate.CreateDelegate(typeof(Action<TTarget, TProp>), method);
-            return (object target, object value) => func((TTarget)target, (TProp)value);
+            return (object target, object? value) => func((TTarget)target, (TProp)value!);
         }
     }
 }

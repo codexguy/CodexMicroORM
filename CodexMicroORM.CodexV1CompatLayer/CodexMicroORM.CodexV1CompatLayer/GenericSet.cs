@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 06/2018    0.7     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using CodexMicroORM.Core;
 using CodexMicroORM.Core.Services;
 using System;
@@ -25,7 +26,7 @@ namespace CodeXFramework.BaseEntity
 {
     public class GenericSet : EntitySet<GenericSetRow>
     {
-        public int RetrieveByQuery(string procName, params object[] args)
+        public int RetrieveByQuery(string procName, params object?[] args)
         {
             this.DBRetrieveByQuery(procName, args);
             return this.Count;

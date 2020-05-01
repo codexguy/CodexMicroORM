@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 06/2018    0.7     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Text;

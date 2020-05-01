@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Data.SqlClient;
 using System.Threading;
@@ -29,7 +30,7 @@ namespace CodexMicroORM.Providers
     public class MSSQLConnection : IDBProviderConnection
     {
 #if DEBUG
-        private string _id = Guid.NewGuid().ToString();
+        private readonly string _id = Guid.NewGuid().ToString();
 
         public string ID()
         {
@@ -43,9 +44,9 @@ namespace CodexMicroORM.Providers
 #endif
 
         private int _working = 0;
-        private object _worklock = new object();
+        private readonly object _worklock = new object();
 
-        internal MSSQLConnection(SqlConnection conn, SqlTransaction tx)
+        internal MSSQLConnection(SqlConnection conn, SqlTransaction? tx)
         {
             CurrentConnection = conn;
             CurrentTransaction = tx;
@@ -70,6 +71,11 @@ namespace CodexMicroORM.Providers
             }
         }
 
+        public bool IsOpen()
+        {
+            return CurrentConnection != null && CurrentConnection.State == System.Data.ConnectionState.Open;
+        }
+
         public bool IsWorking()
         {
             lock (_worklock)
@@ -78,9 +84,9 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        public SqlConnection CurrentConnection { get; private set; }
+        public SqlConnection? CurrentConnection { get; private set; }
 
-        public SqlTransaction CurrentTransaction { get; private set; }
+        public SqlTransaction? CurrentTransaction { get; private set; }
 
         public void Commit()
         {
@@ -117,8 +123,6 @@ namespace CodexMicroORM.Providers
                     CurrentConnection = null;
                 }
             }
-
-            //CEFDebug.WriteInfo($"Dispose connection: " + _id);
         }
 
         public void Dispose()

@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -30,15 +31,20 @@ namespace CodexMicroORM.Core.Services
     [Serializable]
     public class ConnectionScope : IDisposable
     {
-        private readonly IDBProvider _provider = null;
-        private IDBProviderConnection _conn = null;
+        private IDBProviderConnection? _conn = null;
         private bool _canCommit = false;
-        private readonly string _connStringOverride = null;
-        //private static object _sync = new object();
 
-        public ConnectionScope(bool tx = true, string connStringOverride = null, int? timeoutOverride = null)
+        [NonSerialized]
+        private readonly string? _connStringOverride = null;
+
+        public ConnectionScope(bool tx = true, string? connStringOverride = null, int? timeoutOverride = null)
         {
-            _provider = DBService.DefaultProvider;
+            if (DBService.DefaultProvider == null)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.MissingInit, "Default data provider not set.");
+            }
+
+            Provider = DBService.DefaultProvider;
             _connStringOverride = connStringOverride;
             TimeoutOverride = timeoutOverride;
             IsTransactional = tx;
@@ -47,14 +53,15 @@ namespace CodexMicroORM.Core.Services
         #region "Properties"
 
 #if DEBUG
+        [NonSerialized]
         public string ID = Guid.NewGuid().ToString();
 #endif
 
-        public IDictionary<string, object> LastOutputVariables
+        public IDictionary<string, object?> LastOutputVariables
         {
             get;
             private set;
-        } = new Dictionary<string, object>();
+        } = new Dictionary<string, object?>();
 
         public bool IsStandalone
         {
@@ -74,7 +81,7 @@ namespace CodexMicroORM.Core.Services
             internal set;
         } = null;
 
-        public IDBProvider Provider => _provider;
+        public IDBProvider Provider { get; }
 
         public bool ContinueOnError
         {
@@ -88,11 +95,11 @@ namespace CodexMicroORM.Core.Services
             set;
         } = new HashSet<ICEFInfraWrapper>();
 
-        internal ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object value)> data)> ToRollbackList
+        internal ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object? value)> data)> ToRollbackList
         {
             get;
             set;
-        } = new ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object value)> data)>();
+        } = new ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object? value)> data)>();
 
         public IDBProviderConnection CurrentConnection
         {
@@ -100,7 +107,7 @@ namespace CodexMicroORM.Core.Services
             {
                 lock (this)
                 {
-                    if (_conn != null)
+                    if (_conn != null && _conn.IsOpen())
                     {
                         return _conn;
                     }
@@ -143,7 +150,7 @@ namespace CodexMicroORM.Core.Services
         {
             Disposing?.Invoke();
 
-            IDBProviderConnection conn = null;
+            IDBProviderConnection? conn = null;
 
             lock (this)
             {
@@ -164,7 +171,7 @@ namespace CodexMicroORM.Core.Services
                     else
                     {
                         conn.Rollback();
-                        ToAcceptList = null;
+                        ToAcceptList = null!;
                         isRB = true;
                     }
                 }
@@ -176,7 +183,7 @@ namespace CodexMicroORM.Core.Services
                         r.AcceptChanges();
                     }
 
-                    ToAcceptList = null;
+                    ToAcceptList = null!;
                 }
 
                 if (isRB && ToRollbackList != null)
@@ -205,13 +212,13 @@ namespace CodexMicroORM.Core.Services
             Dispose(true);
         }
 
-        public Action Disposed
+        public Action? Disposed
         {
             get;
             set;
         }
 
-        public Action Disposing
+        public Action? Disposing
         {
             get;
             set;

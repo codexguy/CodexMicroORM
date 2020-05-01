@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
@@ -35,53 +36,56 @@ namespace CodexMicroORM.Core.Services
 
         private const int PARALLEL_THRESHOLD_FOR_PARSE = 100;
 
-        private static IDBProvider _defaultProvider;
-
         // Can declare what DB schemas any object belongs to (if not expressed in GetSchemaName())
-        private static ConcurrentDictionary<Type, string> _schemaTypeMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, string> _schemaTypeMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Providers can be set, by type
-        private static ConcurrentDictionary<Type, IDBProvider> _providerTypeMap = new ConcurrentDictionary<Type, IDBProvider>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, IDBProvider> _providerTypeMap = new ConcurrentDictionary<Type, IDBProvider>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Field names can differ from OM and storage
-        private static ConcurrentDictionary<Type, ConcurrentDictionary<string, string>> _typeFieldNameMap = new ConcurrentDictionary<Type, ConcurrentDictionary<string, string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, ConcurrentDictionary<string, string>> _typeFieldNameMap = new ConcurrentDictionary<Type, ConcurrentDictionary<string, string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Entity names can differ from OM and storage
-        private static ConcurrentDictionary<Type, string> _typeEntityNameMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, string> _typeEntityNameMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Fields can have defaults (can match simple SQL DEFAULTs, for example)
-        private static ConcurrentDictionary<Type, List<(string prop, object value, object def, Type proptype)>> _typePropDefaults = new ConcurrentDictionary<Type, List<(string prop, object value, object def, Type proptype)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, List<(string prop, object? value, object? def, Type proptype)>> _typePropDefaults = new ConcurrentDictionary<Type, List<(string prop, object? value, object? def, Type proptype)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Property values can be "copied" from contained objects for DB persistence
-        private static ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>> _typePropGroups = new ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>> _typePropGroups = new ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Properties on an object can be saved to a parent 1:0/1 in the DB
-        private static ConcurrentDictionary<Type, (string schema, string name)> _typeParentSave = new ConcurrentDictionary<Type, (string schema, string name)>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, (string? schema, string name)> _typeParentSave = new ConcurrentDictionary<Type, (string? schema, string name)>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         #endregion
 
         #region "Private state"
 
-        private ConcurrentDictionary<Type, Func<object[], IEnumerable>> _retrieveByKeyCache = new ConcurrentDictionary<Type, Func<object[], IEnumerable>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly ConcurrentDictionary<Type, Func<object[], IEnumerable>> _retrieveByKeyCache = new ConcurrentDictionary<Type, Func<object[], IEnumerable>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         #endregion
 
         #region "Constructors"
 
-        public DBService()
+        private DBService()
         {
         }
 
-        public DBService(IDBProvider defaultProvider)
+        public static DBService Create(IDBProvider defaultProvider)
         {
-            _defaultProvider = defaultProvider;
+            DefaultProvider = defaultProvider;
+            return new DBService();
         }
 
         #endregion
 
         #region "Static methods"
 
-        public static IDBProvider DefaultProvider => _defaultProvider;
+        public static IDBProvider? DefaultProvider
+        {
+            get;
+            set;
+        }
 
         public static void RegisterSchema<T>(string schema)
         {
@@ -89,7 +93,7 @@ namespace CodexMicroORM.Core.Services
             _schemaTypeMap[typeof(T)] = schema;
         }
 
-        public static void RegisterOnSaveParentSave<T>(string name, string schema = null) where T : class
+        public static void RegisterOnSaveParentSave<T>(string name, string? schema = null) where T : class
         {
             CEF.RegisterForType<T>(new DBService());
             _typeParentSave[typeof(T)] = (schema, name);
@@ -114,11 +118,11 @@ namespace CodexMicroORM.Core.Services
         {
             CEF.RegisterForType<T>(new DBService());
 
-            _typePropDefaults.TryGetValue(typeof(T), out List<(string prop, object value, object def, Type proptype)> vl);
+            _typePropDefaults.TryGetValue(typeof(T), out var vl);
 
             if (vl == null)
             {
-                vl = new List<(string prop, object value, object def, Type proptype)>();
+                vl = new List<(string prop, object? value, object? def, Type proptype)>();
             }
 
             vl.Add((propName, defaultValue, default(V), typeof(V)));
@@ -148,28 +152,23 @@ namespace CodexMicroORM.Core.Services
 
         #endregion
 
-        public IDBProvider GetProviderForType(Type bt)
+        public static IDBProvider GetProviderForType(Type bt)
         {
             if (_providerTypeMap.TryGetValue(bt, out IDBProvider prov))
             {
                 return prov;
             }
 
-            if (_defaultProvider == null)
+            if (DefaultProvider == null)
             {
-                throw new CEFInvalidOperationException($"Could not find a default data provider based on type {bt.Name}.");
+                throw new CEFInvalidStateException(InvalidStateType.MissingService, $"Could not find a default data provider based on type {bt.Name}.");
             }
 
-            return _defaultProvider;
+            return DefaultProvider;
         }
 
-        public string GetEntityNameByType(Type bt, ICEFWrapper w)
+        public string GetEntityNameByType(Type bt, ICEFWrapper? w)
         {
-            if (bt == null)
-            {
-                return null;
-            }
-
             if (w != null && _typeEntityNameMap.TryGetValue(w.GetBaseType(), out string name))
             {
                 return name;
@@ -188,7 +187,7 @@ namespace CodexMicroORM.Core.Services
             return bt.Name;
         }
 
-        public string GetSchemaNameByType(Type bt)
+        public string? GetSchemaNameByType(Type bt)
         {
             if (_schemaTypeMap.TryGetValue(bt, out string sn))
             {
@@ -221,17 +220,21 @@ namespace CodexMicroORM.Core.Services
             if (_typeFieldNameMap.TryGetValue(bt, out ConcurrentDictionary<string, string> vl))
             {
                 var iw = o.AsInfraWrapped();
-                var set = false;
 
-                foreach (var v in (from a in vl where iw.HasProperty(a.Key) select a))
+                if (iw != null)
                 {
-                    iw.SetValue(v.Value, iw.GetValue(v.Key));
-                    set = true;
-                }
+                    var set = false;
 
-                if (set)
-                {
-                    iw.AcceptChanges();
+                    foreach (var v in (from a in vl where iw.HasProperty(a.Key) select a))
+                    {
+                        iw.SetValue(v.Value, iw.GetValue(v.Key));
+                        set = true;
+                    }
+
+                    if (set)
+                    {
+                        iw.AcceptChanges();
+                    }
                 }
             }
         }
@@ -275,7 +278,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         var fn = string.Concat(prefix, pi.Name);
 
-                        if (iw.HasProperty(fn))
+                        if (iw != null && iw.HasProperty(fn))
                         {
                             pv.FastSetValue(pi.Name, iw.GetValue(fn));
                             set = true;
@@ -285,7 +288,7 @@ namespace CodexMicroORM.Core.Services
 
                 if (set)
                 {
-                    iw.AcceptChanges();
+                    iw?.AcceptChanges();
                 }
             }
         }
@@ -298,36 +301,45 @@ namespace CodexMicroORM.Core.Services
             if (ks != null)
             {
                 var iw = o.AsInfraWrapped();
-                var set = false;
 
-                foreach (var k in ks.GetRelationsForChild(bt))
+                if (iw != null)
                 {
-                    // If we are missing the ID values (on CLR) but we do have a parent property...
-                    if (!string.IsNullOrEmpty(k.ParentPropertyName) && (from a in k.ChildRoleName ?? k.ParentKey where !o.FastPropertyReadable(a) && iw.HasProperty(a) select a).Any())
-                    {
-                        if (iw.GetValue(k.ParentPropertyName) == null)
-                        {
-                            // Do a retrieve by key on the parent type
-                            var parentSet = RetrieveByKeyNonGeneric(k.ParentType, (from a in k.ChildRoleName ?? k.ParentKey select iw.GetValue(a)).ToArray()).GetEnumerator();
+                    var set = false;
 
-                            if (parentSet.MoveNext())
+                    foreach (var k in ks.GetRelationsForChild(bt))
+                    {
+                        // If we are missing the ID values (on CLR) but we do have a parent property...
+                        if (!string.IsNullOrEmpty(k.ParentPropertyName) && (from a in k.ChildRoleName ?? k.ParentKey where !o.FastPropertyReadable(a) && iw.HasProperty(a) select a).Any())
+                        {
+                            if (iw.GetValue(k.ParentPropertyName) == null && k.ParentType != null)
                             {
-                                o.FastSetValue(k.ParentPropertyName, parentSet.Current);
-                                set = true;
+                                // Do a retrieve by key on the parent type
+                                var parentSet = RetrieveByKeyNonGeneric(k.ParentType, (from a in k.ChildRoleName ?? k.ParentKey select iw.GetValue(a)).ToArray()).GetEnumerator();
+
+                                if (parentSet.MoveNext())
+                                {
+                                    o.FastSetValue(k.ParentPropertyName, parentSet.Current);
+                                    set = true;
+                                }
                             }
                         }
                     }
-                }
 
-                if (set)
-                {
-                    iw.AcceptChanges();
+                    if (set)
+                    {
+                        iw.AcceptChanges();
+                    }
                 }
             }
         }
 
-        public void CopyPropertyGroupValues(object o)
+        public void CopyPropertyGroupValues(object? o)
         {
+            if (o == null)
+            {
+                return;
+            }
+
             if (_typePropGroups.TryGetValue(o.GetBaseType(), out List<(string prop, Type proptype, string prefix)> vl))
             {
                 var iw = o.AsInfraWrapped();
@@ -394,9 +406,14 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public void ExecuteRaw(ConnectionScope cs, string cmdText, bool doThrow = true, bool stopOnError = true)
+        public static void ExecuteRaw(ConnectionScope cs, string cmdText, bool doThrow = true, bool stopOnError = true)
         {
-            _defaultProvider.ExecuteRaw(cs, cmdText, doThrow, stopOnError);
+            if (DefaultProvider == null)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.MissingInit, "Data provider not set.");
+            }
+
+            DefaultProvider.ExecuteRaw(cs, cmdText, doThrow, stopOnError);
         }
 
         /// <summary>
@@ -406,12 +423,12 @@ namespace CodexMicroORM.Core.Services
         /// <param name="ss"></param>
         /// <param name="settings"></param>
         /// <returns></returns>
-        public IList<(object item, string message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings)
+        public IList<(object item, string? message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings)
         {
-            List<(object item, string message, int status)> results = new List<(object item, string message, int status)>();
+            List<(object item, string? message, int status)> results = new List<(object item, string? message, int status)>();
 
-            string schemaOverride = null;
-            string nameOverride = null;
+            string? schemaOverride = null;
+            string? nameOverride = null;
 
             if (!string.IsNullOrEmpty(settings.EntityPersistName))
             {
@@ -428,21 +445,21 @@ namespace CodexMicroORM.Core.Services
             // Different order #'s require sequential processing, so we group by order # - within an order group/table, we should be able to issue parallel requests
             // We also offer a way to "preview" what will be saved and adjust if needed
             // By grouping by provider type, we support hybrid data sources, by type
-            List<(ICEFInfraWrapper row, Type basetype, string schema, string name, int level, ObjectState rs, IDBProvider prov)> tempList = new List<(ICEFInfraWrapper row, Type basetype, string schema, string name, int level, ObjectState rs, IDBProvider prov)>();
+            Dictionary<IDBProvider, Dictionary<int, Dictionary<ObjectState, List<(string? schema, string name, Type basetype, ICEFInfraWrapper row)>>>> grouped = new Dictionary<IDBProvider, Dictionary<int, Dictionary<ObjectState, List<(string? schema, string name, Type basetype, ICEFInfraWrapper row)>>>>();
 
             var loader = new Action<ICEFInfraWrapper>((a) =>
             {
                 using (CEF.UseServiceScope(ss))
                 {
                     var uw = a.AsUnwrapped();
-                    var bt = uw.GetBaseType();
+                    var bt = uw?.GetBaseType();
 
-                    if (uw != null && (settings.LimitToSingleType == null || settings.LimitToSingleType.Equals(bt)))
+                    if (bt != null && uw != null && (settings.LimitToSingleType == null || settings.LimitToSingleType.Equals(bt)))
                     {
                         var (cansave, treatas) = (settings.RowSavePreview == null ? (true, null) : settings.RowSavePreview.Invoke(a));
                         var rs = treatas.GetValueOrDefault(a.GetRowState());
 
-                        if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && cansave && ((cs.ToAcceptList?.Count).GetValueOrDefault() == 0 || !cs.ToAcceptList.Contains(a)))
+                        if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) && cansave && ((cs.ToAcceptList?.Count).GetValueOrDefault() == 0 || !cs.ToAcceptList!.Contains(a)))
                         {
                             var w = a.GetWrappedObject() as ICEFWrapper;
                             var prov = GetProviderForType(bt);
@@ -451,9 +468,27 @@ namespace CodexMicroORM.Core.Services
                             var name = (settings.EntityPersistType == bt ? nameOverride : null) ?? GetEntityNameByType(bt, w);
                             var row = (aud == null ? a : aud.SavePreview(ss, a, rs, settings));
 
-                            lock (tempList)
+                            lock (grouped)
                             {
-                                tempList.Add((row, bt, schema, name, level, rs, prov));
+                                if (!grouped.TryGetValue(prov, out var cprov))
+                                {
+                                    cprov = new Dictionary<int, Dictionary<ObjectState, List<(string? schema, string name, Type basetype, ICEFInfraWrapper row)>>>();
+                                    grouped[prov] = cprov;
+                                }
+
+                                if (!cprov.TryGetValue(level, out var clevel))
+                                {
+                                    clevel = new Dictionary<ObjectState, List<(string? schema, string name, Type basetype, ICEFInfraWrapper row)>>();
+                                    cprov[level] = clevel;
+                                }
+
+                                if (!clevel.TryGetValue(rs, out var crs))
+                                {
+                                    crs = new List<(string? schema, string name, Type basetype, ICEFInfraWrapper row)>();
+                                    clevel[rs] = crs;
+                                }
+
+                                crs.Add((schema, name, bt, row));
                             }
                         }
                     }
@@ -472,131 +507,135 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            var ordRows = from a in tempList
-                          group a by new { Level = a.level, RowState = a.rs, Provider = a.prov }
-                          into g
-                          select new { g.Key.Provider, g.Key.Level, g.Key.RowState, Rows = (from asp in g select (asp.schema, asp.name, asp.basetype, asp.row)) };
-
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Update) != 0)
             {
-                foreach (var prov in (from a in ordRows select a.Provider).Distinct())
+                foreach (var provkvp in grouped)
                 {
-                    // Perform for any parent rows, if applicable
-                    var parentRows = (from a in ordRows
-                                      where a.Provider == prov && a.RowState == ObjectState.ModifiedPriority
-                                      from r in a.Rows
-                                      where _typeParentSave.ContainsKey(r.basetype)
-                                      group r by a.Level into g
-                                      select (g.Key, (from b in g let pn = _typeParentSave[b.basetype] select (pn.schema ?? b.schema, pn.name, b.basetype, b.row))));
-
-                    if (parentRows.Any())
+                    foreach (var levelkvp in (from a in provkvp.Value orderby a.Key select a))
                     {
-                        try
+                        if (levelkvp.Value.TryGetValue(ObjectState.ModifiedPriority, out var filteredrows))
                         {
-                            settings.NoAcceptChanges = true;
-                            prov.UpdateRows(cs, parentRows, settings);
-                        }
-                        finally
-                        {
-                            settings.NoAcceptChanges = false;
+                            var parentRows = (from a in filteredrows
+                                              where _typeParentSave.ContainsKey(a.basetype)
+                                              let pn = _typeParentSave[a.basetype]
+                                              select (pn.schema ?? a.schema, pn.name, a.basetype, a.row));
+
+                            if (parentRows.Any())
+                            {
+                                try
+                                {
+                                    settings.NoAcceptChanges = true;
+                                    provkvp.Key.UpdateRows(cs, parentRows, settings);
+                                }
+                                finally
+                                {
+                                    settings.NoAcceptChanges = false;
+                                }
+                            }
+
+                            results.AddRange(from a in provkvp.Key.UpdateRows(cs, filteredrows, settings) select (a.row.GetWrappedObject(), a.msg, a.status));
                         }
                     }
-
-                    results.AddRange(from a in prov.UpdateRows(cs, (from a in ordRows where a.RowState == ObjectState.ModifiedPriority select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
                 }
             }
 
             if ((settings.AllowedOperations & DBSaveSettings.Operations.Delete) != 0)
             {
-                foreach (var prov in (from a in ordRows select a.Provider).Distinct())
+                foreach (var provkvp in grouped)
                 {
-                    results.AddRange(from a in prov.DeleteRows(cs, (from a in ordRows where a.Provider == prov && a.RowState == ObjectState.Deleted select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
-
-                    // Perform for any parent rows, if applicable
-                    var parentRows = (from a in ordRows
-                                      where a.Provider == prov && a.RowState == ObjectState.Deleted
-                                      from r in a.Rows
-                                      where _typeParentSave.ContainsKey(r.basetype)
-                                      group r by a.Level into g
-                                      select (g.Key, (from b in g let pn = _typeParentSave[b.basetype] select (pn.schema ?? b.schema, pn.name, b.basetype, b.row))));
-
-                    if (parentRows.Any())
+                    foreach (var levelkvp in (from a in provkvp.Value orderby a.Key descending select a))
                     {
-                        try
+                        if (levelkvp.Value.TryGetValue(ObjectState.Deleted, out var filteredrows))
                         {
-                            settings.NoAcceptChanges = true;
-                            prov.DeleteRows(cs, parentRows, settings);
-                        }
-                        finally
-                        {
-                            settings.NoAcceptChanges = false;
+                            results.AddRange(from a in provkvp.Key.DeleteRows(cs, filteredrows, settings) select (a.row.GetWrappedObject(), a.msg, a.status));
+
+                            var parentRows = (from a in filteredrows
+                                              where _typeParentSave.ContainsKey(a.basetype)
+                                              let pn = _typeParentSave[a.basetype]
+                                              select (pn.schema ?? a.schema, pn.name, a.basetype, a.row));
+
+                            if (parentRows.Any())
+                            {
+                                try
+                                {
+                                    settings.NoAcceptChanges = true;
+                                    provkvp.Key.DeleteRows(cs, parentRows, settings);
+                                }
+                                finally
+                                {
+                                    settings.NoAcceptChanges = false;
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            if ((settings.AllowedOperations & DBSaveSettings.Operations.Insert) != 0)
+            // Walk down, level by level; perform updates then inserts at the same level - versus separate passes where updates might be needed to link properly as go deeper
+            foreach (var provkvp in grouped)
             {
-                foreach (var prov in (from a in ordRows select a.Provider).Distinct())
+                foreach (var levelkvp in (from a in provkvp.Value orderby a.Key select a))
                 {
-                    // Perform for any parent rows, if applicable
-                    var parentRows = (from a in ordRows
-                                      where a.Provider == prov && a.RowState == ObjectState.Added
-                                      from r in a.Rows
-                                      where _typeParentSave.ContainsKey(r.basetype)
-                                      group r by a.Level into g
-                                      select (g.Key, (from b in g let pn = _typeParentSave[b.basetype] select (pn.schema ?? b.schema, pn.name, b.basetype, b.row))));
-
-                    if (parentRows.Any())
+                    if ((settings.AllowedOperations & DBSaveSettings.Operations.Update) != 0)
                     {
-                        try
+                        if (levelkvp.Value.TryGetValue(ObjectState.Modified, out var filteredrows))
                         {
-                            settings.NoAcceptChanges = true;
-                            prov.InsertRows(cs, parentRows, settings);
-                        }
-                        finally
-                        {
-                            settings.NoAcceptChanges = false;
+                            var parentRows = (from a in filteredrows
+                                              where _typeParentSave.ContainsKey(a.basetype)
+                                              let pn = _typeParentSave[a.basetype]
+                                              select (pn.schema ?? a.schema, pn.name, a.basetype, a.row));
+
+                            if (parentRows.Any())
+                            {
+                                try
+                                {
+                                    settings.NoAcceptChanges = true;
+                                    provkvp.Key.UpdateRows(cs, parentRows, settings);
+                                }
+                                finally
+                                {
+                                    settings.NoAcceptChanges = false;
+                                }
+                            }
+
+                            results.AddRange(from a in provkvp.Key.UpdateRows(cs, filteredrows, settings) select (a.row.GetWrappedObject(), a.msg, a.status));
                         }
                     }
 
-                    results.AddRange(from a in prov.InsertRows(cs, (from a in ordRows where a.RowState == ObjectState.Added select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
-                }
-            }
-
-            if ((settings.AllowedOperations & DBSaveSettings.Operations.Update) != 0)
-            {
-                foreach (var prov in (from a in ordRows select a.Provider).Distinct())
-                {
-                    // Perform for any parent rows, if applicable
-                    var parentRows = (from a in ordRows
-                                      where a.Provider == prov && a.RowState == ObjectState.Modified
-                                      from r in a.Rows
-                                      where _typeParentSave.ContainsKey(r.basetype)
-                                      group r by a.Level into g
-                                      select (g.Key, (from b in g let pn = _typeParentSave[b.basetype] select (pn.schema ?? b.schema, pn.name, b.basetype, b.row))));
-
-                    if (parentRows.Any())
+                    if ((settings.AllowedOperations & DBSaveSettings.Operations.Insert) != 0)
                     {
-                        try
+                        if (levelkvp.Value.TryGetValue(ObjectState.Added, out var filteredrows))
                         {
-                            settings.NoAcceptChanges = true;
-                            prov.UpdateRows(cs, parentRows, settings);
-                        }
-                        finally
-                        {
-                            settings.NoAcceptChanges = false;
+                            var isLeaf = (levelkvp.Key == provkvp.Value.Keys.Max());
+
+                            var parentRows = (from a in filteredrows
+                                              where _typeParentSave.ContainsKey(a.basetype)
+                                              let pn = _typeParentSave[a.basetype]
+                                              select (pn.schema ?? a.schema, pn.name, a.basetype, a.row));
+
+                            if (parentRows.Any())
+                            {
+                                try
+                                {
+                                    settings.NoAcceptChanges = true;
+                                    provkvp.Key.InsertRows(cs, parentRows, isLeaf, settings);
+                                }
+                                finally
+                                {
+                                    settings.NoAcceptChanges = false;
+                                }
+                            }
+
+                            results.AddRange(from a in provkvp.Key.InsertRows(cs, filteredrows, isLeaf, settings) select (a.row.GetWrappedObject(), a.msg, a.status));
                         }
                     }
-
-                    results.AddRange(from a in prov.UpdateRows(cs, (from a in ordRows where a.RowState == ObjectState.Modified select (a.Level, a.Rows)), settings) select (a.row.GetWrappedObject(), a.msg, a.status));
                 }
             }
 
             cs.DoneWork();
 
             // We need to do the cache update at the end since we could have assigned values, etc. during the above save step - cache the final values!
-            ICEFCachingHost cache = CEF.CurrentCacheService();
+            ICEFCachingHost? cache = CEF.CurrentCacheService();
 
             if (cache != null && results.Any())
             {
@@ -610,7 +649,7 @@ namespace CodexMicroORM.Core.Services
                                   group new { a, iw } by new { Type = bt, CacheMode = cb, RowState = rs } into g
                                   select (g.Key.Type, g.Key.CacheMode, g.Key.RowState, Rows: (from c in g select c.iw.GetAllValues(true, true)).ToList())).ToList();
 
-                Action<object> act = (object state) =>
+                void act(object state)
                 {
                     try
                     {
@@ -655,7 +694,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         cache.DoneWork();
                     }
-                };
+                }
 
                 if (settings.AsyncCacheUpdates.GetValueOrDefault(ss.Settings.AsyncCacheUpdates.GetValueOrDefault(Globals.AsyncCacheUpdates)))
                 {
@@ -663,7 +702,7 @@ namespace CodexMicroORM.Core.Services
                 }
                 else
                 {
-                    act.Invoke(forCaching);
+                    act(forCaching);
                 }
             }
 
@@ -693,23 +732,38 @@ namespace CodexMicroORM.Core.Services
 
         public T ExecuteScalar<T>(string cmdText)
         {
+            if (DefaultProvider == null)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.MissingInit, "Data provider not set.");
+            }
+
             var cs = CEF.CurrentConnectionScope;
-            var res = _defaultProvider.ExecuteScalar<T>(cs, cmdText);
+            var res = DefaultProvider.ExecuteScalar<T>(cs, cmdText);
             cs.DoneWork();
             return res;
         }
 
-        public void ExecuteNoResultSet(CommandType cmdType, string cmdText, params object[] args)
+        public void ExecuteNoResultSet(CommandType cmdType, string cmdText, params object?[] args)
         {
+            if (DefaultProvider == null)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.MissingInit, "Data provider not set.");
+            }
+
             var cs = CEF.CurrentConnectionScope;
-            var res = _defaultProvider.ExecuteNoResultSet(cs, cmdType, cmdText, args);
+            DefaultProvider.ExecuteNoResultSet(cs, cmdType, cmdText, args);
             cs.DoneWork();
         }
 
         public void ExecuteRaw(string command, bool doThrow = true, bool stopOnError = true)
         {
+            if (DefaultProvider == null)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.MissingInit, "Data provider not set.");
+            }
+
             var cs = CEF.CurrentConnectionScope;
-            _defaultProvider.ExecuteRaw(cs, command, doThrow, stopOnError);
+            DefaultProvider.ExecuteRaw(cs, command, doThrow, stopOnError);
             cs.DoneWork();
         }
 
@@ -722,13 +776,15 @@ namespace CodexMicroORM.Core.Services
 
             var mi = this.GetType().GetMethod("InternalRetrieveByKey", System.Reflection.BindingFlags.InvokeMethod | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             mi = mi.MakeGenericMethod(bt);
-            var funcWrap = (Func<object[], IEnumerable>) mi.Invoke(this, new object[] { });
+            var funcWrap = (Func<object[], IEnumerable>) mi.Invoke(this, Array.Empty<object>());
             _retrieveByKeyCache[bt] = funcWrap;
             return funcWrap(key);
         }
 
         // Do not remove, used internally by reflection
+#pragma warning disable IDE0051 // Remove unused private members
         private Func<object[], IEnumerable> InternalRetrieveByKey<T>() where T : class, new() => new Func<object[], IEnumerable>((k) => { return RetrieveByKey<T>(k); });
+#pragma warning restore IDE0051 // Remove unused private members
 
         public IEnumerable<T> RetrieveByKey<T>(params object[] key) where T : class, new()
         {
@@ -743,16 +799,19 @@ namespace CodexMicroORM.Core.Services
 
                 if (kss != null)
                 {
-                    var eto = kss.GetTrackedByPKValue(ss, typeof(T), key);
+                    var eto = kss.GetTrackedByPKValue(typeof(T), key);
 
                     if (eto != null && eto.IsAlive)
                     {
-                        return new T[] { eto.GetWrapperTarget() as T };
+                        if (eto.GetWrapperTarget() is T ett)
+                        {
+                            return new T[] { ett };
+                        }
                     }
                 }
             }
 
-            ICEFCachingHost cache = null;
+            ICEFCachingHost? cache = null;
 
             if ((cb & CacheBehavior.IdentityBased) != 0)
             {
@@ -794,9 +853,9 @@ namespace CodexMicroORM.Core.Services
             return res;
         }
 
-        public IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback cc, params object[] parms) where T : class, new()
+        public IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, params object?[] parms) where T : class, new()
         {
-            ICEFCachingHost cache = null;
+            ICEFCachingHost? cache = null;
             var cb = CEF.CurrentServiceScope.ResolvedCacheBehaviorForType(typeof(T));
 
             if ((cb & CacheBehavior.QueryBased) != 0 && (cb & CacheBehavior.OnlyForAllQuery) == 0)
@@ -843,7 +902,7 @@ namespace CodexMicroORM.Core.Services
 
         public IEnumerable<T> RetrieveAll<T>() where T : class, new()
         {
-            ICEFCachingHost cache = null;
+            ICEFCachingHost? cache = null;
             var cb = CEF.CurrentServiceScope.ResolvedCacheBehaviorForType(typeof(T));
 
             if ((cb & CacheBehavior.QueryBased) != 0)
@@ -888,7 +947,7 @@ namespace CodexMicroORM.Core.Services
             return typeof(DBServiceState);
         }
 
-        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object replaced, ServiceScope ss, bool isNew)
+        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object? replaced, ServiceScope ss, bool isNew)
         {
             if ((replaced ?? o) is INotifyPropertyChanged)
             {
@@ -900,11 +959,11 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
         {
-            if (isNew)
+            if (isNew && to.BaseType != null)
             {
-                if (_typePropDefaults.TryGetValue(to.BaseType, out List<(string prop, object value, object def, Type proptype)> defbytype))
+                if (_typePropDefaults.TryGetValue(to.BaseType, out var defbytype))
                 {
                     var t = to.GetInfraWrapperTarget();
 

@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 06/2018    0.7     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using CodexMicroORM.Core;
 using System;
 using System.Collections;
@@ -27,9 +28,11 @@ using System.Threading.Tasks;
 
 namespace CodeXFramework.BaseEntity
 {
-    public class ParallelWorkload
+    public sealed class ParallelWorkload
     {
+#pragma warning disable IDE0060 // Remove unused parameter
         public static IterateResult RunUnorderedWorkload(IList src, int smalllist, int dop, Func<object, int, int, object[], object> body)
+#pragma warning restore IDE0060 // Remove unused parameter
         {
             int idx = 0;
             List<Exception> errors = new List<Exception>();
@@ -59,29 +62,29 @@ namespace CodeXFramework.BaseEntity
             {
                 var ss = CEF.CurrentServiceScope;
 
-                Parallel.ForEach(src.Cast<object>(), (a) =>
-                {
-                    try
-                    {
-                        using (CEF.UseServiceScope(ss))
-                        {
-                            var lidx = Interlocked.Add(ref idx, 1);
-                            var d = body.Invoke(a, lidx - 1, src.Count - lidx, Array.Empty<object>());
+                _ = Parallel.ForEach(src.Cast<object>(), (a) =>
+                  {
+                      try
+                      {
+                          using (CEF.UseServiceScope(ss))
+                          {
+                              var lidx = Interlocked.Add(ref idx, 1);
+                              var d = body.Invoke(a, lidx - 1, src.Count - lidx, Array.Empty<object>());
 
-                            lock (data)
-                            {
-                                data.Add(d);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        lock (errors)
-                        {
-                            errors.Add(ex);
-                        }
-                    }
-                });
+                              lock (data)
+                              {
+                                  data.Add(d);
+                              }
+                          }
+                      }
+                      catch (Exception ex)
+                      {
+                          lock (errors)
+                          {
+                              errors.Add(ex);
+                          }
+                      }
+                  });
             }
 
             return new IterateResult(data.ToArray(), errors.ToArray());
@@ -126,14 +129,13 @@ namespace CodeXFramework.BaseEntity
 
     public sealed class IterateResult
     {
-        private object[] _data;
-        private Exception[] _errors;
-        private bool _cancelled = false;
+        private readonly object?[]? _data;
+        private readonly Exception[] _errors;
 
         internal IterateResult(bool cancelled)
         {
-            _cancelled = cancelled;
-            _errors = new Exception[] { };
+            Cancelled = cancelled;
+            _errors = Array.Empty<Exception>();
         }
 
         internal IterateResult(object[] data, Exception[] errors)
@@ -142,28 +144,22 @@ namespace CodeXFramework.BaseEntity
             _errors = errors;
         }
 
-        public bool Cancelled
-        {
-            get
-            {
-                return _cancelled;
-            }
-        }
+        public bool Cancelled { get; } = false;
 
-        public IList<T> GetData<T>()
+        public IList<T?> GetData<T>() where T : class
         {
             return GetData<T>(true);
         }
 
-        public IList<T> GetData<T>(bool rethrowFirst)
+        public IList<T?> GetData<T>(bool rethrowFirst) where T : class
         {
             if (rethrowFirst)
                 RethrowFirstException();
 
             if (_data == null)
-                return new T[] { };
+                return Array.Empty<T>();
             else
-                return Array.ConvertAll<object, T>(_data, p => (T)p);
+                return Array.ConvertAll<object?, T>(_data, p => (T?)p!);
         }
 
         public IList<Exception> GetErrors()

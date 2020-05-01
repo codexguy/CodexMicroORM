@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -37,17 +38,18 @@ namespace CodexMicroORM.Core
     {
         #region "Private state (global)"
 
-        private static SlimConcurrentDictionary<Type, IList<ICEFService>> _resolvedServicesByType = new SlimConcurrentDictionary<Type, IList<ICEFService>>();
-        private static ConcurrentDictionary<Type, IList<ICEFService>> _regServicesByType = new ConcurrentDictionary<Type, IList<ICEFService>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly SlimConcurrentDictionary<Type, IList<ICEFService>> _resolvedServicesByType = new SlimConcurrentDictionary<Type, IList<ICEFService>>();
+        private static readonly ConcurrentDictionary<Type, IList<ICEFService>> _regServicesByType = new ConcurrentDictionary<Type, IList<ICEFService>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static ImmutableArray<ICEFService> _globalServices = ImmutableArray<ICEFService>.Empty;
 
-        internal static ServiceScope _globalServiceScope = null;
+        internal static ServiceScope? InternalGlobalServiceScope = null;
+        internal static ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object>> SaveTriggers = new ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object>>();
 
-        private static readonly AsyncLocal<ConcurrentStack<ServiceScope>> _allServiceScopes = new AsyncLocal<ConcurrentStack<ServiceScope>>();
+        private static readonly AsyncLocal<ImmutableStack<ServiceScope>> _allServiceScopes = new AsyncLocal<ImmutableStack<ServiceScope>>();
 
-        private static readonly AsyncLocal<ServiceScope> _currentServiceScope = new AsyncLocal<ServiceScope>();
+        private static readonly AsyncLocal<ServiceScope?> _currentServiceScope = new AsyncLocal<ServiceScope?>();
 
-        private static readonly AsyncLocal<ConcurrentStack<ConnectionScope>> _allConnScopes = new AsyncLocal<ConcurrentStack<ConnectionScope>>();
+        private static readonly AsyncLocal<ImmutableStack<ConnectionScope>> _allConnScopes = new AsyncLocal<ImmutableStack<ConnectionScope>>();
 
         private static readonly AsyncLocal<ConnectionScope> _currentConnScope = new AsyncLocal<ConnectionScope>();
 
@@ -56,12 +58,12 @@ namespace CodexMicroORM.Core
         internal static SlimConcurrentDictionary<Type, IList<ICEFService>> ResolvedServicesByType => _resolvedServicesByType;
         internal static ConcurrentDictionary<Type, IList<ICEFService>> RegisteredServicesByType => _regServicesByType;
 
-        private static Action<string, long> _queryPerfInfo = null;
+        private static Action<string, long>? _queryPerfInfo = null;
 
-        private static object _lockDB = new object();
-        private static object _lockAudit = new object();
-        private static object _lockKey = new object();
-        private static object _lockPCT = new object();
+        private static readonly object _lockDB = new object();
+        private static readonly object _lockAudit = new object();
+        private static readonly object _lockKey = new object();
+        private static readonly object _lockPCT = new object();
 
         #endregion
 
@@ -69,7 +71,7 @@ namespace CodexMicroORM.Core
 
         public delegate void ColumnDefinitionCallback(string name, Type dataType);
 
-        public static ServiceScope GlobalServiceScope => _globalServiceScope;
+        public static ServiceScope? GlobalServiceScope => InternalGlobalServiceScope;
 
         public static void RegisterQueryPerformanceTracking(Action<string, long> perfHandler)
         {
@@ -89,11 +91,21 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Allows registration of handler that can preview/postview save ops, by row. E.g. the save settings provided as input can be used with UserPayload to queue operations to perform after the save completes.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="handler"></param>
+        public static void RegisterSaveTrigger<T>(Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object> handler)
+        {
+            SaveTriggers[typeof(T)] = handler;
+        }
+
+        /// <summary>
         /// Creates a new connection scope that is transactional.
         /// </summary>
         /// <param name="settings"></param>
         /// <returns></returns>
-        public static ConnectionScope NewTransactionScope(ConnectionScopeSettings settings = null)
+        public static ConnectionScope NewTransactionScope(ConnectionScopeSettings? settings = null)
         {
             if (settings == null)
             {
@@ -114,11 +126,13 @@ namespace CodexMicroORM.Core
         {
             if (relateTo?.Settings == null)
             {
-                throw new ArgumentNullException("relateTo");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(relateTo));
             }
 
-            var settings = new ConnectionScopeSettings();
-            settings.IsTransactional = true;
+            var settings = new ConnectionScopeSettings
+            {
+                IsTransactional = true
+            };
             relateTo.Settings.ConnectionScopePerThread = false;
 
             return NewConnectionScope(settings);
@@ -129,7 +143,7 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="settings"></param>
         /// <returns></returns>
-        public static ConnectionScope NewConnectionScope(ConnectionScopeSettings settings = null)
+        public static ConnectionScope NewConnectionScope(ConnectionScopeSettings? settings = null)
         {
             if (settings == null)
             {
@@ -146,14 +160,14 @@ namespace CodexMicroORM.Core
             {
                 if (mode == ScopeMode.CreateNew || ss._currentConnScope == null)
                 {
-                    ss.ConnScopeInit(cs, mode);
+                    ss.ConnScopeInit(cs);
                 }
             }
             else
             {
                 if (mode == ScopeMode.CreateNew || _currentConnScope == null)
                 {
-                    ConnScopeInit(cs, mode);
+                    ConnScopeInit(cs);
                 }
             }
 
@@ -178,10 +192,10 @@ namespace CodexMicroORM.Core
                         {
                             IsStandalone = true
                         };
-                        ss.ConnScopeInit(cs, Globals.DefaultConnectionScopeMode);
+                        ss.ConnScopeInit(cs);
                     }
 
-                    return ss._currentConnScope.Value;
+                    return ss._currentConnScope!.Value;
                 }
 
                 if (_currentConnScope?.Value == null)
@@ -190,10 +204,10 @@ namespace CodexMicroORM.Core
                     {
                         IsStandalone = true
                     };
-                    ConnScopeInit(cs, Globals.DefaultConnectionScopeMode);
+                    ConnScopeInit(cs);
                 }
 
-                return _currentConnScope.Value;
+                return _currentConnScope!.Value;
             }
         }
 
@@ -206,8 +220,8 @@ namespace CodexMicroORM.Core
         {
             // This is a special type of service scope - we create a shallow copy and flag it as not allowing destruction of contents when disposed
             // The tempation to check if the toUse == current should be ignored - if we're using in a using block, we might not want destruction of the input scope, so better to push a new one even if more costly
-            ServiceScopeInit(new ServiceScope(toUse ?? throw new ArgumentNullException("toUse")), null);
-            return _currentServiceScope.Value;
+            ServiceScopeInit(new ServiceScope(toUse ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(toUse))), null);
+            return _currentServiceScope.Value!;
         }
 
         /// <summary>
@@ -218,10 +232,10 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewOrCurrentServiceScope(ServiceScopeSettings settings, params ICEFService[] additionalServices)
         {
-            if (_globalServiceScope != null)
+            if (InternalGlobalServiceScope != null)
             {
-                ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
-                return _currentServiceScope.Value;
+                ServiceScopeInit(new ServiceScope(InternalGlobalServiceScope), additionalServices);
+                return _currentServiceScope.Value!;
             }
 
             if (_currentServiceScope.Value != null)
@@ -231,7 +245,7 @@ namespace CodexMicroORM.Core
             }
 
             ServiceScopeInit(new ServiceScope(settings), additionalServices);
-            return _currentServiceScope.Value;
+            return _currentServiceScope.Value ?? throw new CEFInvalidStateException(InvalidStateType.LowLevelState, "Could not determine service scope.");
         }
 
         /// <summary>
@@ -241,10 +255,10 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewOrCurrentServiceScope(params ICEFService[] additionalServices)
         {
-            if (_globalServiceScope != null)
+            if (InternalGlobalServiceScope != null)
             {
-                ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
-                return _currentServiceScope.Value;
+                ServiceScopeInit(new ServiceScope(InternalGlobalServiceScope), additionalServices);
+                return _currentServiceScope.Value!;
             }
 
             if (_currentServiceScope.Value != null)
@@ -254,7 +268,7 @@ namespace CodexMicroORM.Core
             }
 
             ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), additionalServices);
-            return _currentServiceScope.Value;
+            return _currentServiceScope.Value!;
         }
 
         /// <summary>
@@ -262,12 +276,12 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="settings"></param>
         /// <returns></returns>
-        public static ServiceScope NewOrCurrentServiceScope(ServiceScopeSettings settings = null)
+        public static ServiceScope NewOrCurrentServiceScope(ServiceScopeSettings? settings = null)
         {
-            if (_globalServiceScope != null)
+            if (InternalGlobalServiceScope != null)
             {
-                ServiceScopeInit(new ServiceScope(_globalServiceScope), null);
-                return _currentServiceScope.Value;
+                ServiceScopeInit(new ServiceScope(InternalGlobalServiceScope), null);
+                return _currentServiceScope.Value!;
             }
 
             if (_currentServiceScope.Value != null)
@@ -277,7 +291,7 @@ namespace CodexMicroORM.Core
             }
 
             ServiceScopeInit(new ServiceScope(settings ?? new ServiceScopeSettings()), null);
-            return _currentServiceScope.Value;
+            return _currentServiceScope.Value!;
         }
 
         /// <summary>
@@ -285,11 +299,15 @@ namespace CodexMicroORM.Core
         /// </summary>
         public static void RemoveAllServiceScopes()
         {
-            while (_allServiceScopes.Value?.Count > 0)
+            while (_allServiceScopes.Value.Count() > 0)
             {
-                if (_allServiceScopes.Value.TryPop(out var ss))
+                try
                 {
+                    _allServiceScopes.Value = _allServiceScopes.Value.Pop(out var ss);
                     ss.Dispose();
+                }
+                catch
+                {
                 }
             }
             if (_currentServiceScope.Value != null)
@@ -307,14 +325,14 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewServiceScope(ServiceScopeSettings settings, params ICEFService[] additionalServices)
         {
-            if (_globalServiceScope != null)
+            if (InternalGlobalServiceScope != null)
             {
-                ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
-                return _currentServiceScope.Value;
+                ServiceScopeInit(new ServiceScope(InternalGlobalServiceScope), additionalServices);
+                return _currentServiceScope.Value!;
             }
 
             ServiceScopeInit(new ServiceScope(settings), additionalServices);
-            return _currentServiceScope.Value;
+            return _currentServiceScope.Value!;
         }
 
         /// <summary>
@@ -324,14 +342,14 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ServiceScope NewServiceScope(params ICEFService[] additionalServices)
         {
-            if (_globalServiceScope != null)
+            if (InternalGlobalServiceScope != null)
             {
-                ServiceScopeInit(new ServiceScope(_globalServiceScope), additionalServices);
-                return _currentServiceScope.Value;
+                ServiceScopeInit(new ServiceScope(InternalGlobalServiceScope), additionalServices);
+                return _currentServiceScope.Value!;
             }
 
             ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), additionalServices);
-            return _currentServiceScope.Value;
+            return _currentServiceScope.Value!;
         }
 
         /// <summary>
@@ -339,16 +357,16 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="settings"></param>
         /// <returns></returns>
-        public static ServiceScope NewServiceScope(ServiceScopeSettings settings = null)
+        public static ServiceScope NewServiceScope(ServiceScopeSettings? settings = null)
         {
-            if (_globalServiceScope != null)
+            if (InternalGlobalServiceScope != null)
             {
-                ServiceScopeInit(new ServiceScope(_globalServiceScope), null);
-                return _currentServiceScope.Value;
+                ServiceScopeInit(new ServiceScope(InternalGlobalServiceScope), null);
+                return _currentServiceScope.Value!;
             }
 
             ServiceScopeInit(new ServiceScope(settings ?? new ServiceScopeSettings()), null);
-            return _currentServiceScope.Value;
+            return _currentServiceScope.Value!;
         }
 
         /// <summary>
@@ -360,15 +378,15 @@ namespace CodexMicroORM.Core
             {
                 if (_currentServiceScope.Value == null)
                 {
-                    if (_globalServiceScope != null)
+                    if (InternalGlobalServiceScope != null)
                     {
-                        return _globalServiceScope;
+                        return InternalGlobalServiceScope;
                     }
 
                     ServiceScopeInit(new ServiceScope(new ServiceScopeSettings()), null);
                 }
 
-                return _currentServiceScope.Value;
+                return _currentServiceScope.Value!;
             }
         }
 
@@ -421,20 +439,18 @@ namespace CodexMicroORM.Core
             CurrentServiceScope.AcceptAllChanges();
         }
 
-        public static async Task<IEnumerable<(object item, string message, int status)>> DBSaveTransactionalAsync(DBSaveSettings settings = null)
+        public static async Task<IEnumerable<(object item, string? message, int status)>?> DBSaveTransactionalAsync(DBSaveSettings? settings = null)
         {
-            IEnumerable<(object item, string message, int status)> rv = null;
-            Exception ex = null;
+            IEnumerable<(object item, string? message, int status)>? rv = null;
+            Exception? ex = null;
 
             await Task.Run(() =>
             {
                 try
                 {
-                    using (var tx = CEF.NewTransactionScope())
-                    {
-                        rv = CurrentServiceScope.DBSave(settings);
-                        tx.CanCommit();
-                    }
+                    using var tx = CEF.NewTransactionScope();
+                    rv = CurrentServiceScope.DBSave(settings);
+                    tx.CanCommit();
                 }
                 catch (Exception ex2)
                 {
@@ -455,10 +471,10 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="settings"></param>
         /// <returns>One element per entity saved, indicating any message and/or status returned by the save process for that entity.</returns>
-        public static async Task<IEnumerable<(object item, string message, int status)>> DBSaveAsync(DBSaveSettings settings = null)
+        public static async Task<IEnumerable<(object item, string? message, int status)>?> DBSaveAsync(DBSaveSettings? settings = null)
         {
-            IEnumerable<(object item, string message, int status)> rv = null;
-            Exception ex = null;
+            IEnumerable<(object item, string? message, int status)>? rv = null;
+            Exception? ex = null;
 
             await Task.Run(() =>
             {
@@ -469,6 +485,13 @@ namespace CodexMicroORM.Core
                 catch (Exception ex2)
                 {
                     ex = ex2;
+
+#if DEBUG
+                    if (System.Diagnostics.Debugger.IsAttached)
+                    {
+                        System.Diagnostics.Debugger.Break();
+                    }
+#endif
                 }
             });
 
@@ -485,7 +508,7 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="settings"></param>
         /// <returns>One element per entity saved, indicating any message and/or status returned by the save process for that entity.</returns>
-        public static IEnumerable<(object item, string message, int status)> DBSave(DBSaveSettings settings = null)
+        public static IEnumerable<(object item, string? message, int status)> DBSave(DBSaveSettings? settings = null)
         {
             return CurrentServiceScope.DBSave(settings);
         }
@@ -519,7 +542,7 @@ namespace CodexMicroORM.Core
         /// <param name="tosave"></param>
         /// <param name="settings"></param>
         /// <returns></returns>
-        public static T DBSave<T>(this T tosave, DBSaveSettings settings = null) where T : class, new()
+        public static T? DBSave<T>(this T tosave, DBSaveSettings? settings = null) where T : class, new()
         {
             if (settings == null)
             {
@@ -535,7 +558,7 @@ namespace CodexMicroORM.Core
                 settings.RootObject = tosave;
             }
 
-            settings.EntityPersistName = settings.EntityPersistName ?? GetEntityPersistName<T>(tosave);
+            settings.EntityPersistName ??= GetEntityPersistName<T>(tosave!);
             settings.EntityPersistType = typeof(T);
 
             CurrentServiceScope.DBSave(settings);
@@ -549,14 +572,15 @@ namespace CodexMicroORM.Core
         /// <param name="tosave"></param>
         /// <param name="settings"></param>
         /// <returns></returns>
-        public static (ValidationErrorCode error, string message) DBSaveWithMessage<T>(this T tosave, DBSaveSettings settings = null) where T : class, new()
+        public static (ValidationErrorCode error, string? message) DBSaveWithMessage<T>(this T tosave, DBSaveSettings? settings = null) where T : class, new()
         {
             if (settings == null)
             {
                 settings = new DBSaveSettings();
             }
+
             settings.RootObject = tosave;
-            settings.EntityPersistName = settings.EntityPersistName ?? GetEntityPersistName<T>(tosave);
+            settings.EntityPersistName ??= GetEntityPersistName<T>(tosave);
             settings.EntityPersistType = typeof(T);
 
             var res = CurrentServiceScope.DBSave(settings);
@@ -574,7 +598,7 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="cmdText"></param>
         /// <param name="parms"></param>
-        public static void DBExecuteNoResult(CommandType cmdType, string cmdText, params object[] parms)
+        public static void DBExecuteNoResult(CommandType cmdType, string cmdText, params object?[] parms)
         {
             CEF.CurrentDBService().ExecuteNoResultSet(cmdType, cmdText, parms);
         }
@@ -588,7 +612,7 @@ namespace CodexMicroORM.Core
         /// <param name="cmdText"></param>
         /// <param name="parms"></param>
         /// <returns></returns>
-        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, CommandType cmdType, string cmdText, ColumnDefinitionCallback cc, params object[] parms) where T : class, new()
+        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, CommandType cmdType, string cmdText, ColumnDefinitionCallback cc, params object?[] parms) where T : class, new()
         {
             if (pop.Any())
             {
@@ -607,7 +631,7 @@ namespace CodexMicroORM.Core
         /// <param name="cmdText"></param>
         /// <param name="parms"></param>
         /// <returns></returns>
-        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, string cmdText, ColumnDefinitionCallback cc, params object[] parms) where T : class, new()
+        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, string cmdText, ColumnDefinitionCallback cc, params object?[] parms) where T : class, new()
         {
             if (pop.Any())
             {
@@ -627,7 +651,7 @@ namespace CodexMicroORM.Core
         /// <param name="cmdText"></param>
         /// <param name="parms"></param>
         /// <returns></returns>
-        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, CommandType cmdType, string cmdText, params object[] parms) where T : class, new()
+        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, CommandType cmdType, string cmdText, params object?[] parms) where T : class, new()
         {
             if (pop.Any())
             {
@@ -646,7 +670,7 @@ namespace CodexMicroORM.Core
         /// <param name="cmdText"></param>
         /// <param name="parms"></param>
         /// <returns></returns>
-        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, string cmdText, params object[] parms) where T : class, new()
+        public static EntitySet<T> DBRetrieveByQuery<T>(this EntitySet<T> pop, string cmdText, params object?[] parms) where T : class, new()
         {
             if (pop.Any())
             {
@@ -666,7 +690,7 @@ namespace CodexMicroORM.Core
         /// <param name="cmdText"></param>
         /// <param name="parms"></param>
         /// <returns></returns>
-        public static EntitySet<T> DBAppendByQuery<T>(this EntitySet<T> pop, CommandType cmdType, string cmdText, params object[] parms) where T : class, new()
+        public static EntitySet<T> DBAppendByQuery<T>(this EntitySet<T> pop, CommandType cmdType, string cmdText, params object?[] parms) where T : class, new()
         {
             InternalDBAppendByQuery(pop, cmdType, cmdText, null, parms);
             return pop;
@@ -680,7 +704,7 @@ namespace CodexMicroORM.Core
         /// <param name="cmdText"></param>
         /// <param name="parms"></param>
         /// <returns></returns>
-        public static EntitySet<T> DBAppendByQuery<T>(this EntitySet<T> pop, string cmdText, params object[] parms) where T : class, new()
+        public static EntitySet<T> DBAppendByQuery<T>(this EntitySet<T> pop, string cmdText, params object?[] parms) where T : class, new()
         {
             InternalDBAppendByQuery(pop, CommandType.StoredProcedure, cmdText, null, parms);
             return pop;
@@ -772,7 +796,7 @@ namespace CodexMicroORM.Core
         /// <typeparam name="T"></typeparam>
         /// <param name="initial"></param>
         /// <returns></returns>
-        public static T NewObject<T>(T initial = null) where T : class, new()
+        public static T NewObject<T>(T? initial = null) where T : class, new()
         {
             return CurrentServiceScope.NewObject<T>(initial);
         }
@@ -796,7 +820,7 @@ namespace CodexMicroORM.Core
         /// <param name="toAdd"></param>
         /// <param name="props"></param>
         /// <returns></returns>
-        public static T IncludeObject<T>(T toAdd, IDictionary<string, object> props) where T : class, new()
+        public static T IncludeObject<T>(T toAdd, IDictionary<string, object?> props) where T : class, new()
         {
             return CurrentServiceScope.IncludeObject<T>(toAdd, null, props);
         }
@@ -851,15 +875,15 @@ namespace CodexMicroORM.Core
         {
             var rs = Globals.NewEntitySet<T>();
 
-            rs.ParentContainer = parent ?? throw new ArgumentNullException("parent");
+            rs.ParentContainer = parent ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(parent));
             rs.ParentTypeName = parent.GetBaseType().Name;
-            rs.ParentFieldName = parentFieldName ?? throw new ArgumentNullException("parentFieldName");
+            rs.ParentFieldName = parentFieldName ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(parentFieldName));
 
             if (items?.Length > 0)
             {
                 foreach (var i in items)
                 {
-                    rs.Add(CEF.IncludeObject(i, initialState));
+                    rs.Add(IncludeObject(i, initialState));
 
                     // Extra work here to wire up relationship since we know it exists
                     CurrentKeyService()?.LinkChildInParentContainer(CEF.CurrentServiceScope, rs.ParentTypeName, parentFieldName, parent, i);
@@ -898,19 +922,19 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="forObject"></param>
         /// <returns></returns>
-        public static ICEFPersistenceHost CurrentPCTService(object forObject = null)
+        public static ICEFPersistenceHost CurrentPCTService(object? forObject = null)
         {
             lock (_lockPCT)
             {
-                var s = CurrentService<ICEFPersistenceHost>(forObject);
+                ICEFPersistenceHost? s = CurrentService<ICEFPersistenceHost>(forObject);
 
                 if (s == null)
                 {
                     s = Activator.CreateInstance(Globals.DefaultPCTServiceType) as ICEFPersistenceHost;
-                    AddGlobalService(s);
+                    AddGlobalService(s!);
                 }
 
-                return s;
+                return s!;
             }
         }
 
@@ -919,19 +943,19 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="forObject"></param>
         /// <returns></returns>
-        public static ICEFKeyHost CurrentKeyService(object forObject = null)
+        public static ICEFKeyHost CurrentKeyService(object? forObject = null)
         {
             lock (_lockKey)
             {
-                var s = CurrentService<ICEFKeyHost>(forObject);
+                ICEFKeyHost? s = CurrentService<ICEFKeyHost>(forObject);
 
                 if (s == null)
                 {
                     s = Activator.CreateInstance(Globals.DefaultKeyServiceType) as ICEFKeyHost;
-                    AddGlobalService(s);
+                    AddGlobalService(s!);
                 }
 
-                return s;
+                return s!;
             }
         }
 
@@ -940,19 +964,19 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="forObject"></param>
         /// <returns></returns>
-        public static ICEFAuditHost CurrentAuditService(object forObject = null)
+        public static ICEFAuditHost CurrentAuditService(object? forObject = null)
         {
             lock (_lockAudit)
             {
-                var s = CurrentService<ICEFAuditHost>(forObject);
+                ICEFAuditHost? s = CurrentService<ICEFAuditHost>(forObject);
 
                 if (s == null)
                 {
                     s = Activator.CreateInstance(Globals.DefaultAuditServiceType) as ICEFAuditHost;
-                    AddGlobalService(s);
+                    AddGlobalService(s!);
                 }
 
-                return s;
+                return s!;
             }
         }
 
@@ -961,15 +985,15 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="forObject"></param>
         /// <returns></returns>
-        public static ICEFDataHost CurrentDBService(object forObject = null)
+        public static ICEFDataHost CurrentDBService(object? forObject = null)
         {
             lock (_lockDB)
             {
-                var s = CurrentService<ICEFDataHost>(forObject);
+                ICEFDataHost? s = CurrentService<ICEFDataHost>(forObject);
 
                 if (s == null)
                 {
-                    s = Activator.CreateInstance(Globals.DefaultDBServiceType) as ICEFDataHost;
+                    s = Activator.CreateInstance(Globals.DefaultDBServiceType) as ICEFDataHost ?? throw new CEFInvalidStateException(InvalidStateType.BadAction, "DB Service type is incorrect.");
                     AddGlobalService(s);
                 }
 
@@ -982,17 +1006,17 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="forObject"></param>
         /// <returns></returns>
-        public static ICEFValidationHost CurrentValidationService(object forObject = null)
+        public static ICEFValidationHost CurrentValidationService(object? forObject = null)
         {
-            var s = CurrentService<ICEFValidationHost>(forObject);
+            ICEFValidationHost? s = CurrentService<ICEFValidationHost>(forObject);
 
             if (s == null)
             {
                 s = Activator.CreateInstance(Globals.DefaultValidationServiceType) as ICEFValidationHost;
-                AddGlobalService(s);
+                AddGlobalService(s!);
             }
 
-            return s;
+            return s!;
         }
 
         /// <summary>
@@ -1000,7 +1024,7 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="forObject"></param>
         /// <returns></returns>
-        public static ICEFCachingHost CurrentCacheService(object forObject = null)
+        public static ICEFCachingHost? CurrentCacheService(object? forObject = null)
         {
             return CurrentService<ICEFCachingHost>(forObject);
         }
@@ -1015,7 +1039,7 @@ namespace CodexMicroORM.Core
         /// <typeparam name="T"></typeparam>
         /// <param name="forObject"></param>
         /// <returns></returns>
-        private static T CurrentService<T>(object forObject = null) where T : class, ICEFService
+        private static T? CurrentService<T>(object? forObject = null) where T : class, ICEFService
         {
             var svc = CurrentServiceScope.GetService<T>(forObject);
 
@@ -1024,7 +1048,7 @@ namespace CodexMicroORM.Core
                 return svc;
             }
 
-            if (_allServiceScopes.Value?.Count > 0)
+            if (_allServiceScopes.Value.Count() > 0)
             {
                 foreach (var ss in _allServiceScopes.Value.ToArray())
                 {
@@ -1040,7 +1064,7 @@ namespace CodexMicroORM.Core
             return null;
         }
 
-        internal static string GetEntityPersistName<T>(object tosave)
+        internal static string? GetEntityPersistName<T>(object? tosave)
         {
             if (tosave is ICEFStorageNaming sn)
             {
@@ -1073,7 +1097,7 @@ namespace CodexMicroORM.Core
             }
         }
 
-        private static void ConnScopeInit(ConnectionScope newcs, ScopeMode mode)
+        private static void ConnScopeInit(ConnectionScope newcs)
         {
             var ss = CEF.CurrentServiceScope;
 
@@ -1081,21 +1105,21 @@ namespace CodexMicroORM.Core
 
             if (!useLocal)
             {
-                ss.ConnScopeInit(newcs, mode);
+                ss.ConnScopeInit(newcs);
                 return;
             }
 
             if (_allConnScopes.Value == null)
             {
-                _allConnScopes.Value = new ConcurrentStack<ConnectionScope>();
+                _allConnScopes.Value = ImmutableStack<ConnectionScope>.Empty;
             }
 
             if (_currentConnScope.Value != null)
             {
-                _allConnScopes.Value.Push(_currentConnScope.Value);
+                _allConnScopes.Value = _allConnScopes.Value.Push(_currentConnScope.Value);
             }
 
-            _currentConnScope.Value = newcs ?? throw new ArgumentNullException("newcs");
+            _currentConnScope.Value = newcs ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(newcs));
 
             var db = ss.GetService<DBService>();
 
@@ -1107,29 +1131,34 @@ namespace CodexMicroORM.Core
 
             newcs.Disposed = () =>
             {
-                if (_allConnScopes.Value?.Count > 0)
+                if (_allConnScopes.Value.Count() > 0)
                 {
-                    if (_allConnScopes.Value.TryPop(out var cs))
+                    try
                     {
+                        _allConnScopes.Value = _allConnScopes.Value.Pop(out var cs);
                         _currentConnScope.Value = cs;
                     }
+                    catch
+                    {
+                    }
+
                     return;
                 }
 
-                _currentConnScope.Value = null;
+                _currentConnScope.Value = null!;
             };
         }
 
-        private static void ServiceScopeInit(ServiceScope newss, ICEFService[] additionalServices)
+        private static void ServiceScopeInit(ServiceScope newss, ICEFService[]? additionalServices)
         {
             if (_allServiceScopes.Value == null)
             {
-                _allServiceScopes.Value = new ConcurrentStack<ServiceScope>();
+                _allServiceScopes.Value = ImmutableStack<ServiceScope>.Empty;
             }
 
             if (_currentServiceScope.Value != null)
             {
-                _allServiceScopes.Value.Push(_currentServiceScope.Value);
+                _allServiceScopes.Value = _allServiceScopes.Value.Push(_currentServiceScope.Value);
             }
 
             if (additionalServices != null)
@@ -1140,7 +1169,7 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            _currentServiceScope.Value = newss ?? throw new ArgumentNullException("newss");
+            _currentServiceScope.Value = newss ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(newss));
 
             newss.Disposed = () =>
             {
@@ -1155,22 +1184,27 @@ namespace CodexMicroORM.Core
                     }
                 }
 
-                if (_allServiceScopes.Value?.Count > 0)
+                if (_allServiceScopes.Value.Count() > 0)
                 {
-                    if (_allServiceScopes.Value.TryPop(out var ss))
+                    try
                     {
+                        _allServiceScopes.Value = _allServiceScopes.Value.Pop(out var ss);
                         _currentServiceScope.Value = ss;
                     }
+                    catch
+                    {
+                    }
+
                     return;
                 }
 
-                _currentServiceScope.Value = null;
+                _currentServiceScope.Value = null!;
             };
         }
 
         private static void InternalDBAppendAll<T>(EntitySet<T> pop) where T : class, new()
         {
-            Exception tex = null;
+            Exception? tex = null;
             var ss = CEF.CurrentServiceScope;
 
             void a(CancellationToken ct, DateTime? start)
@@ -1197,9 +1231,9 @@ namespace CodexMicroORM.Core
             tex = InternalRunQuery(ss, a);
         }
 
-        private static Exception InternalRunQuery(ServiceScope ss, Action<CancellationToken, DateTime?> a)
+        private static Exception? InternalRunQuery(ServiceScope ss, Action<CancellationToken, DateTime?> a)
         {
-            Exception tex = null;
+            Exception? tex = null;
 
             if (Globals.GlobalQueryTimeout.HasValue)
             {
@@ -1262,7 +1296,7 @@ namespace CodexMicroORM.Core
 
         private static void InternalDBAppendByKey<T>(EntitySet<T> pop, object[] key) where T : class, new()
         {
-            Exception tex = null;
+            Exception? tex = null;
             var ss = CEF.CurrentServiceScope;
 
             void a(CancellationToken ct, DateTime? start)
@@ -1289,9 +1323,9 @@ namespace CodexMicroORM.Core
             tex = InternalRunQuery(ss, a);
         }
 
-        private static void InternalDBAppendByQuery<T>(EntitySet<T> pop, CommandType cmdType, string cmdText, ColumnDefinitionCallback cc, object[] parms) where T : class, new()
+        private static void InternalDBAppendByQuery<T>(EntitySet<T> pop, CommandType cmdType, string cmdText, ColumnDefinitionCallback? cc, object?[] parms) where T : class, new()
         {
-            Exception tex = null;
+            Exception? tex = null;
             var ss = CEF.CurrentServiceScope;
 
             void a(CancellationToken ct, DateTime? start)

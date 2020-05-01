@@ -18,6 +18,7 @@ Major Changes:
 04/2018    0.6     Fairly major rework: removed use of ObservableCollection as base
 07/2018    0.7     Updates for portable json, etc.
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -48,18 +49,11 @@ namespace CodexMicroORM.Core.Services
     public class EntitySet<T> : ConcurrentObservableCollection<T>, ICEFList, ICEFSerializable, ISupportInitializeNotification where T : class, new()
     {
         #region "Private state"
-
-        [NonSerialized]
-        private RWLockInfo _lock = new RWLockInfo();
-
-        [NonSerialized]
         private SlimConcurrentDictionary<T, bool> _contains;
 
-        [NonSerialized]
         private long _init = 1;
 
-        [NonSerialized]
-        private List<T> _toWire = new List<T>();
+        private readonly List<T> _toWire = new List<T>();
 
         #endregion
 
@@ -96,11 +90,11 @@ namespace CodexMicroORM.Core.Services
 
         #region "Public methods"
 
-        public RWLockInfo LockInfo => _lock;
+        public RWLockInfo LockInfo { get; } = new RWLockInfo();
 
         public bool IsInitialized => Interlocked.Read(ref _init) == 0;
 
-        public event EventHandler Initialized;
+        public event EventHandler? Initialized;
 
         public Dictionary<string, Type> ExternalSchema
         {
@@ -127,7 +121,12 @@ namespace CodexMicroORM.Core.Services
             if (o == null)
                 return false;
 
-            return _contains.Contains(o as T);
+            if (o is T ot)
+            {
+                return _contains.Contains(ot);
+            }
+
+            return false;
         }
 
         public bool IsDirty()
@@ -168,7 +167,7 @@ namespace CodexMicroORM.Core.Services
             return cnt;
         }
 
-        public void PopulateFromSerializationText(string json, JsonSerializationSettings jss = null)
+        public void PopulateFromSerializationText(string json, JsonSerializationSettings? jss = null)
         {
             if (jss == null)
             {
@@ -180,33 +179,38 @@ namespace CodexMicroORM.Core.Services
             {
                 if (!Regex.IsMatch(json, @"^\s*\[") || !Regex.IsMatch(json, @"\]\s*$"))
                 {
-                    throw new CEFInvalidOperationException("JSON provided is not an array (must be to deserialize a service scope).");
+                    throw new CEFInvalidStateException(InvalidStateType.Serialization, "JSON provided is not an array (must be to deserialize a service scope).");
                 }
             }
 
-            foreach (var i in CEF.CurrentPCTService()?.GetItemsFromSerializationText<T>(json, jss))
+            var il = CEF.CurrentPCTService()?.GetItemsFromSerializationText<T>(json, jss);
+
+            if (il != null)
             {
-                this.Add(i);
+                foreach (var i in il)
+                {
+                    this.Add(i);
+                }
             }
         }
 
         public Dictionary<string, T> ToDictionary(IEnumerable<string> cols)
         {
-            if ((cols?.Count()).GetValueOrDefault() == 0)
+            if (cols == null || cols.Count() == 0)
             {
-                throw new ArgumentNullException("cols");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(cols));
             }
 
             Dictionary<string, T> ret = new Dictionary<string, T>();
 
             foreach (T i in this)
             {
-                var iw = i.AsInfraWrapped();
+                var iw = i.AsInfraWrapped() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
                 var key = iw.DictionaryKeyFromColumns(cols);
 
                 if (!Globals.AssumeSafe && ret.ContainsKey(key))
                 {
-                    throw new InvalidOperationException("Proposed key does not provide unique values in collection.");
+                    throw new CEFInvalidStateException(InvalidStateType.BadAction, "Proposed key does not provide unique values in collection.");
                 }
 
                 ret[key] = i;
@@ -228,14 +232,14 @@ namespace CodexMicroORM.Core.Services
 
             if (string.IsNullOrWhiteSpace(json) || json.Length > 100000000)
             {
-                throw new ArgumentException("Incoming data is too short or too long.");
+                throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Incoming data is too short or too long.");
             }
 
             var kdef = KeyService.ResolveKeyDefinitionForType(typeof(T));
 
-            if ((kdef?.Count).GetValueOrDefault() == 0)
+            if (kdef == null || kdef.Count == 0)
             {
-                throw new InvalidOperationException("Cannot apply changes without a primary key defined for type.");
+                throw new CEFInvalidStateException(InvalidStateType.MissingKey, typeof(T).Name);
             }
 
             using (var jr = new Newtonsoft.Json.JsonTextReader(new StringReader(json)))
@@ -249,17 +253,23 @@ namespace CodexMicroORM.Core.Services
 
                 foreach (Newtonsoft.Json.Linq.JObject scol in jq.Value<Newtonsoft.Json.Linq.JArray>("schema"))
                 {
-                    var cn = scol.Property("cn").Value.ToString();
-                    sourceCols.Add(cn);
-                    var dt = scol.Property("dt").Value.ToString();
-                    sourceTypes.Add(dt);
+                    var pcn = scol.Property("cn");
+                    var pdt = scol.Property("dt");
 
-                    if (kdef.Contains(cn))
+                    if (pcn != null && pdt != null)
                     {
-                        keyIndexes.Add(idx);
-                    }
+                        var cn = pcn.Value.ToString();
+                        sourceCols.Add(cn);
+                        var dt = pdt.Value.ToString();
+                        sourceTypes.Add(dt);
 
-                    idx++;
+                        if (kdef.Contains(cn))
+                        {
+                            keyIndexes.Add(idx);
+                        }
+
+                        idx++;
+                    }
                 }
 
                 // An indexed view in this case can be a dictionary for fast lookup
@@ -286,7 +296,7 @@ namespace CodexMicroORM.Core.Services
                     if (!index.TryGetValue(keyval.ToString(), out T target))
                     {
                         target = new T();
-                        this.Add(target);
+                        Add(target);
                         isnew = true;
                     }
                     else
@@ -295,7 +305,7 @@ namespace CodexMicroORM.Core.Services
                         retVal.Add(target);
                     }
 
-                    var tiw = target.AsInfraWrapped();
+                    var tiw = target.AsInfraWrapped() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
                     var prefTypes = tiw.GetAllPreferredTypes();
 
                     for (int i = 0; i < sourceCols.Count; ++i)
@@ -360,7 +370,7 @@ namespace CodexMicroORM.Core.Services
         /// </summary>
         /// <param name="mode"></param>
         /// <returns></returns>
-        public string GetPortableText(PortableSerializationOptions options = null)
+        public string GetPortableText(PortableSerializationOptions? options = null)
         {
             if (options == null)
             {
@@ -389,7 +399,12 @@ namespace CodexMicroORM.Core.Services
                 {
                     foreach (T i in this.Take(options.ExtendedPropertySampleSize.GetValueOrDefault(Globals.PortableJSONExtendedPropertySampleSize)))
                     {
-                        c = c.Union(from a in i.AsInfraWrapped().GetAllPreferredTypes() select (a.Key, a.Value, true, true)).ToList();
+                        var iw = i.AsInfraWrapped();
+
+                        if (iw != null)
+                        {
+                            c = c.Union(from a in iw.GetAllPreferredTypes() select (a.Key, a.Value, true, true)).ToList();
+                        }
                     }
                 }
 
@@ -528,7 +543,7 @@ namespace CodexMicroORM.Core.Services
 
                             if (cv == null)
                             {
-                                string s = null;
+                                string? s = null;
                                 jw.WriteValue(s);
                             }
                             else
@@ -591,11 +606,15 @@ namespace CodexMicroORM.Core.Services
                 foreach (var i in this)
                 {
                     var iw = i.AsInfraWrapped();
-                    var rs = iw.GetRowState();
 
-                    if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
+                    if (iw != null)
                     {
-                        CEF.CurrentPCTService()?.SaveContents(jw, i, actmode, st);
+                        var rs = iw.GetRowState();
+
+                        if ((rs != ObjectState.Unchanged && rs != ObjectState.Unlinked) || ((actmode & SerializationMode.OnlyChanged) == 0))
+                        {
+                            CEF.CurrentPCTService()?.SaveContents(jw, i, actmode, st);
+                        }
                     }
                 }
 
@@ -605,17 +624,17 @@ namespace CodexMicroORM.Core.Services
             return sb.ToString();
         }
 
-        private string GetKey(object o)
+        private string? GetKey(object o)
         {
             var kv = CEF.CurrentKeyService().GetKeyValues(o);
 
-            if (kv?.Count > 0)
+            if (kv != null && kv.Count > 0)
             {
                 StringBuilder sb = new StringBuilder();
 
-                foreach (var k in kv)
+                foreach (var (_, _, value) in kv)
                 {
-                    sb.Append(k.value?.ToString());
+                    sb.Append(value?.ToString());
                     sb.Append("~");
                 }
 
@@ -627,9 +646,7 @@ namespace CodexMicroORM.Core.Services
 
         public void RemoveItem(object o)
         {
-            var cast = o as T;
-
-            if (cast != null)
+            if (o is T cast)
             {
                 if (_contains.Contains(cast))
                 {
@@ -659,7 +676,7 @@ namespace CodexMicroORM.Core.Services
                 {
                     try
                     {
-                        using (new WriterLock(_lock))
+                        using (new WriterLock(LockInfo))
                         {
                             while (_toAdd.Count > 0)
                             {
@@ -687,22 +704,21 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private ConcurrentQueue<T> _toAdd = new ConcurrentQueue<T>();
+        private readonly ConcurrentQueue<T> _toAdd = new ConcurrentQueue<T>();
         private long _toAddWorkers = 0;
 
         public void QueuedAdd(T o)
         {
-            using (var wl = new QuietWriterLock(_lock))
+            using var wl = new QuietWriterLock(LockInfo);
+
+            if (wl.IsActive)
             {
-                if (wl.IsActive)
-                {
-                    base.Add(o);
-                }
-                else
-                {
-                    _toAdd.Enqueue(o);
-                    StartToAddWorkers();
-                }
+                base.Add(o);
+            }
+            else
+            {
+                _toAdd.Enqueue(o);
+                StartToAddWorkers();
             }
         }
 
@@ -712,14 +728,14 @@ namespace CodexMicroORM.Core.Services
             {
                 if (!_contains.Contains(cast))
                 {
-                    WriterLock wl = null;
+                    WriterLock? wl = null;
                     var wasEnableLinked = EnableLinking;
 
                     try
                     {
                         if (!allowLinking && EnableLinking)
                         {
-                            wl = new WriterLock(_lock);
+                            wl = new WriterLock(LockInfo);
                             EnableLinking = false;
                         }
 
@@ -741,7 +757,7 @@ namespace CodexMicroORM.Core.Services
             return false;
         }
 
-        public void Initialize(ServiceScope ss, object parentContainer, string parentTypeName, string parentFieldName)
+        public void Initialize(ServiceScope ss, object? parentContainer, string? parentTypeName, string? parentFieldName)
         {
             BoundScope = ss;
             ParentContainer = parentContainer;
@@ -817,19 +833,19 @@ namespace CodexMicroORM.Core.Services
             internal set;
         }
 
-        internal object ParentContainer
+        internal object? ParentContainer
         {
             get;
             set;
         }
 
-        internal string ParentTypeName
+        internal string? ParentTypeName
         {
             get;
             set;
         }
 
-        internal string ParentFieldName
+        internal string? ParentFieldName
         {
             get;
             set;
@@ -845,7 +861,8 @@ namespace CodexMicroORM.Core.Services
         {
             foreach (var item in _toWire.ToList())
             {
-                CEF.CurrentKeyService()?.WireDependents(item.AsUnwrapped(), item, BoundScope, this, null);
+                var iw = item.AsUnwrapped() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
+                CEF.CurrentKeyService()?.WireDependents(iw, item, BoundScope, this, null);
             }
 
             _toWire.Clear();
@@ -910,7 +927,7 @@ namespace CodexMicroORM.Core.Services
 
                 foreach (var oi in oiCopy)
                 {
-                    if (oi != null)
+                    if (oi != null && !string.IsNullOrEmpty(ParentTypeName) && !string.IsNullOrEmpty(ParentFieldName))
                     {
                         // Attempt to establish a FK relationship, carry parent key down
                         CEF.CurrentKeyService()?.UnlinkChildFromParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, oi);
@@ -949,29 +966,35 @@ namespace CodexMicroORM.Core.Services
 
                                 if (ni != cast)
                                 {
-                                    try
+                                    if (ni is T nit && cast != null)
                                     {
-                                        this.SuspendNotifications(true);
-
-                                        using (new WriterLock(_lock))
+                                        try
                                         {
-                                            this.Replace(ni as T, cast);
+                                            this.SuspendNotifications(true);
 
-                                            _contains.Add(cast, true);
-                                            _contains.Remove(newItems[idx2] as T);
+                                            using (new WriterLock(LockInfo))
+                                            {
+                                                this.Replace(nit, cast);
+
+                                                _contains.Add(cast, true);
+
+                                                if (newItems[idx2] is T nit2)
+                                                {
+                                                    _contains.Remove(nit2);
+                                                }
+                                            }
+                                        }
+                                        finally
+                                        {
+                                            this.SuspendNotifications(false);
                                         }
                                     }
-                                    finally
-                                    {
-                                        this.SuspendNotifications(false);
-                                    }
-                                }
 
-                                niCopy[idx2] = cast;
+                                    niCopy[idx2] = cast;
+                                    idx2++;
+                                }
                             }
                         }
-
-                        idx2++;
                     }
                 }
             }
@@ -980,7 +1003,7 @@ namespace CodexMicroORM.Core.Services
             {
                 foreach (var ni in niCopy)
                 {
-                    if (ni != null)
+                    if (ni != null && BoundScope != null && ParentTypeName != null && ParentFieldName != null)
                     {
                         // Attempt to establish a FK relationship, carry parent key down
                         CEF.CurrentKeyService()?.LinkChildInParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, ni);

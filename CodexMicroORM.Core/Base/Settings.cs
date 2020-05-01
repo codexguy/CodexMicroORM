@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -138,7 +139,7 @@ namespace CodexMicroORM.Core
             set;
         } = "Required";
 
-        public string DataRootName
+        public string? DataRootName
         {
             get;
             set;
@@ -166,7 +167,7 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
-        public string ConnectionStringOverride
+        public string? ConnectionStringOverride
         {
             get;
             set;
@@ -182,7 +183,7 @@ namespace CodexMicroORM.Core
         {
             get;
             set;
-        }
+        } = null;
     }
 
     /// <summary>
@@ -190,13 +191,18 @@ namespace CodexMicroORM.Core
     /// </summary>
     public sealed class DBSaveSettings
     {
+        public IEnumerable<Type>? TypesWithChanges
+        {
+            get;
+            set;
+        }
+
         public int MaxDegreeOfParallelism
         {
             get;
             set;
         } = Globals.DefaultDBSaveDOP;
 
-        [Flags]
         public enum Operations
         {
             Insert = 1,
@@ -204,6 +210,12 @@ namespace CodexMicroORM.Core
             Delete = 3,
             All = 7
         }
+
+        public object? UserPayload
+        {
+            get;
+            set;
+        } = null;
 
         public ValidationErrorCode? ValidationChecksOnSave
         {
@@ -229,13 +241,13 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
-        public object RootObject
+        public object? RootObject
         {
             get;
             set;
         } = null;
 
-        public Type LimitToSingleType
+        public Type? LimitToSingleType
         {
             get;
             set;
@@ -247,19 +259,19 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
-        public string EntityPersistName
+        public string? EntityPersistName
         {
             get;
             set;
         } = null;
 
-        public Type EntityPersistType
+        public Type? EntityPersistType
         {
             get;
             set;
         } = null;
 
-        public string LastUpdatedBy
+        public string? LastUpdatedBy
         {
             get;
             set;
@@ -293,7 +305,7 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value?.Count > 0)
+                if (value.Count > 0)
                 {
                     BulkInsertRules = BulkRules.ByType;
                 }
@@ -314,19 +326,19 @@ namespace CodexMicroORM.Core
             return this;
         }
 
-        public Type IgnoreObjectType
+        public Type? IgnoreObjectType
         {
             get;
             set;
         } = null;
 
-        public IEnumerable<object> SourceList
+        public IEnumerable<object>? SourceList
         {
             get;
             set;
         } = null;
 
-        public Func<ICEFInfraWrapper, (bool cansave, ObjectState? treatas)> RowSavePreview
+        public Func<ICEFInfraWrapper, (bool cansave, ObjectState? treatas)>? RowSavePreview
         {
             get;
             set;
@@ -362,13 +374,13 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
-        public IEnumerable<string> IncludeColumns
+        public IEnumerable<string>? IncludeColumns
         {
             get;
             set;
         } = null;
 
-        public IEnumerable<string> ExcludeColumns
+        public IEnumerable<string>? ExcludeColumns
         {
             get;
             set;
@@ -410,13 +422,13 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
-        public Func<ICEFInfraWrapper, object> SortSpec
+        public Func<ICEFInfraWrapper, object>? SortSpec
         {
             get;
             set;
         }
 
-        public Func<ICEFInfraWrapper, bool> FilterSpec
+        public Func<ICEFInfraWrapper, bool>? FilterSpec
         {
             get;
             set;

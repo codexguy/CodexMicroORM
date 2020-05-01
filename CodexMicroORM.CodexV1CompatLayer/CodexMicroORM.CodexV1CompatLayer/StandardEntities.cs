@@ -24,6 +24,7 @@ The Apply here will inspect keys and such that are described here via attributes
 Major Changes:
 06/2018    0.7     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using CodexMicroORM.Core;
 using CodexMicroORM.Core.Services;
 using System;
@@ -77,31 +78,31 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string KeyName
+        public string? KeyName
         {
             get;
             set;
         }
 
-        public string Value
+        public string? Value
         {
             get;
             set;
         }
 
-        public string LastUpdatedBy
+        public string? LastUpdatedBy
         {
             get;
             set;
         }
 
-        public DateTime LastUpdatedDate
+        public DateTime? LastUpdatedDate
         {
             get;
             set;
         }
 
-        public string UserName
+        public string? UserName
         {
             get;
             set;
@@ -150,25 +151,25 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string KeyName
+        public string? KeyName
         {
             get;
             set;
         }
 
-        public string Value
+        public string? Value
         {
             get;
             set;
         }
 
-        public string LastUpdatedBy
+        public string? LastUpdatedBy
         {
             get;
             set;
         }
 
-        public DateTime LastUpdatedDate
+        public DateTime? LastUpdatedDate
         {
             get;
             set;
@@ -222,25 +223,25 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string UserName
+        public string? UserName
         {
             get;
             set;
         }
 
-        public string RoleName
+        public string? RoleName
         {
             get;
             set;
         }
 
-        public string LastUpdatedBy
+        public string? LastUpdatedBy
         {
             get;
             set;
         }
 
-        public DateTime LastUpdatedDate
+        public DateTime? LastUpdatedDate
         {
             get;
             set;
@@ -252,7 +253,7 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string PrivStringValue
+        public string? PrivStringValue
         {
             get;
             set;
@@ -303,31 +304,31 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string PrivCode
+        public string? PrivCode
         {
             get;
             set;
         }
 
-        public string PrivSubCode
+        public string? PrivSubCode
         {
             get;
             set;
         }
 
-        public string PrivDesc
+        public string? PrivDesc
         {
             get;
             set;
         }
 
-        public string PrivType
+        public string? PrivType
         {
             get;
             set;
         }
 
-        public string LastUpdatedBy
+        public string? LastUpdatedBy
         {
             get;
             set;
@@ -345,7 +346,7 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string DefaultStringValue
+        public string? DefaultStringValue
         {
             get;
             set;
@@ -357,7 +358,7 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string DefaultStringNoRecord
+        public string? DefaultStringNoRecord
         {
             get;
             set;
@@ -417,13 +418,13 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string CompressedObject
+        public string? CompressedObject
         {
             get;
             set;
         }
 
-        public string TypeName
+        public string? TypeName
         {
             get;
             set;
@@ -483,61 +484,61 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string TableName
+        public string? TableName
         {
             get;
             set;
         }
 
-        public string ColumnName
+        public string? ColumnName
         {
             get;
             set;
         }
 
-        public string TableKeyName
+        public string? TableKeyName
         {
             get;
             set;
         }
 
-        public string SelectTableName
+        public string? SelectTableName
         {
             get;
             set;
         }
 
-        public string SelectColumnName
+        public string? SelectColumnName
         {
             get;
             set;
         }
 
-        public string DisplayTableName
+        public string? DisplayTableName
         {
             get;
             set;
         }
 
-        public string DisplayColumnName
+        public string? DisplayColumnName
         {
             get;
             set;
         }
 
-        public string SelectOldJoinClause
+        public string? SelectOldJoinClause
         {
             get;
             set;
         }
 
-        public string SelectNewJoinClause
+        public string? SelectNewJoinClause
         {
             get;
             set;
         }
 
-        public string FullSelect
+        public string? FullSelect
         {
             get;
             set;
@@ -605,7 +606,7 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string LastUpdatedBy
+        public string? LastUpdatedBy
         {
             get;
             set;
@@ -617,13 +618,13 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string OldValue
+        public string? OldValue
         {
             get;
             set;
         }
 
-        public string NewValue
+        public string? NewValue
         {
             get;
             set;
@@ -673,19 +674,19 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string KeyName
+        public string? KeyName
         {
             get;
             set;
         }
 
-        public string Value
+        public string? Value
         {
             get;
             set;
         }
 
-        public string LastUpdatedBy
+        public string? LastUpdatedBy
         {
             get;
             set;
@@ -697,7 +698,7 @@ namespace CodeXFramework.StandardEntities
             set;
         }
 
-        public string MachineName
+        public string? MachineName
         {
             get;
             set;

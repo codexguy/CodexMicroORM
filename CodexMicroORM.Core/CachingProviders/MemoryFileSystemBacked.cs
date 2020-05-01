@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 1/2018     0.2.3   Primary implementation (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -62,20 +63,20 @@ namespace CodexMicroORM.Providers
         /// </summary>
         private sealed class MFSEntry : ICEFIndexedListItem
         {
-            public object GetValue(string propName, bool unwrap)
+            public object? GetValue(string propName, bool unwrap)
             {
                 return this.FastGetValue(propName);
             }
 
-            public string FileName { get; set; }
+            public string? FileName { get; set; }
 
-            public string ObjectTypeName { get; set; }
+            public string? ObjectTypeName { get; set; }
 
-            public string ByQuerySHA { get; set; }
+            public string? ByQuerySHA { get; set; }
 
             public bool QueryForAll { get; set; }
 
-            public string ByIdentityComposite { get; set; }
+            public string? ByIdentityComposite { get; set; }
 
             public DateTime ExpiryDate { get; set; }
 
@@ -83,11 +84,11 @@ namespace CodexMicroORM.Providers
 
             // If this is null, need to fetch from disk (can be nullified when evicted due to memory pressure)
             // Should have 1 of either Properties or Rows, not both...
-            public IDictionary<string, object> Properties { get; set; }
+            public IDictionary<string, object?>? Properties { get; set; }
 
-            public IEnumerable<IDictionary<string, object>> Rows { get; set; }
+            public IEnumerable<IDictionary<string, object?>>? Rows { get; set; }
 
-            public IEnumerable<object> SourceList { get; set; }
+            public IEnumerable<object>? SourceList { get; set; }
 
             public object ObjSync { get; } = new object();
 
@@ -104,13 +105,13 @@ namespace CodexMicroORM.Providers
 
         #region "Internal state"
 
-        private ConcurrentDictionary<Type, long> _totalReadCounter = new ConcurrentDictionary<Type, long>();
+        //private readonly ConcurrentDictionary<Type, long> _totalReadCounter = new ConcurrentDictionary<Type, long>();
 
-        private string _rootDir;
+        private string _rootDir = "";
 
-        private ConcurrentIndexedList<MFSEntry> _index = new ConcurrentIndexedList<MFSEntry>(nameof(MFSEntry.ByIdentityComposite), nameof(MFSEntry.ByQuerySHA), nameof(MFSEntry.ObjectTypeName), nameof(MFSEntry.FileName));
+        private readonly ConcurrentIndexedList<MFSEntry> _index = new ConcurrentIndexedList<MFSEntry>(nameof(MFSEntry.ByIdentityComposite), nameof(MFSEntry.ByQuerySHA), nameof(MFSEntry.ObjectTypeName), nameof(MFSEntry.FileName));
 
-        private System.Timers.Timer _monitor;
+        private System.Timers.Timer _monitor = new System.Timers.Timer();
 
         private double? _lastMonitorTimerDuration;
 
@@ -118,14 +119,14 @@ namespace CodexMicroORM.Providers
 
         private long _stopping = 0;
 
-        private object _indexLock = new object();
+        private readonly object _indexLock = new object();
 
         [ThreadStatic]
-        private BinaryFormatter _formatter = new BinaryFormatter();
+        private readonly BinaryFormatter _formatter = new BinaryFormatter();
         
         #endregion
 
-        public MemoryFileSystemBacked(string rootDirUnderTemp = null, CacheStorageStrategy? storage = null, int? startMonitorInterval = null)
+        public MemoryFileSystemBacked(string? rootDirUnderTemp = null, CacheStorageStrategy? storage = null, int? startMonitorInterval = null)
         {
             RootDirectory = Path.Combine(Path.GetTempPath(), rootDirUnderTemp ?? "CEF_ObjCache");
 
@@ -251,7 +252,7 @@ namespace CodexMicroORM.Providers
         public void InvalidateForByQuery(Type t, bool typeSpecific)
         {
             if (t == null)
-                throw new ArgumentNullException("t");
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(t));
 
             if (typeSpecific)
             {
@@ -288,7 +289,7 @@ namespace CodexMicroORM.Providers
         /// </summary>
         /// <param name="baseType"></param>
         /// <param name="props"></param>
-        public void InvalidateIdentityEntry(Type baseType, IDictionary<string, object> props)
+        public void InvalidateIdentityEntry(Type baseType, IDictionary<string, object?> props)
         {
             StringBuilder sb = new StringBuilder(128);
             sb.Append(baseType.Name);
@@ -297,7 +298,7 @@ namespace CodexMicroORM.Providers
 
             if (!key.Any())
             {
-                throw new CEFInvalidOperationException("No primary key for this object makes it impossible to cache.");
+                throw new CEFInvalidStateException(InvalidStateType.MissingKey, baseType.Name);
             }
 
             foreach (var k in key)
@@ -322,7 +323,7 @@ namespace CodexMicroORM.Providers
         /// <param name="props"></param>
         /// <param name="key"></param>
         /// <param name="expirySeconds"></param>
-        public void UpdateByIdentity(Type baseType, IDictionary<string, object> props, object[] key = null, int? expirySeconds = null)
+        public void UpdateByIdentity(Type baseType, IDictionary<string, object?> props, object[]? key = null, int? expirySeconds = null)
         {
             StringBuilder sb = new StringBuilder(128);
             sb.Append(baseType.Name);
@@ -334,7 +335,7 @@ namespace CodexMicroORM.Providers
 
             if (!key.Any())
             {
-                throw new CEFInvalidOperationException("No primary key for this object makes it impossible to cache.");
+                throw new CEFInvalidStateException(InvalidStateType.MissingKey, baseType.Name);
             }
 
             foreach (var k in key)
@@ -370,7 +371,7 @@ namespace CodexMicroORM.Providers
         /// <param name="text"></param>
         /// <param name="parms"></param>
         /// <returns></returns>
-        public IEnumerable<T> GetByQuery<T>(string text, object[] parms) where T : class, new()
+        public IEnumerable<T>? GetByQuery<T>(string text, object?[]? parms) where T : class, new()
         {
             StringBuilder sb = new StringBuilder(128);
             sb.Append(typeof(T).Name);
@@ -398,7 +399,7 @@ namespace CodexMicroORM.Providers
                 return null;
             }
 
-            return GetRows<T>(c);
+            return GetRows<T>(c!);
         }
 
         /// <summary>
@@ -407,7 +408,7 @@ namespace CodexMicroORM.Providers
         /// <typeparam name="T"></typeparam>
         /// <param name="key"></param>
         /// <returns></returns>
-        public T GetByIdentity<T>(object[] key) where T : class, new()
+        public T? GetByIdentity<T>(object[] key) where T : class, new()
         {
             StringBuilder sb = new StringBuilder(128);
             sb.Append(typeof(T).Name);
@@ -421,13 +422,13 @@ namespace CodexMicroORM.Providers
 
             if (!IsValid(c))
             {
-                return null;
+                return default;
             }
 
-            return GetSingle<T>(c);
+            return GetSingle<T>(c!);
         }
 
-        public void AddByQuery<T>(IEnumerable<T> list, string text, object[] parms = null, int? expirySeconds = null, CacheBehavior? mode = null) where T : class, new()
+        public void AddByQuery<T>(IEnumerable<T> list, string text, object?[]? parms = null, int? expirySeconds = null, CacheBehavior? mode = null) where T : class, new()
         {
             var ss = CEF.CurrentServiceScope;
 
@@ -449,7 +450,7 @@ namespace CodexMicroORM.Providers
                         {
                             using (CEF.UseServiceScope(ss))
                             {
-                                AddByIdentity<T>(i, expirySeconds: expirySeconds);
+                                AddByIdentity(i, expirySeconds: expirySeconds);
                             }
                         });
                     }
@@ -546,7 +547,7 @@ namespace CodexMicroORM.Providers
                     using (CEF.UseServiceScope(ss))
                     {
                         // Process all items in parallel, building a list we'll turn into json but also potentially caching "by identity" per row
-                        ConcurrentBag<IDictionary<string, object>> rows = new ConcurrentBag<IDictionary<string, object>>();
+                        ConcurrentBag<IDictionary<string, object?>> rows = new ConcurrentBag<IDictionary<string, object?>>();
 
                         var aiw = list.AllAsInfraWrapped().ToArray();
 
@@ -558,11 +559,9 @@ namespace CodexMicroORM.Providers
 
                                 if ((mode & CacheBehavior.ConvertQueryToIdentity) != 0 && ((mode & CacheBehavior.ForAllDoesntConvertToIdentity) == 0 || string.Compare(text, "All", true) != 0))
                                 {
-                                    var uw = iw.AsUnwrapped() as T;
-
-                                    if (uw != null)
+                                    if (iw.AsUnwrapped() is T uw)
                                     {
-                                        AddByIdentity<T>(uw, expirySeconds: expirySeconds);
+                                        AddByIdentity(uw, expirySeconds: expirySeconds);
                                     }
                                 }
                             }
@@ -603,10 +602,15 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        public void AddByIdentity<T>(T o, object[] key = null, int? expirySeconds = null) where T : class, new()
+        public void AddByIdentity<T>(T o, object[]? key = null, int? expirySeconds = null) where T : class, new()
         {
+            if (o == null)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(o));
+            }
+
             // We can only cache tracked objects!
-            var iw = o?.AsInfraWrapped();
+            var iw = o.AsInfraWrapped();
 
             if (iw == null)
             {
@@ -618,12 +622,13 @@ namespace CodexMicroORM.Providers
 
             if (key == null)
             {
-                key = (from a in CEF.CurrentKeyService()?.GetKeyValues(o) select a.value).ToArray();
+                var ks = CEF.CurrentKeyService() ?? throw new CEFInvalidStateException(InvalidStateType.MissingService, "Missing Key service.");
+                key = (from a in ks.GetKeyValues(o) select a.value).ToArray();
             }
 
             if (!key.Any())
             {
-                throw new CEFInvalidOperationException("No primary key for this object makes it impossible to cache.");
+                throw new CEFInvalidStateException(InvalidStateType.MissingKey, typeof(T).Name);
             }
 
             foreach (var k in key)
@@ -642,10 +647,12 @@ namespace CodexMicroORM.Providers
 
             if (c == null)
             {
-                c = new MFSEntry();
-                c.ObjectTypeName = o.GetBaseType().Name;
-                c.ByIdentityComposite = sb.ToString();
-                c.FileName = BuildNewFileName(o.GetBaseType());
+                c = new MFSEntry
+                {
+                    ObjectTypeName = o.GetBaseType().Name,
+                    ByIdentityComposite = sb.ToString(),
+                    FileName = BuildNewFileName(o.GetBaseType())
+                };
                 _index.Add(c);
             }
 
@@ -690,12 +697,14 @@ namespace CodexMicroORM.Providers
         /// On start, we use the persisted index to determine what's still valid in the cache and reconstitute it in memory. We also start our background monitor (on a timer).
         /// </summary>
         /// <returns></returns>
-        public string Start()
+        public string? Start()
         {
             RestoreIndex();
 
-            _monitor = new System.Timers.Timer(MonitorTimerMillisecondInterval);
-            _monitor.AutoReset = false;
+            _monitor = new System.Timers.Timer(MonitorTimerMillisecondInterval)
+            {
+                AutoReset = false
+            };
             _monitor.Elapsed += _monitor_Elapsed;
             _monitor.Start();
 
@@ -704,7 +713,7 @@ namespace CodexMicroORM.Providers
 
         #endregion
 
-        private bool IsValid(MFSEntry c)
+        private bool IsValid(MFSEntry? c)
         {
             if (c == null)
             {
@@ -720,10 +729,10 @@ namespace CodexMicroORM.Providers
         /// <typeparam name="T"></typeparam>
         /// <param name="c"></param>
         /// <returns></returns>
-        private T GetSingle<T>(MFSEntry c) where T : class, new()
+        private T? GetSingle<T>(MFSEntry c) where T : class, new()
         {
-            IDictionary<string, object> props = null;
-            string cfn = null;
+            IDictionary<string, object?>? props = null;
+            string? cfn = null;
 
             lock (c.ObjSync)
             {
@@ -768,9 +777,9 @@ namespace CodexMicroORM.Providers
         /// <returns></returns>
         private IEnumerable<T> GetRows<T>(MFSEntry c) where T : class, new()
         {
-            IEnumerable<IDictionary<string, object>> rows = null;
-            IEnumerable<object> list = null;
-            string cfn = null;
+            IEnumerable<IDictionary<string, object?>>? rows = null;
+            IEnumerable<object>? list = null;
+            string? cfn = null;
 
             lock (c.ObjSync)
             {
@@ -816,40 +825,40 @@ namespace CodexMicroORM.Providers
             {
                 foreach (var rowdata in rows)
                 {
-                    yield return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, rowdata, null, null, false, false) as T;
+                    if (CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, rowdata, null, null, false, false) is T i)
+                    {
+                        yield return i;
+                    }
                 }
             }
         }
 
-        private IEnumerable<IDictionary<string, object>> GetParsedRows(IEnumerable<object> source)
+        private IEnumerable<IDictionary<string, object?>> GetParsedRows(IEnumerable<object> source)
         {
             foreach (var o in source)
             {
-                yield return o.AsInfraWrapped().GetAllValues(true, true);
+                var iw = o.AsInfraWrapped() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
+                yield return iw.GetAllValues(true, true);
             }
         }
 
-        private void SaveProperties(BinaryFormatter bf, string fn, IDictionary<string, object> r)
+        private void SaveProperties(BinaryFormatter bf, string fn, IDictionary<string, object?> r)
         {
-            using (var fs = File.OpenWrite(fn))
-            {
-                bf.Serialize(fs, ScrubDictionary(r));
-            }
+            using var fs = File.OpenWrite(fn);
+            bf.Serialize(fs, ScrubDictionary(r));
         }
 
-        private IDictionary<string, object> GetPropertiesFromFile(BinaryFormatter bf, string fn)
+        private IDictionary<string, object?> GetPropertiesFromFile(BinaryFormatter bf, string fn)
         {
-            using (var fs = File.OpenRead(fn))
-            {
-                return (IDictionary<string, object>)bf.Deserialize(fs);
-            }
+            using var fs = File.OpenRead(fn);
+            return (IDictionary<string, object?>)bf.Deserialize(fs);
         }
 
-        private static ConcurrentDictionary<Type, bool> _skipTypeForSave = new ConcurrentDictionary<Type, bool>();
+        private static readonly ConcurrentDictionary<Type, bool> _skipTypeForSave = new ConcurrentDictionary<Type, bool>();
 
-        private IDictionary<string, object> ScrubDictionary(IDictionary<string, object> source)
+        private IDictionary<string, object?> ScrubDictionary(IDictionary<string, object?> source)
         {
-            Dictionary<string, object> toSave = new Dictionary<string, object>();
+            Dictionary<string, object?> toSave = new Dictionary<string, object?>();
 
             // We only persist serializable values or would get error!
             foreach (var kvp in source)
@@ -874,36 +883,32 @@ namespace CodexMicroORM.Providers
             return toSave;
         }
 
-        private void SaveRows(BinaryFormatter bf, string fn, IEnumerable<IDictionary<string, object>> rows)
+        private void SaveRows(BinaryFormatter bf, string fn, IEnumerable<IDictionary<string, object?>> rows)
         {
             if (Directory.Exists(Path.GetDirectoryName(fn)))
             {
-                using (var fs = File.OpenWrite(fn))
+                using var fs = File.OpenWrite(fn);
+                foreach (var r in rows)
                 {
-                    foreach (var r in rows)
-                    {
-                        bf.Serialize(fs, ScrubDictionary(r));
-                    }
+                    bf.Serialize(fs, ScrubDictionary(r));
                 }
             }
         }
 
-        private IEnumerable<IDictionary<string, object>> GetRowsFromFile(BinaryFormatter bf, string fn)
+        private IEnumerable<IDictionary<string, object?>> GetRowsFromFile(BinaryFormatter bf, string fn)
         {
-            using (var fs = File.OpenRead(fn))
+            using var fs = File.OpenRead(fn);
+            while (fs.Position < fs.Length)
             {
-                while (fs.Position < fs.Length)
-                {
-                    yield return (IDictionary<string, object>)bf.Deserialize(fs);
-                }
+                yield return (IDictionary<string, object?>)bf.Deserialize(fs);
             }
         }
 
-        private string BuildNewFileName(Type t)
+        private string? BuildNewFileName(Type t)
         {
             string subdir = "";
 
-            if (CEF.CurrentServiceScope.ResolvedCacheOnlyMemoryForType(t))
+            if (ServiceScope.ResolvedCacheOnlyMemoryForType(t))
             {
                 return null;
             }
@@ -1018,38 +1023,39 @@ namespace CodexMicroORM.Providers
 
                 if (File.Exists(fn))
                 {
-                    using (var jr = new JsonTextReader(new StreamReader(File.OpenRead(fn))))
+                    using var jr = new JsonTextReader(new StreamReader(File.OpenRead(fn)));
+
+                    // Should be start array
+                    jr.Read();
+
+                    while (jr.Read() && jr.TokenType != JsonToken.EndArray)
                     {
-                        // Should be start array
+                        // Should be start object
                         jr.Read();
 
-                        while (jr.Read() && jr.TokenType != JsonToken.EndArray)
+                        var i = new MFSEntry
                         {
-                            // Should be start object
-                            jr.Read();
+                            FileName = jr.ReadAsString()
+                        };
 
-                            var i = new MFSEntry();
+                        jr.Read();
+                        i.ObjectTypeName = jr.ReadAsString();
+                        jr.Read();
+                        i.ByQuerySHA = jr.ReadAsString();
+                        jr.Read();
+                        i.QueryForAll = jr.ReadAsBoolean().GetValueOrDefault();
+                        jr.Read();
+                        i.ByIdentityComposite = jr.ReadAsString();
+                        jr.Read();
+                        i.ExpiryDate = jr.ReadAsDateTime().GetValueOrDefault();
 
-                            i.FileName = jr.ReadAsString();
-                            jr.Read();
-                            i.ObjectTypeName = jr.ReadAsString();
-                            jr.Read();
-                            i.ByQuerySHA = jr.ReadAsString();
-                            jr.Read();
-                            i.QueryForAll = jr.ReadAsBoolean().GetValueOrDefault();
-                            jr.Read();
-                            i.ByIdentityComposite = jr.ReadAsString();
-                            jr.Read();
-                            i.ExpiryDate = jr.ReadAsDateTime().GetValueOrDefault();
+                        jr.Read();
 
-                            jr.Read();
-
-                            if (i.ExpiryDate > DateTime.Now)
-                            {
-                                i.Active = true;
-                                i.Persisted = true;
-                                _index.Add(i);
-                            }
+                        if (i.ExpiryDate > DateTime.Now)
+                        {
+                            i.Active = true;
+                            i.Persisted = true;
+                            _index.Add(i);
                         }
                     }
                 }
@@ -1299,9 +1305,11 @@ namespace CodexMicroORM.Providers
                     Interlocked.Decrement(ref _working);
                     _monitor.Start();
                 }
-            });
+            })
+            {
+                Priority = ThreadPriority.Lowest
+            };
 
-            bwt.Priority = ThreadPriority.Lowest;
             bwt.Start();
         }
 
@@ -1323,22 +1331,22 @@ namespace CodexMicroORM.Providers
         }
         #endregion
 
-        IList<Type> ICEFService.RequiredServices()
+        IList<Type>? ICEFService.RequiredServices()
         {
             return null;
         }
 
-        Type ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
+        Type? ICEFService.IdentifyStateType(object o, ServiceScope ss, bool isNew)
         {
             return null;
         }
 
-        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object replaced, ServiceScope ss, bool isNew)
+        WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object? replaced, ServiceScope ss, bool isNew)
         {
             return WrappingSupport.None;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object> props, ICEFServiceObjState state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
         {
         }
 

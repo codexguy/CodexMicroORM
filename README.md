@@ -399,12 +399,21 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Fixes: light-weight locks (race condition fix), FastCreateNoParm
 * 0.9.3 - Sept 2019
     * Fixes: connection scope issues
+* 0.9.6 - Apr 2020
+	* Use netstandard2.1
+	* Fixes: needed to be using immutablestack for service/connection scope tracking (this is considered a critical update)
+	* Add: save triggers, additional helper (extension) methods, GlobalPropertiesExcludedFromDirtyCheck (Globals), DoCopyParseProperties (Globals), auto-retry logic for some operations, short supported as a key type
+	* Changes: SaveRows changes to improve performance & address some edge cases related to update order, DBService (and others) use Create factory vs constructor now, most exceptions exposed using CEFInvalidStateException (supporting centralized messaging)
+	* Introduction of nullable reference type syntax, along with elimination of warnings related to this
+	* Note: change in entity and procedure wrappers templates to support null reference types and improve beahvior over multiple service scopes
+	* Note: the BindingSupport package has been removed for now - net472 and netstandard21 do not play together and I'm not doing any non-netstandard work currently so I consider it low priority to address
 
 ## Roadmap / Plans
 Look for in coming releases:
 
 * Support for more complex types of object mapping
-* Full-on demo app that uses everything end-to-end; on-line and/or PDF documentation
+* ZableDB as an optional storage provider (OODBMS with high performance Linq to Objects queries)
+* Real-world usage in the context of a published app (will be discussing at length in blog - [coming soon](https://www.wizerfood.com))
 
 Come and subscribe to [blog updates](https://www.xskrape.com/Home/Articles).
 

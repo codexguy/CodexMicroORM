@@ -17,6 +17,7 @@ Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 4/2018     0.5     Addition of locking helpers
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -112,46 +113,43 @@ namespace CodexMicroORM.Core
     /// </summary>
     public sealed class ReaderLock : IDisposable
     {
-        RWLockInfo _info;
+        readonly RWLockInfo _info;
         long _active = 0;
 
         public bool IsActive => Interlocked.Read(ref _active) > 0;
 
         public ReaderLock(RWLockInfo info, bool? active = null)
-        {            
-            if (info != null)
-            {
-                _info = info;
+        {
+            _info = info;
 
-                if (active.GetValueOrDefault(Globals.UseReaderWriterLocks && (!Globals.AllowDirtyReads || !info.AllowDirtyReads)))
+            if (active.GetValueOrDefault(Globals.UseReaderWriterLocks && (!Globals.AllowDirtyReads || !info.AllowDirtyReads)))
+            {
+                try
                 {
-                    try
-                    {
 #if LOCK_TRACE
                     RWLockInfo.Waits++;
                     long start = DateTime.Now.Ticks;
 #endif
-                        Thread.BeginCriticalRegion();
+                    Thread.BeginCriticalRegion();
 
-                        if (!_info.Lock.TryEnterReadLock(_info.Timeout))
-                        {
+                    if (!_info.Lock.TryEnterReadLock(_info.Timeout))
+                    {
 #if LOCK_TRACE
                         RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
 #endif
-                            throw new TimeoutException("Failed to obtain a read lock in timeout interval.");
-                        }
+                        throw new TimeoutException("Failed to obtain a read lock in timeout interval.");
+                    }
 
-                        Interlocked.Increment(ref _active);
+                    Interlocked.Increment(ref _active);
 
 #if LOCK_TRACE
                     _info.LastReader = Environment.CurrentManagedThreadId;
                     RWLockInfo.WaitDuration += DateTime.Now.Ticks - start;
 #endif
-                    }
-                    finally
-                    {
-                        Thread.EndCriticalRegion();
-                    }
+                }
+                finally
+                {
+                    Thread.EndCriticalRegion();
                 }
             }
         }
@@ -192,7 +190,7 @@ namespace CodexMicroORM.Core
     /// </summary>
     public sealed class QuietWriterLock : IDisposable
     {
-        RWLockInfo _info;
+        readonly RWLockInfo _info;
         long _active = 0;
 
         public bool IsActive => Interlocked.Read(ref _active) > 0;
@@ -268,11 +266,8 @@ namespace CodexMicroORM.Core
         // Writers block both readers and writers - wait for all other readers and writers to finish
         public WriterLock(RWLockInfo info, bool? active = null)
         {
-            if (info != null)
-            {
-                _info = info;
-                Reacquire(active);
-            }
+            _info = info;
+            Reacquire(active);
         }
 
         public void Reacquire(bool? active = null)
@@ -393,9 +388,9 @@ namespace CodexMicroORM.Core
     /// </summary>
     public sealed class CEFWeakReference<T> : WeakReference where T : class
     {
-        private int? _hash;
+        private readonly int? _hash;
 
-        public CEFWeakReference(T target) : base(target)
+        public CEFWeakReference(T? target) : base(target)
         {
             _hash = target?.GetHashCode();
         }
@@ -405,9 +400,7 @@ namespace CodexMicroORM.Core
             if (obj == null)
                 return this.Target == null;
 
-            var wr = obj as CEFWeakReference<T>;
-
-            if (wr != null)
+            if (obj is CEFWeakReference<T> wr)
             {
                 return this.Target.IsSame(wr.Target);
             }

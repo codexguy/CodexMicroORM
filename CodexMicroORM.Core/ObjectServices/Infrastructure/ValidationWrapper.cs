@@ -16,14 +16,15 @@ limitations under the License.
 Major Changes:
 02/2018    0.2.4   Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System.ComponentModel;
 
 namespace CodexMicroORM.Core.Services
 {
     public class ValidationWrapper
     {
-        private IDataErrorInfo _source;
-        private IDataErrorInfo _iwsource;
+        private readonly IDataErrorInfo? _source;
+        private readonly IDataErrorInfo? _iwsource;
 
         internal ValidationWrapper(ICEFInfraWrapper iw)
         {
@@ -36,8 +37,8 @@ namespace CodexMicroORM.Core.Services
 
         public bool IsPropertyValid(string propName) => string.IsNullOrEmpty(_source?[propName]) && string.IsNullOrEmpty(_iwsource?[propName]);
 
-        public string Error => _source?.Error ?? _iwsource?.Error;
+        public string? Error => _source?.Error ?? _iwsource?.Error;
 
-        public string PropertyError(string propName) => _source?[propName] ?? _iwsource?[propName];
+        public string? PropertyError(string propName) => _source?[propName] ?? _iwsource?[propName];
     }
 }

@@ -16,6 +16,7 @@ limitations under the License.
 Major Changes:
 12/2017    0.2     Initial release (Joel Champagne)
 ***********************************************************************/
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -28,11 +29,11 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public sealed class DynamicWithAll : DynamicWithValuesBagErrors, INotifyPropertyChanged
     {
-        internal DynamicWithAll(object o, ObjectState irs, IDictionary<string, object> props, IDictionary<string, Type> types) : base(o, irs, props, types)
+        internal DynamicWithAll(object o, ObjectState irs, IDictionary<string, object?>? props, IDictionary<string, Type>? types) : base(o, irs, props, types)
         {            
         }
 
-        protected override void OnPropertyChanged(string propName, object oldVal, object newVal, bool isBag)
+        protected override void OnPropertyChanged(string propName, object? oldVal, object? newVal, bool isBag)
         {
             base.OnPropertyChanged(propName, oldVal, newVal, isBag);
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName));
@@ -43,7 +44,7 @@ namespace CodexMicroORM.Core.Services
             return WrappingSupport.OriginalValues | WrappingSupport.PropertyBag | WrappingSupport.Notifications | WrappingSupport.DataErrors;
         }
 
-        public event PropertyChangedEventHandler PropertyChanged;
+        public event PropertyChangedEventHandler? PropertyChanged;
     }
 
 }
