@@ -16,7 +16,7 @@
     <PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
     <AssemblyVersion>0.9.7.0</AssemblyVersion>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <PackageIcon>xSkrape.ico</PackageIcon>
+    <PackageIcon>xSkrapeIcon.jpg</PackageIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\CodexMicroORM.Core\xSkrape.ico">
+    <None Include="..\..\CodexMicroORM.Core\xSkrapeIcon.jpg">
       <Pack>True</Pack>
       <PackagePath></PackagePath>
     </None>
