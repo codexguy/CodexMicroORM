@@ -35,6 +35,7 @@ using System.Threading.Tasks;
 using CodexMicroORM.Core.Helper;
 using System.Threading;
 using System.Collections;
+using System.Collections.Immutable;
 
 namespace CodexMicroORM.Core
 {
@@ -65,7 +66,7 @@ namespace CodexMicroORM.Core
         private readonly HashSet<ICEFService> _localServices = new HashSet<ICEFService>();
 
         // For cases we have connection scopes by service scope...
-        internal AsyncLocal<Stack<ConnectionScope>> _allConnScopes = new AsyncLocal<Stack<ConnectionScope>>();
+        internal AsyncLocal<ImmutableStack<ConnectionScope>> _allConnScopes = new AsyncLocal<ImmutableStack<ConnectionScope>>();
         internal AsyncLocal<ConnectionScope> _currentConnScope = new AsyncLocal<ConnectionScope>();
 
         #endregion
@@ -1059,12 +1060,12 @@ namespace CodexMicroORM.Core
         {
             if (_allConnScopes.Value == null)
             {
-                _allConnScopes.Value = new Stack<ConnectionScope>();
+                _allConnScopes.Value = ImmutableStack<ConnectionScope>.Empty;
             }
 
             if (_currentConnScope.Value != null)
             {
-                _allConnScopes.Value.Push(_currentConnScope.Value);
+                _allConnScopes.Value = _allConnScopes.Value.Push(_currentConnScope.Value);
             }
 
             _currentConnScope.Value = newcs ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(newcs));
@@ -1079,9 +1080,10 @@ namespace CodexMicroORM.Core
 
             newcs.Disposed = () =>
             {
-                if (_allConnScopes.Value?.Count > 0)
+                if (_allConnScopes.Value.Count() > 0)
                 {
-                    _currentConnScope.Value = _allConnScopes.Value.Pop();
+                    _allConnScopes.Value = _allConnScopes.Value.Pop(out var cs);
+                    _currentConnScope.Value = cs;
                     return;
                 }
 

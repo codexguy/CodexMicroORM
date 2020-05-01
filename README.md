@@ -399,7 +399,7 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Fixes: light-weight locks (race condition fix), FastCreateNoParm
 * 0.9.3 - Sept 2019
     * Fixes: connection scope issues
-* 0.9.6 - Apr 2020
+* 0.9.7 - Apr 2020
 	* Use netstandard2.1
 	* Fixes: needed to be using immutablestack for service/connection scope tracking (this is considered a critical update)
 	* Add: save triggers, additional helper (extension) methods, GlobalPropertiesExcludedFromDirtyCheck (Globals), DoCopyParseProperties (Globals), auto-retry logic for some operations, short supported as a key type
