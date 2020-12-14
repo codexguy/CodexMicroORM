@@ -28,6 +28,8 @@ using CodexMicroORM.Core.Collections;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using System.Collections;
+using static CodexMicroORM.Core.Services.KeyService;
+using CodexMicroORM.Core.Helper;
 
 namespace CodexMicroORM.Core
 {
@@ -43,7 +45,7 @@ namespace CodexMicroORM.Core
         private static ImmutableArray<ICEFService> _globalServices = ImmutableArray<ICEFService>.Empty;
 
         internal static ServiceScope? InternalGlobalServiceScope = null;
-        internal static ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object>> SaveTriggers = new ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object>>();
+        internal static ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?>> SaveTriggers = new ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?>>();
 
         private static readonly AsyncLocal<ImmutableStack<ServiceScope>> _allServiceScopes = new AsyncLocal<ImmutableStack<ServiceScope>>();
 
@@ -95,7 +97,7 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="handler"></param>
-        public static void RegisterSaveTrigger<T>(Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object> handler)
+        public static void RegisterSaveTrigger<T>(Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?> handler)
         {
             SaveTriggers[typeof(T)] = handler;
         }
@@ -486,12 +488,12 @@ namespace CodexMicroORM.Core
                 {
                     ex = ex2;
 
-#if DEBUG
-                    if (System.Diagnostics.Debugger.IsAttached)
-                    {
-                        System.Diagnostics.Debugger.Break();
-                    }
-#endif
+//#if DEBUG
+//                    if (System.Diagnostics.Debugger.IsAttached)
+//                    {
+//                        System.Diagnostics.Debugger.Break();
+//                    }
+//#endif
                 }
             });
 
@@ -1328,6 +1330,34 @@ namespace CodexMicroORM.Core
             Exception? tex = null;
             var ss = CEF.CurrentServiceScope;
 
+            HashSet<KeyServiceState.CompositeWrapper>? keys = new HashSet<KeyServiceState.CompositeWrapper>();
+            var keycols = KeyService.ResolveKeyDefinitionForType(typeof(T));
+
+            // Default is to check but can disable on case-by-case if needed
+            if (ss.RetrieveAppendChecksExisting)
+            {
+                if (keycols.Count > 0)
+                {
+                    // Make record of all existing values in collection so can ignore these if already present
+                    foreach (var er in pop)
+                    {
+                        var iw = er.AsInfraWrapped(false, ss);
+
+                        if (iw != null)
+                        {
+                            var cw = new KeyServiceState.CompositeWrapper(typeof(T));
+
+                            foreach (var kc in keycols)
+                            {
+                                cw.Add(new KeyServiceState.CompositeItemWrapper(iw.GetValue(kc)));
+                            }
+
+                            keys.Add(cw);
+                        }
+                    }
+                }
+            }
+
             void a(CancellationToken ct, DateTime? start)
             {
                 long tickstart = DateTime.Now.Ticks;
@@ -1347,7 +1377,33 @@ namespace CodexMicroORM.Core
                         }
                     }
 
-                    pop.Add(row);
+                    // If row already exists in collection, do not add!
+                    if (keycols.Count == 0 || keys.Count == 0)
+                    {
+                        pop.Add(row);
+                    }
+                    else
+                    {
+                        var cw = new KeyServiceState.CompositeWrapper(typeof(T));
+                        var iw = row.AsInfraWrapped(false, ss);
+
+                        if (iw != null)
+                        {
+                            foreach (var kc in keycols)
+                            {
+                                cw.Add(new KeyServiceState.CompositeItemWrapper(iw.GetValue(kc)));
+                            }
+
+                            if (!keys.Contains(cw))
+                            {
+                                pop.Add(row);
+                            }
+                        }
+                        else
+                        {
+                            pop.Add(row);
+                        }
+                    }
                 }
 
                 _queryPerfInfo?.Invoke(cmdText, DateTime.Now.Ticks - tickstart);

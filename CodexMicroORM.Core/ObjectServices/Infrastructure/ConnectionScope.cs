@@ -57,11 +57,11 @@ namespace CodexMicroORM.Core.Services
         public string ID = Guid.NewGuid().ToString();
 #endif
 
-        public IDictionary<string, object?> LastOutputVariables
+        public ConcurrentDictionary<string, object?> LastOutputVariables
         {
             get;
             private set;
-        } = new Dictionary<string, object?>();
+        } = new ConcurrentDictionary<string, object?>();
 
         public bool IsStandalone
         {
@@ -113,7 +113,6 @@ namespace CodexMicroORM.Core.Services
                     }
 
                     _conn = Provider.CreateOpenConnection("default", IsTransactional, _connStringOverride, null);
-                    //CEFDebug.WriteInfo($"New connection: " + _conn.ID() + " for " + ID);
                     return _conn;
                 }
             }
@@ -122,6 +121,45 @@ namespace CodexMicroORM.Core.Services
         #endregion
 
         #region "Methods"
+
+        /// <summary>
+        /// This is not the same as a full Dispose, retaining the accept list, etc.
+        /// </summary>
+        public void ResetConnection(bool deepreset = false)
+        {
+            if (IsTransactional)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.BadAction, "Cannot use ResetConnection with IsTransactional is true.");
+            }
+
+            IDBProviderConnection? conn = null;
+
+            lock (this)
+            {
+                conn = _conn;
+                _conn = null;
+            }
+
+            if (conn != null)
+            {
+                // Avoid disposal while something might be executing against it
+                while (conn.IsWorking())
+                {
+                    Thread.Sleep(5);
+                }
+
+                conn.IncrementWorking();
+
+                try
+                {
+                    conn.Dispose();
+                }
+                finally
+                {
+                    conn.DecrementWorking();
+                }
+            }
+        }
 
         public void CanCommit()
         {

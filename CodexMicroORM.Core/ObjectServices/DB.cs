@@ -67,7 +67,7 @@ namespace CodexMicroORM.Core.Services
 
         #region "Constructors"
 
-        private DBService()
+        public DBService()
         {
         }
 

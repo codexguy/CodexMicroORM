@@ -172,6 +172,12 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
+        public bool RetrieveAppendChecksExisting
+        {
+            get;
+            set;
+        } = true;
+
         /// <summary>
         /// Returns a wrapper object if one is available for the input object.
         /// </summary>
@@ -441,7 +447,7 @@ namespace CodexMicroORM.Core
 
                             if (saveList.Any())
                             {
-                                List<(Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object> handler, ICEFInfraWrapper row, DBSaveTriggerFlags tt, object? state)>? triggerRows = null;
+                                List<(Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?> handler, ICEFInfraWrapper row, DBSaveTriggerFlags tt, object? state)>? triggerRows = null;
 
                                 // Invoke any before save triggers
                                 if (!useAsync && CEF.SaveTriggers.Any())
@@ -472,7 +478,7 @@ namespace CodexMicroORM.Core
                                             {
                                                 if (triggerRows == null)
                                                 {
-                                                    triggerRows = new List<(Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object> handler, ICEFInfraWrapper row, DBSaveTriggerFlags tt, object?)>();
+                                                    triggerRows = new List<(Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?> handler, ICEFInfraWrapper row, DBSaveTriggerFlags tt, object? state)>();
                                                 }
 
                                                 triggerRows.Add((handler, row, tt, handler(tt | DBSaveTriggerFlags.Before, row, settings, null)));

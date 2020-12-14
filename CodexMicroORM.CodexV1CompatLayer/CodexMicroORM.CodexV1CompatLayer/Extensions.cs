@@ -39,12 +39,16 @@ namespace CodeXFramework.BaseEntity
             if (dt.HasValue && !string.IsNullOrEmpty(tzid))
             {
                 if (dt.Value.Kind == DateTimeKind.Local)
+                {
                     dt = dt.Value.ToUniversalTime();
+                }
 
                 var tzi = TimeZoneInfo.FindSystemTimeZoneById(tzid);
 
                 if (tzi != null)
-                    return dt.Value.AddMinutes(tzi.BaseUtcOffset.TotalMinutes);
+                {
+                    return TimeZoneInfo.ConvertTimeFromUtc(dt.Value, tzi);
+                }
             }
 
             return dt;
@@ -63,12 +67,16 @@ namespace CodeXFramework.BaseEntity
             if (!string.IsNullOrEmpty(tzid))
             {
                 if (dt.Kind == DateTimeKind.Local)
+                {
                     dt = dt.ToUniversalTime();
+                }
 
                 var tzi = TimeZoneInfo.FindSystemTimeZoneById(tzid);
 
                 if (tzi != null)
-                    return dt.AddMinutes(tzi.BaseUtcOffset.TotalMinutes);
+                {
+                    return TimeZoneInfo.ConvertTimeFromUtc(dt, tzi);
+                }
             }
 
             return dt;

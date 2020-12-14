@@ -280,7 +280,7 @@ namespace CodexMicroORM.Core.Collections
                 }
             }
 
-            return (null, default);
+            return (null, default!);
         }
 
         private TValue ValueByKey(TKey key)

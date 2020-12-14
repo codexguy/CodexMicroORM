@@ -160,6 +160,12 @@ namespace CodexMicroORM.Core
 
         public static bool IsSame(this object? o1, object? o2, bool canCompareNull = true)
         {
+            if (o1 == DBNull.Value)
+                o1 = null;
+
+            if (o2 == DBNull.Value)
+                o2 = null;
+
             if (canCompareNull)
             {
                 if (o1 == null && o2 == null)
@@ -1091,6 +1097,56 @@ namespace CodexMicroORM.Core
                                   select a.name))
             {
                 dest.FastSetValue(name, src.FastGetValue(name));
+            }
+
+            foreach (var fi in (from a in src.FastGetAllProperties(true, true)
+                                join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                where (a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type) &&
+                                    (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                let v = src.FastGetValue(a.name)
+                                where v != null
+                                select new { a.name, value = v }))
+            {
+                dest.FastSetValue(fi.name, fi.value);
+            }
+        }
+
+        /// <summary>
+        /// Similar to CopySharedTo but is less restrictive about how empty strings are compared to null, causing less dirty state changes.
+        /// </summary>
+        /// <param name="src"></param>
+        /// <param name="dest"></param>
+        /// <param name="isExclude"></param>
+        /// <param name="fields"></param>
+        public static void CopySharedToNullifyEmptyStrings(this object src, object dest, bool isExclude, params string[] fields)
+        {
+            if (src == null)
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(src));
+
+            if (dest == null)
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(dest));
+
+            foreach (var info in (from a in src.FastGetAllProperties(true, true)
+                                  join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                  where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type) &&
+                                    (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                  select new { a.name, a.type }))
+            {
+                var v = src.FastGetValue(info.name);
+
+                if (info.type == typeof(string) && string.IsNullOrEmpty(v?.ToString()))
+                {
+                    var dv = dest.FastGetValue(info.name);
+
+                    if (string.IsNullOrEmpty(dv?.ToString()))
+                    {
+                        continue;
+                    }
+
+                    v = null;
+                }
+
+                dest.FastSetValue(info.name, v);
             }
 
             foreach (var fi in (from a in src.FastGetAllProperties(true, true)

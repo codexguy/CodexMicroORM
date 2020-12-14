@@ -19,6 +19,7 @@ Major Changes:
 #nullable enable
 using CodexMicroORM.Core.Services;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Bson;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -92,6 +93,8 @@ namespace CodexMicroORM.Core
         void DecrementWorking();
 
         bool IsOpen();
+
+        void DeepReset();
     }
 
     public interface IDBProviderCommand

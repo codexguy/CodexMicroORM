@@ -407,6 +407,15 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Introduction of nullable reference type syntax, along with elimination of warnings related to this
 	* Note: change in entity and procedure wrappers templates to support null reference types and improve beahvior over multiple service scopes
 	* Note: the BindingSupport package has been removed for now - net472 and netstandard21 do not play together and I'm not doing any non-netstandard work currently so I consider it low priority to address
+* 0.9.8 - Dec 2020
+	* Add: RetrieveAppendChecksExisting on ServiceScope (default true, when true checks EntitySet when doing an append for an existing object with same key as being loaded - if found, skips)
+	* Add: CopySharedToNullifyEmptyStrings
+	* Add: DeepReset added to IDBProviderConnection
+	* Change: IsSame checks for DBNull.Value
+	* Fix: MSSQLConnection.IsWorking
+	* Add: MSSQLProcBasedProvider - various monitoring props such as DatabaseTime, DelayedTime; built-in retry logic for certain failure types (found connecting to Azure SQL)
+	* Change: MSSQLProcBasedProvider - Ignoring SaveRetryCount for a transactional save
+	* Change: DBService, added public parameterless constructor
 
 ## Roadmap / Plans
 Look for in coming releases:

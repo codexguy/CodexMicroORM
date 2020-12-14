@@ -76,12 +76,23 @@ namespace CodexMicroORM.Providers
             return CurrentConnection != null && CurrentConnection.State == System.Data.ConnectionState.Open;
         }
 
+        public void DeepReset()
+        {
+            SqlConnection.ClearAllPools();
+        }
+
         public bool IsWorking()
         {
             lock (_worklock)
             {
-                return _working > 0;
+                if (_working > 0)
+                {
+                    return true;
+                }
             }
+
+            var ccs = CurrentConnection?.State;
+            return ccs == System.Data.ConnectionState.Executing || ccs == System.Data.ConnectionState.Fetching;
         }
 
         public SqlConnection? CurrentConnection { get; private set; }
@@ -109,6 +120,12 @@ namespace CodexMicroORM.Providers
         #region IDisposable Support
         protected virtual void Dispose(bool disposing)
         {
+            // If it's working, give it a few seconds to see if can finish
+            for (int i = 1; IsWorking() && i <= 300; ++i)
+            {
+                Thread.Sleep(10);
+            }
+
             if (!IsWorking())
             {
                 if (CurrentTransaction != null)
@@ -122,6 +139,17 @@ namespace CodexMicroORM.Providers
                     CurrentConnection.Dispose();
                     CurrentConnection = null;
                 }
+            }
+            else
+            {
+//#if DEBUG
+//                if (System.Diagnostics.Debugger.IsAttached)
+//                {
+//                    System.Diagnostics.Debugger.Break();
+//                }
+//#endif
+                CurrentTransaction = null;
+                CurrentConnection = null;
             }
         }
 

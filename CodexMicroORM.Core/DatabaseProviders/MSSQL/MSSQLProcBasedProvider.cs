@@ -29,6 +29,7 @@ using System.Collections.Concurrent;
 using System.Data;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
+using System.Threading;
 
 namespace CodexMicroORM.Providers
 {
@@ -38,8 +39,45 @@ namespace CodexMicroORM.Providers
     public sealed class MSSQLProcBasedProvider : IDBProvider
     {
         private const string DEFAULT_DB_SCHEMA = "dbo";
+        private const string SAVE_RETRY_MESSAGE_REGEX = @"successfully\sestablished|timeout|is\sbroken|occurred\son\sthe\scurrent\scommand|Connection\swas\sterminated|requires\san\sopen\sand\savailable|Collection\salready\scontains|connection\sis\s(?:closed|not\susable)";
+        private const string OPEN_RETRY_MESSAGE_REGEX = @"timeout\sexpired|\spool\s|successfully\sestablished|was\snot\sfound|was\snot\saccessible|not\scurrently\savailable|is\snot\susable|please\sretry";
 
         public delegate void RowActionPreviewCallback(CommandType action, string objname, ICEFInfraWrapper row);
+
+        private static long _dbSaveTime = 0;
+        private static long _delayedTime = 0;
+        private static long _saveCounter = 0;
+
+        public static long DelayedTime
+        {
+            get
+            {
+                return Interlocked.Read(ref _delayedTime);
+            }
+        }
+
+        public static long DatabaseTime
+        {
+            get
+            {
+                return Interlocked.Read(ref _dbSaveTime);
+            }
+        }
+
+        public static double? AverageDatabaseTime
+        {
+            get
+            {
+                var sc = Interlocked.Read(ref _saveCounter);
+
+                if (sc > 0)
+                {
+                    return 1.0 * Interlocked.Read(ref _dbSaveTime) / Interlocked.Read(ref _saveCounter);
+                }
+
+                return null;
+            }
+        }
 
 #if DEBUG
         public string ID = Guid.NewGuid().ToString();
@@ -50,6 +88,36 @@ namespace CodexMicroORM.Providers
             get;
             set;
         } = null;
+
+        public static Action<string, string, int>? GlobalRetryHandler
+        {
+            get;
+            set;
+        } = null;
+
+        public static int? SaveRetryCount
+        {
+            get;
+            set;
+        }
+
+        public static int? OpenRetryCount
+        {
+            get;
+            set;
+        }
+
+        public static int SaveRetryDelayMs
+        {
+            get;
+            set;
+        } = 2000;
+
+        public static int OpenRetryDelayMs
+        {
+            get;
+            set;
+        } = 3000;
 
         private readonly static ConcurrentDictionary<string, string> _csMap = new ConcurrentDictionary<string, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
 
@@ -227,8 +295,57 @@ namespace CodexMicroORM.Providers
 
             var connString = connStringOverride ?? cs ?? throw new CEFInvalidStateException(InvalidStateType.SQLLayer, $"Connection token {config} is not recognized / was not registered.");
 
-            var conn = new SqlConnection(connString);
-            conn.Open();
+            int trycnt = OpenRetryCount.GetValueOrDefault(0) + 1;
+            SqlConnection conn;
+            int trydelay = 0;
+
+            while (1 == 1)
+            {
+                try
+                {
+                    if (trydelay > 0)
+                    {
+                        if (trydelay > 60000)
+                        {
+                            trydelay = 60000;
+                        }
+
+                        Thread.Sleep(trydelay);
+                    }
+
+                    conn = new SqlConnection(connString);
+                    conn.Open();
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    --trycnt;
+
+                    if (trycnt == 0 || !Regex.IsMatch(ex.Message, OPEN_RETRY_MESSAGE_REGEX, RegexOptions.IgnoreCase))
+                    {
+#if DEBUG
+                        if (System.Diagnostics.Debugger.IsAttached)
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+#endif
+                        throw;
+                    }
+                    else
+                    {
+                        SqlConnection.ClearAllPools();
+
+                        if (trydelay == 0)
+                        {
+                            trydelay = OpenRetryDelayMs;
+                        }
+                        else
+                        {
+                            trydelay *= 2;
+                        }
+                    }
+                }
+            }
 
             SqlTransaction? tx = null;
 
@@ -462,9 +579,16 @@ namespace CodexMicroORM.Providers
             ConcurrentBag<(ICEFInfraWrapper row, string? msg, int status)> rowsOut = new ConcurrentBag<(ICEFInfraWrapper row, string? msg, int status)>();
             Exception? stopEx = null;
 
+            // It's a problem to be doing retries in a transaction!
+            if (conn.IsTransactional && SaveRetryCount.GetValueOrDefault() > 0)
+            {
+                CEFDebug.WriteInfo("Ignoring SaveRetryCount for a transactional save.");
+            }
+
             conn.LastOutputVariables.Clear();
 
             var materialized = (from a in rows select new { Schema = a.schema ?? DefaultSchema ?? DEFAULT_DB_SCHEMA, Name = a.name, Row = a.row }).ToList();
+            long trydelay = 0;
 
             Parallel.ForEach(materialized, new ParallelOptions() { MaxDegreeOfParallelism = settings.MaxDegreeOfParallelism }, (r, pls) =>
             {
@@ -472,86 +596,143 @@ namespace CodexMicroORM.Providers
                 {
                     string? msg = null;
                     int status = 0;
+                    int trycnt = conn.IsTransactional ? 1 : SaveRetryCount.GetValueOrDefault(0) + 1;
+                    bool first = true;
 
-                    try
+                    while (1 == 1)
                     {
-                        if (ss.RowActionPreviewEnabled)
+                        try
                         {
-                            // An opportunity to possibly change row properties ahead of actual save
-                            GlobalRowActionPreview?.Invoke(cmdType, r.Name, r.Row);
-                        }
-
-                        var msconn = (MSSQLConnection)conn.CurrentConnection;
-                        var outVals = CreateProcCommand(msconn, cmdType, r.Schema, r.Name, r.Row, null, conn.TimeoutOverride).ExecuteNoResultSet().GetOutputValues();
-                        var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(false);
-                        List<(string name, object? value)> toRB = new List<(string name, object? value)>();
-
-                        foreach (var (name, value) in outVals)
-                        {
-                            conn.LastOutputVariables[name] = value;
-
-                            if (string.Compare(name, ProcedureMessageParameter, true) == 0)
+                            if (first)
                             {
-                                msg = value?.ToString();
-                            }
-                            else
-                            {
-                                if (string.Compare(name, ProcedureRetValParameter, true) == 0)
+                                first = false;
+
+                                if (ss.RowActionPreviewEnabled)
                                 {
-                                    if (int.TryParse(value?.ToString(), out int retval))
-                                    {
-                                        status = retval == 1 ? 0 : retval;
-                                    }
+                                    // An opportunity to possibly change row properties ahead of actual save
+                                    GlobalRowActionPreview?.Invoke(cmdType, r.Name, r.Row);
+                                }
+                            }
+
+                            // Every working thread should have to wait on any retry interval
+                            var passdelay = Interlocked.Read(ref trydelay);
+
+                            if (passdelay > 0)
+                            {
+                                if (passdelay > 60000)
+                                {
+                                    passdelay = 60000;
+                                }
+
+                                Thread.Sleep(Convert.ToInt32(passdelay));
+                                Interlocked.Add(ref _delayedTime, passdelay);
+                            }
+
+                            Interlocked.Increment(ref _saveCounter);
+
+                            var msconn = (MSSQLConnection)conn.CurrentConnection;
+                            var pc = CreateProcCommand(msconn, cmdType, r.Schema, r.Name, r.Row, null, conn.TimeoutOverride);
+                            var startDB = DateTime.Now;
+
+                            var outVals = pc.ExecuteNoResultSet().GetOutputValues();
+
+                            var dbTime = Convert.ToInt64(DateTime.Now.Subtract(startDB).TotalMilliseconds);
+                            Interlocked.Add(ref _dbSaveTime, dbTime);
+
+                            var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(false);
+                            List<(string name, object? value)> toRB = new List<(string name, object? value)>();
+
+                            foreach (var (name, value) in outVals)
+                            {
+                                conn.LastOutputVariables[name] = value;
+
+                                if (string.Compare(name, ProcedureMessageParameter, true) == 0)
+                                {
+                                    msg = value?.ToString();
                                 }
                                 else
                                 {
-                                    if (!doAccept)
+                                    if (string.Compare(name, ProcedureRetValParameter, true) == 0)
                                     {
-                                        toRB.Add((name, r.Row.GetValue(name)));
+                                        if (int.TryParse(value?.ToString(), out int retval))
+                                        {
+                                            status = retval == 1 ? 0 : retval;
+                                        }
                                     }
+                                    else
+                                    {
+                                        if (!doAccept)
+                                        {
+                                            toRB.Add((name, r.Row.GetValue(name)));
+                                        }
 
-                                    r.Row.SetValue(name, value);
+                                        r.Row.SetValue(name, value);
+                                    }
                                 }
                             }
-                        }
 
-                        if (!settings.NoAcceptChanges)
-                        {
-                            conn.ToRollbackList.Add((r.Row, r.Row.GetRowState(), toRB));
-
-                            if (doAccept)
+                            if (!settings.NoAcceptChanges)
                             {
-                                r.Row.AcceptChanges();
+                                conn.ToRollbackList.Add((r.Row, r.Row.GetRowState(), toRB));
+
+                                if (doAccept)
+                                {
+                                    r.Row.AcceptChanges();
+                                }
+                                else
+                                {
+                                    lock (conn.ToAcceptList)
+                                    {
+                                        conn.ToAcceptList.Add(r.Row);
+                                    }
+                                }
+                            }
+
+                            Interlocked.Exchange(ref trydelay, 0);
+                            rowsOut.Add((r.Row, msg, status));
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+//#if DEBUG
+//                            if (System.Diagnostics.Debugger.IsAttached && ex.Message.Contains("The connection's current state is"))
+//                            {
+//                                System.Diagnostics.Debugger.Break();
+//                            }
+//#endif
+                            --trycnt;
+
+                            // Also check the exception type - only some exception types should flow into else!
+                            if (trycnt == 0 || !Regex.IsMatch(ex.Message, SAVE_RETRY_MESSAGE_REGEX, RegexOptions.IgnoreCase))
+                            {
+                                if (!conn.ContinueOnError)
+                                {
+                                    pls.Break();
+                                    stopEx = ex;
+                                    return;
+                                }
+
+                                msg = ex.Message;
+                                status = (int)ProcReturnValue.SQLError;
                             }
                             else
                             {
-                                lock (conn.ToAcceptList)
+                                // Reset connection such that next request for it should create a new connection
+                                conn.ResetConnection(Regex.IsMatch(ex.Message, @"\spool\ssize", RegexOptions.IgnoreCase));
+
+                                GlobalRetryHandler?.Invoke(r.GetBaseType().Name, ex.Message, trycnt);
+
+                                if (Interlocked.Read(ref trydelay) == 0)
                                 {
-                                    conn.ToAcceptList.Add(r.Row);
+                                    Interlocked.Exchange(ref trydelay, SaveRetryDelayMs);
+                                }
+                                else
+                                {
+                                    Interlocked.Exchange(ref trydelay, Interlocked.Read(ref trydelay) * 2);
                                 }
                             }
                         }
                     }
-                    catch (Exception ex)
-                    {
-#if DEBUG
-                        if (System.Diagnostics.Debugger.IsAttached)
-                        {
-                            System.Diagnostics.Debugger.Break();
-                        }
-#endif
-                        if (!conn.ContinueOnError)
-                        {
-                            pls.Break();
-                            stopEx = ex;
-                            return;
-                        }
-
-                        msg = ex.Message;
-                        status = (int)ProcReturnValue.SQLError;
-                    }
-
-                    rowsOut.Add((r.Row, msg, status));
                 }
             });
 
