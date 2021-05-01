@@ -77,12 +77,18 @@ namespace CodexMicroORM.Core.Helper
     /// </summary>
     public static class CEFHelper
     {
-        private readonly static RWLockInfo _lock = new RWLockInfo();
-        private readonly static RWLockInfo _lockAllProp = new RWLockInfo();
-        private readonly static Dictionary<DelegateCacheKey, Func<object, object?>?> _getterCache = new Dictionary<DelegateCacheKey, Func<object, object?>?>(Globals.DefaultDictionaryCapacity);
-        private readonly static Dictionary<DelegateCacheKey, Action<object, object?>?> _setterCache = new Dictionary<DelegateCacheKey, Action<object, object?>?>(Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>> _allProps = new ConcurrentDictionary<Type, ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static Dictionary<Type, Func<object>> _constructorCache = new Dictionary<Type, Func<object>>(Globals.DefaultDictionaryCapacity);
+        private readonly static RWLockInfo _lock = new();
+        private readonly static RWLockInfo _lockAllProp = new();
+        private readonly static Dictionary<DelegateCacheKey, Func<object, object?>?> _getterCache = new(Globals.DefaultDictionaryCapacity);
+        private readonly static Dictionary<DelegateCacheKey, Action<object, object?>?> _setterCache = new(Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>> _allProps = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static Dictionary<Type, Func<object>> _constructorCache = new(Globals.DefaultDictionaryCapacity);
+
+        public static bool IgnoreInvalidSets
+        {
+            get;
+            set;
+        }
 
         public static void FlushCaches()
         {
@@ -100,7 +106,7 @@ namespace CodexMicroORM.Core.Helper
             }
         }
 
-        public static object FastCreateNoParm(this Type t)
+        public static object? FastCreateNoParm(this Type t, bool useemptystring = false)
         {
             if (_constructorCache.TryGetValue(t, out var del))
             {
@@ -119,6 +125,20 @@ namespace CodexMicroORM.Core.Helper
                 }
 
                 return exp();
+            }
+
+            if (t == typeof(string))
+            {
+                // String is special case - do not have parameterless constructor so need to use empty string
+                if (useemptystring)
+                {
+                    return string.Empty;
+                }
+                else
+                {
+                    string? v = null;
+                    return v;
+                }
             }
 
             return Activator.CreateInstance(t);
@@ -521,6 +541,17 @@ namespace CodexMicroORM.Core.Helper
             }
 
             var pi = o.GetType().GetProperty(propName);
+
+            if (pi == null)
+            {
+                if (IgnoreInvalidSets)
+                {
+                    return;
+                }
+
+                throw new InvalidOperationException($"Tried to set unknown property '{propName}' on '{o.GetType().Name}'.");
+            }
+
             MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
@@ -538,6 +569,10 @@ namespace CodexMicroORM.Core.Helper
             catch (TargetInvocationException)
             {
                 o.GetType().GetProperty(propName).GetSetMethod().Invoke(o, new object?[] { value });
+            }
+            catch (NullReferenceException nrex)
+            {
+                throw new NullReferenceException($"Cannot assign null value to property '{propName}' on type '{o.GetType().Name}'.", nrex);
             }
         }
 

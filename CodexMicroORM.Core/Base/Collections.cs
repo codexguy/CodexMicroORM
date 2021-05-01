@@ -25,6 +25,7 @@ using System.Threading;
 using System.Linq;
 using System.Collections.Specialized;
 using System.ComponentModel;
+#nullable enable
 
 namespace CodexMicroORM.Core.Collections
 {
@@ -49,19 +50,18 @@ namespace CodexMicroORM.Core.Collections
         [Serializable]
         private class BucketInfo
         {
-            public Dictionary<TKey, TValue> Map = new Dictionary<TKey, TValue>();
-
-            public RWLockInfo Lock = new RWLockInfo() { AllowDirtyReads = false };
+            public Dictionary<TKey, TValue> Map = new();
+            public RWLockInfo Lock = new() { AllowDirtyReads = false };
         }
 
         private BucketInfo[] _perThreadMap;
 
-        private readonly object _lock = new object();
+        private readonly object _lock = new();
 
         private int _count = 0;
         private readonly int _initCapacity = Globals.DefaultDictionaryCapacity;
 
-        private readonly HashSet<TKey> _building = new HashSet<TKey>();
+        private readonly HashSet<TKey> _building = new();
 
         public RWLockInfo? ExternalLock
         {
@@ -474,12 +474,12 @@ namespace CodexMicroORM.Core.Collections
             public Block? Tail;
             public int TailNextPos;
             public int TotalSize;
-            public RWLockInfo Lock = new RWLockInfo() { AllowDirtyReads = false };
+            public RWLockInfo Lock = new() { AllowDirtyReads = false };
         }
 
         private BucketInfo[] _perThreadMap;
         private int _count = 0;
-        private readonly RWLockInfo _lock = new RWLockInfo() { AllowDirtyReads = false };
+        private readonly RWLockInfo _lock = new() { AllowDirtyReads = false };
         private readonly int _initCapacity = Globals.DefaultListCapacity;
 
         public ConcurrentObservableCollection(int? initCapacity = null, int? buckets = null)
@@ -876,7 +876,7 @@ namespace CodexMicroORM.Core.Collections
         private Block? _tail;
         private int _count = 0;
         private int _curCapacity;
-        private readonly object _sizingLock = new object();
+        private readonly object _sizingLock = new();
 
         public IEnumerable<long> All()
         {
@@ -1303,7 +1303,7 @@ namespace CodexMicroORM.Core.Collections
                         }
                         else
                         {
-                            LightweightLongList newBag = new LightweightLongList();
+                            LightweightLongList newBag = new();
                             newBag.Add(id);
                             dic.Value[propVal ?? _asNull] = newBag;
                         }
@@ -1335,7 +1335,7 @@ namespace CodexMicroORM.Core.Collections
 
             bool addeddata = false;
             bool addedcontains = false;
-            List<(LightweightLongList bag, long id)> toremove = new List<(LightweightLongList bag, long id)>(8);
+            List<(LightweightLongList bag, long id)> toremove = new(8);
 
             void Unwind()
             {
@@ -1398,7 +1398,7 @@ namespace CodexMicroORM.Core.Collections
                         }
                         else
                         {
-                            LightweightLongList newBag = new LightweightLongList();
+                            LightweightLongList newBag = new();
                             newBag.Add(id);
                             dic.Value[propVal ?? _asNull] = newBag;
                             toremove.Add((newBag, id));
@@ -1474,7 +1474,8 @@ namespace CodexMicroORM.Core.Collections
             {
                 if (_masterIndex[propName].TryGetValue(propValue ?? _asNull, out LightweightLongList bag))
                 {
-                    return (from a in bag.All() select _data[a]).FirstOrDefault();
+                    T? val = null;
+                    return (from a in bag.All() where _data.TryGetValue(a, out val) select val).FirstOrDefault();
                 }
             }
 

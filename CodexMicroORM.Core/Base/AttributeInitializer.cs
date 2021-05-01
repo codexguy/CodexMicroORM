@@ -23,6 +23,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+#nullable enable
 
 namespace CodexMicroORM.Core
 {
@@ -34,7 +35,7 @@ namespace CodexMicroORM.Core
             set;
         } = false;
 
-        public static Action<(Type type, string prop, Type attr)> PreviewHandler
+        public static Action<(Type type, string? prop, Type attr)>? PreviewHandler
         {
             get;
             set;

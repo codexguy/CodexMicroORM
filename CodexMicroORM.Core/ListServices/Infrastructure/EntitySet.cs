@@ -851,6 +851,12 @@ namespace CodexMicroORM.Core.Services
             set;
         }
 
+        public bool AddedIsNew
+        {
+            get;
+            set;
+        } = true;
+
         protected override void ClearItems()
         {
             _contains = new SlimConcurrentDictionary<T, bool>(Globals.DefaultLargerDictionaryCapacity);
@@ -960,7 +966,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         if (ni != null)
                         {
-                            if (BoundScope.InternalCreateAddBase(ni, true, null, null, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), true, false) is ICEFWrapper w)
+                            if (BoundScope.InternalCreateAddBase(ni, AddedIsNew, null, null, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), true, false) is ICEFWrapper w)
                             {
                                 var cast = w as T;
 

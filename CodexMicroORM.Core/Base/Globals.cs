@@ -19,6 +19,7 @@ Major Changes:
 using CodexMicroORM.Core.Services;
 using System;
 using System.Collections.Generic;
+#nullable enable
 
 namespace CodexMicroORM.Core
 {
@@ -37,10 +38,10 @@ namespace CodexMicroORM.Core
         private static Type _defaultValidationServiceType = typeof(ValidationService);
         private static Type _entitySetType = typeof(EntitySet<>);
         private static bool _useGlobalServiceScope = false;
-        private static HashSet<string> _globalPropExclDirtyCheck = new HashSet<string>();
+        private static HashSet<string> _globalPropExclDirtyCheck = new();
 
         [ThreadStatic]
-        private static string _currentThreadUser = null;
+        private static string? _currentThreadUser = null;
 
         #endregion
 
@@ -49,7 +50,7 @@ namespace CodexMicroORM.Core
         /// <summary>
         /// Offers a mechanism to detect changes in infrastructure objects globally. (e.g. used in a syncing framework)
         /// </summary>
-        public static GlobalPropertyChangeCallback GlobalPropertyChangePreview
+        public static GlobalPropertyChangeCallback? GlobalPropertyChangePreview
         {
             get;
             set;
@@ -64,7 +65,7 @@ namespace CodexMicroORM.Core
         /// <summary>
         /// Mainly intended for debugging purposes, allows certain very low-level operations to be logged. (Use sparingly!)
         /// </summary>
-        public static Action<string> DeepLogger
+        public static Action<string>? DeepLogger
         {
             get;
             set;
@@ -114,12 +115,12 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value != null && value.GetInterface(typeof(ICEFPersistenceHost).Name) == null)
+                if (value == null || (value != null && value.GetInterface(typeof(ICEFPersistenceHost).Name) == null))
                 {
                     throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFPersistenceHost.");
                 }
 
-                _defaultPCTServiceType = value;
+                _defaultPCTServiceType = value!;
             }
         }
 
@@ -131,12 +132,12 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value != null && value.GetInterface(typeof(ICEFAuditHost).Name) == null)
+                if (value == null || (value != null && value.GetInterface(typeof(ICEFAuditHost).Name) == null))
                 {
                     throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFAuditHost.");
                 }
 
-                _defaultAuditServiceType = value;
+                _defaultAuditServiceType = value!;
             }
         }
 
@@ -148,12 +149,12 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value != null && value.GetInterface(typeof(ICEFDataHost).Name) == null)
+                if (value == null || (value != null && value.GetInterface(typeof(ICEFDataHost).Name) == null))
                 {
                     throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFDataHost.");
                 }
 
-                _defaultDBServiceType = value;
+                _defaultDBServiceType = value!;
             }
         }
 
@@ -165,12 +166,12 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value != null && value.GetInterface(typeof(ICEFValidationHost).Name) == null)
+                if (value == null || (value != null && value.GetInterface(typeof(ICEFValidationHost).Name) == null))
                 {
                     throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFValidationHost.");
                 }
 
-                _defaultValidationServiceType = value;
+                _defaultValidationServiceType = value!;
             }
         }
 
@@ -182,12 +183,12 @@ namespace CodexMicroORM.Core
             }
             set
             {
-                if (value != null && value.GetInterface(typeof(ICEFKeyHost).Name) == null)
+                if (value == null || (value != null && value.GetInterface(typeof(ICEFKeyHost).Name) == null))
                 {
                     throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Type does not implement ICEFKeyHost.");
                 }
 
-                _defaultKeyServiceType = value;
+                _defaultKeyServiceType = value!;
             }
         }
 
@@ -237,7 +238,7 @@ namespace CodexMicroORM.Core
             return (EntitySet<T>)Activator.CreateInstance(_entitySetType.MakeGenericType(typeof(T)), source);
         }
 
-        public static ServiceScopeSettings GlobalServiceScopeSettings
+        public static ServiceScopeSettings? GlobalServiceScopeSettings
         {
             get;
             set;
@@ -356,7 +357,7 @@ namespace CodexMicroORM.Core
         /// <summary>
         /// The name of the wrapper class namespace where {0} can be used to represent the base type's namespace.
         /// </summary>
-        public static string WrappingClassNamespace
+        public static string? WrappingClassNamespace
         {
             get;
             set;
@@ -365,7 +366,7 @@ namespace CodexMicroORM.Core
         /// <summary>
         /// An optional class name pattern for wrapper classes where {0} can be used to represent the base type's class name.
         /// </summary>
-        public static string WrapperClassNamePattern
+        public static string? WrapperClassNamePattern
         {
             get;
             set;
@@ -374,7 +375,7 @@ namespace CodexMicroORM.Core
         /// <summary>
         /// Optional name of the assembly the contains the wrapper classes. (If omitted, uses the assembly for the base types.)
         /// </summary>
-        public static string WrapperClassAssembly
+        public static string? WrapperClassAssembly
         {
             get;
             set;
@@ -410,7 +411,7 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
-        public static string GetCurrentUser() => _currentThreadUser ?? (_currentThreadUser = Environment.UserName);
+        public static string GetCurrentUser() => _currentThreadUser ??= Environment.UserName;
 
         /// <summary>
         /// When true, null collections are initialized when found with EntitySet instances; this can impose a performance overhead with the benefit of a simpler way to populate the object graph.

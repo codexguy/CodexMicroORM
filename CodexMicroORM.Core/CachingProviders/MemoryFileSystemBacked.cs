@@ -105,8 +105,6 @@ namespace CodexMicroORM.Providers
 
         #region "Internal state"
 
-        //private readonly ConcurrentDictionary<Type, long> _totalReadCounter = new ConcurrentDictionary<Type, long>();
-
         private string _rootDir = "";
 
         private readonly ConcurrentIndexedList<MFSEntry> _index = new ConcurrentIndexedList<MFSEntry>(nameof(MFSEntry.ByIdentityComposite), nameof(MFSEntry.ByQuerySHA), nameof(MFSEntry.ObjectTypeName), nameof(MFSEntry.FileName));
@@ -387,7 +385,7 @@ namespace CodexMicroORM.Providers
 
             string hash;
 
-            using (SHA256Managed hasher = new SHA256Managed())
+            using (SHA1Managed hasher = new())
             {
                 hash = Convert.ToBase64String(hasher.ComputeHash(Encoding.ASCII.GetBytes(sb.ToString())));
             }
@@ -437,7 +435,7 @@ namespace CodexMicroORM.Providers
                 mode = ss.ResolvedCacheBehaviorForType(typeof(T));
             }
 
-            if ((mode & CacheBehavior.QueryBased) == 0 && (mode & CacheBehavior.ConvertQueryToIdentity) != 0 && ((mode & CacheBehavior.ForAllDoesntConvertToIdentity) == 0 || string.Compare(text, "All", true) != 0))
+            if ((mode & CacheBehavior.QueryBased) == 0 && (mode & CacheBehavior.ConvertQueryToIdentity) != 0 && ((mode & CacheBehavior.ForAllDoesntConvertToIdentity) == 0 || string.Compare(text, "All", true) != 0 || !text.EndsWith("_ForList]")))
             {
                 // All we can do is for all list items, add to identity cache
                 void act2()
@@ -476,7 +474,7 @@ namespace CodexMicroORM.Providers
                 return;
             }
 
-            if ((mode & CacheBehavior.OnlyForAllQuery) != 0 && string.Compare(text, "All", true) != 0)
+            if ((mode & CacheBehavior.OnlyForAllQuery) != 0 && string.Compare(text, "All", true) != 0 && !text.EndsWith("_ForList]"))
             {
                 return;
             }
@@ -495,7 +493,7 @@ namespace CodexMicroORM.Providers
 
             string hash;
 
-            using (SHA256Managed hasher = new SHA256Managed())
+            using (SHA1Managed hasher = new())
             {
                 hash = Convert.ToBase64String(hasher.ComputeHash(Encoding.ASCII.GetBytes(sb.ToString())));
             }
@@ -524,7 +522,7 @@ namespace CodexMicroORM.Providers
 
                 c.ByQuerySHA = hash;
                 c.FileName = BuildNewFileName(typeof(T));
-                c.QueryForAll = string.Compare(text, "All", true) == 0;
+                c.QueryForAll = string.Compare(text, "All", true) == 0 || text.EndsWith("_ForList]");
                 _index.Add(c);
             }
 
@@ -557,7 +555,7 @@ namespace CodexMicroORM.Providers
                             {
                                 rows.Add(iw.GetAllValues(true, true));
 
-                                if ((mode & CacheBehavior.ConvertQueryToIdentity) != 0 && ((mode & CacheBehavior.ForAllDoesntConvertToIdentity) == 0 || string.Compare(text, "All", true) != 0))
+                                if ((mode & CacheBehavior.ConvertQueryToIdentity) != 0 && ((mode & CacheBehavior.ForAllDoesntConvertToIdentity) == 0 || string.Compare(text, "All", true) != 0 || !text.EndsWith("_ForList]")))
                                 {
                                     if (iw.AsUnwrapped() is T uw)
                                     {

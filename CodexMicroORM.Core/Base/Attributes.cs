@@ -21,11 +21,12 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
+#nullable enable
 
 namespace CodexMicroORM.Core
 {
     [AttributeUsage(AttributeTargets.Class)]
-    public class EntityCacheRecommendAttribute : Attribute
+    public sealed class EntityCacheRecommendAttribute : Attribute
     {
         public EntityCacheRecommendAttribute(int intervalMinutes, bool onlyMemory)
         {
@@ -48,19 +49,19 @@ namespace CodexMicroORM.Core
         {
             get;
             private set;
-        }
+        } = true;
     }
 
-    public class EntityIgnoreBindingAttribute : Attribute
+    public sealed class EntityIgnoreBindingAttribute : Attribute
     {
     }
 
-    public class EntityDoNotSaveAttribute : Attribute
+    public sealed class EntityDoNotSaveAttribute : Attribute
     {
     }
 
     [AttributeUsage(AttributeTargets.Class)]
-    public class EntityPrimaryKeyAttribute : Attribute
+    public sealed class EntityPrimaryKeyAttribute : Attribute
     {
         public string[] Fields
         {
@@ -68,7 +69,7 @@ namespace CodexMicroORM.Core
             private set;
         }
 
-        public Type ShadowType
+        public Type? ShadowType
         {
             get;
             private set;
@@ -92,7 +93,7 @@ namespace CodexMicroORM.Core
     }
 
     [AttributeUsage(AttributeTargets.Class)]
-    public class EntitySchemaNameAttribute : Attribute
+    public sealed class EntitySchemaNameAttribute : Attribute
     {
         public string Name
         {
@@ -106,7 +107,7 @@ namespace CodexMicroORM.Core
         }
     }
 
-    public class EntityDateHandlingAttribute : Attribute
+    public sealed class EntityDateHandlingAttribute : Attribute
     {
         public EntityDateHandlingAttribute(PropertyDateStorage mode)
         {
@@ -121,7 +122,7 @@ namespace CodexMicroORM.Core
     }
 
     [AttributeUsage(AttributeTargets.Property)]
-    public class EntityRequiredAttribute : Attribute
+    public sealed class EntityRequiredAttribute : Attribute
     {
         public EntityRequiredAttribute()
         {
@@ -129,7 +130,7 @@ namespace CodexMicroORM.Core
     }
 
     [AttributeUsage(AttributeTargets.Property)]
-    public class EntityMaxLengthAttribute : Attribute
+    public sealed class EntityMaxLengthAttribute : Attribute
     {
         public int Length
         {
@@ -147,7 +148,7 @@ namespace CodexMicroORM.Core
     }
 
     [AttributeUsage(AttributeTargets.Property)]
-    public class EntityDefaultValueAttribute : Attribute
+    public sealed class EntityDefaultValueAttribute : Attribute
     {
         public string Value
         {
@@ -162,7 +163,7 @@ namespace CodexMicroORM.Core
     }
 
     [AttributeUsage(AttributeTargets.Class)]
-    public class EntityRelationshipsAttribute : Attribute
+    public sealed class EntityRelationshipsAttribute : Attribute
     {
         public TypeChildRelationship[] Relations
         {
@@ -170,9 +171,9 @@ namespace CodexMicroORM.Core
             private set;
         }
 
-        private static ConcurrentDictionary<string, Type> _typeCache = new ConcurrentDictionary<string, Type>();
+        private readonly static ConcurrentDictionary<string, Type> _typeCache = new();
 
-        private Type FindTypeByName(string name)
+        private Type? FindTypeByName(string name)
         {
             if (_typeCache.TryGetValue(name, out var t))
             {
@@ -195,7 +196,7 @@ namespace CodexMicroORM.Core
 
         public EntityRelationshipsAttribute(params string[] relations)
         {
-            List<TypeChildRelationship> list = new List<TypeChildRelationship>();
+            List<TypeChildRelationship> list = new();
 
             foreach (var rel in relations)
             {

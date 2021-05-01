@@ -21,6 +21,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Data;
 using System.Linq;
@@ -32,36 +33,38 @@ namespace CodexMicroORM.Core.Services
 {
     public class DBService : ICEFDataHost
     {
+        const int MAX_WAIT_TIME_MS = 40000;
+
         #region "Static state"
 
         private const int PARALLEL_THRESHOLD_FOR_PARSE = 100;
 
         // Can declare what DB schemas any object belongs to (if not expressed in GetSchemaName())
-        private static readonly ConcurrentDictionary<Type, string> _schemaTypeMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, string> _schemaTypeMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Providers can be set, by type
-        private static readonly ConcurrentDictionary<Type, IDBProvider> _providerTypeMap = new ConcurrentDictionary<Type, IDBProvider>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, IDBProvider> _providerTypeMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Field names can differ from OM and storage
-        private static readonly ConcurrentDictionary<Type, ConcurrentDictionary<string, string>> _typeFieldNameMap = new ConcurrentDictionary<Type, ConcurrentDictionary<string, string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, ConcurrentDictionary<string, string>> _typeFieldNameMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Entity names can differ from OM and storage
-        private static readonly ConcurrentDictionary<Type, string> _typeEntityNameMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, string> _typeEntityNameMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Fields can have defaults (can match simple SQL DEFAULTs, for example)
-        private static readonly ConcurrentDictionary<Type, List<(string prop, object? value, object? def, Type proptype)>> _typePropDefaults = new ConcurrentDictionary<Type, List<(string prop, object? value, object? def, Type proptype)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, List<(string prop, object? value, object? def, Type proptype)>> _typePropDefaults = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Property values can be "copied" from contained objects for DB persistence
-        private static readonly ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>> _typePropGroups = new ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, List<(string prop, Type proptype, string prefix)>> _typePropGroups = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Properties on an object can be saved to a parent 1:0/1 in the DB
-        private static readonly ConcurrentDictionary<Type, (string? schema, string name)> _typeParentSave = new ConcurrentDictionary<Type, (string? schema, string name)>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, (string? schema, string name)> _typeParentSave = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         #endregion
 
         #region "Private state"
 
-        private readonly ConcurrentDictionary<Type, Func<object[], IEnumerable>> _retrieveByKeyCache = new ConcurrentDictionary<Type, Func<object[], IEnumerable>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly ConcurrentDictionary<Type, Func<object[], IEnumerable>> _retrieveByKeyCache = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         #endregion
 
@@ -278,7 +281,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         var fn = string.Concat(prefix, pi.Name);
 
-                        if (iw != null && iw.HasProperty(fn))
+                        if (pv != null && iw != null && iw.HasProperty(fn))
                         {
                             pv.FastSetValue(pi.Name, iw.GetValue(fn));
                             set = true;
@@ -314,7 +317,7 @@ namespace CodexMicroORM.Core.Services
                             if (iw.GetValue(k.ParentPropertyName) == null && k.ParentType != null)
                             {
                                 // Do a retrieve by key on the parent type
-                                var parentSet = RetrieveByKeyNonGeneric(k.ParentType, (from a in k.ChildRoleName ?? k.ParentKey select iw.GetValue(a)).ToArray()).GetEnumerator();
+                                var parentSet = RetrieveByKeyNonGeneric(k.ParentType, (from a in k.ChildRoleName ?? k.ParentKey select iw.GetValue(a)).ToList()).GetEnumerator();
 
                                 if (parentSet.MoveNext())
                                 {
@@ -378,7 +381,10 @@ namespace CodexMicroORM.Core.Services
             {
                 while (sst.Completions.TryDequeue(out Task t))
                 {
-                    t.Wait();
+                    if (!t.Wait(MAX_WAIT_TIME_MS))
+                    {
+                        throw new TimeoutException($"Waited {MAX_WAIT_TIME_MS} ms for data operation - failed to complete.");
+                    }
                 }
 
                 lock (sst.Sync)
@@ -425,7 +431,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public IList<(object item, string? message, int status)> Save(IList<ICEFInfraWrapper> rows, ServiceScope ss, DBSaveSettings settings)
         {
-            List<(object item, string? message, int status)> results = new List<(object item, string? message, int status)>();
+            List<(object item, string? message, int status)> results = new();
 
             string? schemaOverride = null;
             string? nameOverride = null;
@@ -445,7 +451,7 @@ namespace CodexMicroORM.Core.Services
             // Different order #'s require sequential processing, so we group by order # - within an order group/table, we should be able to issue parallel requests
             // We also offer a way to "preview" what will be saved and adjust if needed
             // By grouping by provider type, we support hybrid data sources, by type
-            Dictionary<IDBProvider, Dictionary<int, Dictionary<ObjectState, List<(string? schema, string name, Type basetype, ICEFInfraWrapper row)>>>> grouped = new Dictionary<IDBProvider, Dictionary<int, Dictionary<ObjectState, List<(string? schema, string name, Type basetype, ICEFInfraWrapper row)>>>>();
+            Dictionary<IDBProvider, Dictionary<int, Dictionary<ObjectState, List<(string? schema, string name, Type basetype, ICEFInfraWrapper row)>>>> grouped = new();
 
             var loader = new Action<ICEFInfraWrapper>((a) =>
             {
@@ -721,7 +727,10 @@ namespace CodexMicroORM.Core.Services
                     {
                         if (sst.Completions.TryDequeue(out Task t2))
                         {
-                            t2.Wait();
+                            if (!t2.Wait(MAX_WAIT_TIME_MS))
+                            {
+                                throw new TimeoutException($"Waited {MAX_WAIT_TIME_MS} ms for data operation - failed to complete.");
+                            }
                         }
                     }
                 }
@@ -783,7 +792,7 @@ namespace CodexMicroORM.Core.Services
 
         // Do not remove, used internally by reflection
 #pragma warning disable IDE0051 // Remove unused private members
-        private Func<object[], IEnumerable> InternalRetrieveByKey<T>() where T : class, new() => new Func<object[], IEnumerable>((k) => { return RetrieveByKey<T>(k); });
+        private Func<object[], IEnumerable> InternalRetrieveByKey<T>() where T : class, new() => new((k) => { return RetrieveByKey<T>(k); });
 #pragma warning restore IDE0051 // Remove unused private members
 
         public IEnumerable<T> RetrieveByKey<T>(params object[] key) where T : class, new()
@@ -830,7 +839,12 @@ namespace CodexMicroORM.Core.Services
 
             if (cs.IsStandalone)
             {
-                res = res.ToArray();
+                // If it's a List, we know it's got to be a snapshot already, no need to do this again!
+                if (!(res is List<T>))
+                {
+                    res = res.ToArray();
+                }
+
                 cs.DoneWork();
             }
 
@@ -839,7 +853,11 @@ namespace CodexMicroORM.Core.Services
             {
                 if (!cs.IsStandalone)
                 {
-                    res = res.ToArray();
+                    // If it's a List, we know it's got to be a snapshot already, no need to do this again!
+                    if (!(res is List<T>))
+                    {
+                        res = res.ToArray();
+                    }
                 }
 
                 var fr = res.FirstOrDefault();
@@ -875,7 +893,12 @@ namespace CodexMicroORM.Core.Services
 
             if (cs.IsStandalone)
             {
-                res = res.ToArray();
+                // If it's a List, we know it's got to be a snapshot already, no need to do this again!
+                if (!(res is List<T>))
+                {
+                    res = res.ToArray();
+                }
+
                 cs.DoneWork();
             }
 
@@ -888,7 +911,11 @@ namespace CodexMicroORM.Core.Services
             {
                 if (!cs.IsStandalone)
                 {
-                    res = res.ToArray();
+                    // If it's a List, we know it's got to be a snapshot already, no need to do this again!
+                    if (!(res is List<T>))
+                    {
+                        res = res.ToArray();
+                    }
                 }
 
                 if (res.Any())
@@ -922,7 +949,12 @@ namespace CodexMicroORM.Core.Services
 
             if (cs.IsStandalone)
             {
-                res = res.ToArray();
+                // If it's a List, we know it's got to be a snapshot already, no need to do this again!
+                if (!(res is List<T>))
+                {
+                    res = res.ToArray();
+                }
+
                 cs.DoneWork();
             }
 
@@ -930,7 +962,11 @@ namespace CodexMicroORM.Core.Services
             {
                 if (!cs.IsStandalone)
                 {
-                    res = res.ToArray();
+                    // If it's a List, we know it's got to be a snapshot already, no need to do this again!
+                    if (!(res is List<T>))
+                    {
+                        res = res.ToArray();
+                    }
                 }
 
                 if (res.Any())

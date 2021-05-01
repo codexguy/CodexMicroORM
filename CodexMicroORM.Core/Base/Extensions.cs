@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -47,9 +47,9 @@ namespace CodexMicroORM.Core
             if (o == null)
                 return false;
 
-            if (o is ICEFInfraWrapper)
+            if (o is ICEFInfraWrapper wrapper)
             {
-                return ((ICEFInfraWrapper)o).HasProperty(propName);
+                return wrapper.HasProperty(propName);
             }
 
             return o.FastPropertyReadable(propName);
@@ -80,7 +80,7 @@ namespace CodexMicroORM.Core
     /// </summary>
     public static class PublicExtensions
     {
-        private static readonly ConcurrentDictionary<Type, Type> _typeMap = new ConcurrentDictionary<Type, Type>();
+        private static readonly ConcurrentDictionary<Type, Type> _typeMap = new();
 
         public static int MinOf(this int i1, int i2)
         {
@@ -103,7 +103,7 @@ namespace CodexMicroORM.Core
             return new T[] { item };
         }
 
-        public static string LeftWithEllipsis(this string str, int count)
+        public static string? LeftWithEllipsis(this string? str, int count)
         {
             if (string.IsNullOrEmpty(str))
             {
@@ -118,7 +118,7 @@ namespace CodexMicroORM.Core
             return str.Substring(0, count - 4) + " ...";
         }
 
-        public static string Left(this string str, int count)
+        public static string? Left(this string? str, int count)
         {
             if (string.IsNullOrEmpty(str))
             {
@@ -133,7 +133,7 @@ namespace CodexMicroORM.Core
             return str.Substring(0, count);
         }
 
-        public static string Right(this string str, int count)
+        public static string? Right(this string? str, int count)
         {
             if (string.IsNullOrEmpty(str))
             {
@@ -204,10 +204,12 @@ namespace CodexMicroORM.Core
             }
         }
 
-        public static object? CoerceType(this string source, Type prefType, object? defaultIfFail = null)
+        public static object? CoerceType(this string? source, Type prefType, object? defaultIfFail = null)
         {
             if (source == null)
+            {
                 return null;
+            }
 
             if (prefType == typeof(string))
             {
@@ -442,10 +444,23 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Derivative of AsInfraWrapped, returns non-nullable value and throws exception if for any reason wrapper creation was not possible.
+        /// </summary>
+        /// <param name="o">Any object that's tracked within the current service scope.</param>
+        /// <param name="canCreate">If false, the object must have an existing infrastructure wrapper or null is returned; if true, a new wrapper can be created.</param>
+        /// <param name="ss">Optional explicit service scope tracking object.</param>
+        /// <returns></returns>
+        public static ICEFInfraWrapper MustInfraWrap(this object o, bool canCreate = true, ServiceScope? ss = null)
+        {
+            return AsInfraWrapped(o, canCreate, ss) ?? throw new CEFInvalidStateException("Could not create wrapper object. This indicates a likely programming issue.");
+        }
+
+        /// <summary>
         /// Infrastructure wrappers offer extended information about tracked objects, such as their "row state" (added, modified, etc.).
         /// </summary>
         /// <param name="o">Any object that's tracked within the current service scope.</param>
         /// <param name="canCreate">If false, the object must have an existing infrastructure wrapper or null is returned; if true, a new wrapper can be created.</param>
+        /// <param name="ss">Optional explicit service scope tracking object.</param>
         /// <returns></returns>
         public static ICEFInfraWrapper? AsInfraWrapped(this object o, bool canCreate = true, ServiceScope? ss = null)
         {
@@ -483,9 +498,9 @@ namespace CodexMicroORM.Core
                 return (T?)v;
             }
 
-            if (v is T)
+            if (v is T t)
             {
-                return new T?((T)v);
+                return new T?(t);
             }
 
             throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}?.");
@@ -516,9 +531,9 @@ namespace CodexMicroORM.Core
                     return (T?)v;
                 }
 
-                if (v is T)
+                if (v is T t)
                 {
-                    return new T?((T)v);
+                    return new T?(t);
                 }
 
                 throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}?.");
@@ -540,9 +555,9 @@ namespace CodexMicroORM.Core
                         return (T)v;
                     }
 
-                    if (v is T)
+                    if (v is T t)
                     {
-                        return (T)v;
+                        return t;
                     }
 
                     throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}?.");
@@ -568,9 +583,9 @@ namespace CodexMicroORM.Core
                     return (T?)v;
                 }
 
-                if (v is T)
+                if (v is T t)
                 {
-                    return new T?((T)v);
+                    return new T?(t);
                 }
 
                 throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}?.");
@@ -592,9 +607,9 @@ namespace CodexMicroORM.Core
                         return (T)(object)v.ToString();
                     }
 
-                    if (v is T)
+                    if (v is T t)
                     {
-                        return (T)v;
+                        return t;
                     }
 
                     return (T)Convert.ChangeType(v, typeof(T));
@@ -620,9 +635,9 @@ namespace CodexMicroORM.Core
                     return (T)(object)v.ToString();
                 }
 
-                if (v is T)
+                if (v is T t)
                 {
-                    return (T)v;
+                    return t;
                 }
 
                 return (T)Convert.ChangeType(v, typeof(T));
@@ -641,7 +656,7 @@ namespace CodexMicroORM.Core
 
                 if (iw != null)
                 {
-                    foreach (var (name, type, readable, writeable) in target.FastGetAllProperties(true, true))
+                    foreach (var (name, _, _, _) in target.FastGetAllProperties(true, true))
                     {
                         if (iw.BagValuesOnly().TryGetValue(name, out var sv))
                         {
@@ -672,9 +687,9 @@ namespace CodexMicroORM.Core
                     return default!;
                 }
 
-                if (v is T)
+                if (v is T t)
                 {
-                    return (T)v;
+                    return t;
                 }
 
                 throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}.");
@@ -712,7 +727,7 @@ namespace CodexMicroORM.Core
         public static (int code, string message) AsString(this IEnumerable<(ValidationErrorCode error, string? message)> msgs, ValidationErrorCode? only = null, string concat = " ")
         {
             int code = 0;
-            StringBuilder sb = new StringBuilder();
+            StringBuilder sb = new();
 
             foreach (var (error, message) in msgs)
             {
@@ -743,9 +758,9 @@ namespace CodexMicroORM.Core
                 throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(wrapped));
             }
 
-            if (wrapped is ICEFInfraWrapper)
+            if (wrapped is ICEFInfraWrapper wrapper)
             {
-                var wo = ((ICEFInfraWrapper)wrapped).GetWrappedObject();
+                var wo = wrapper.GetWrappedObject();
 
                 if (wo != null)
                 {
@@ -753,9 +768,9 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            if (wrapped is ICEFWrapper)
+            if (wrapped is ICEFWrapper wrapper1)
             {
-                return ((ICEFWrapper)wrapped).GetBaseType();
+                return wrapper1.GetBaseType();
             }
 
             var wt = wrapped.GetType();
@@ -767,9 +782,9 @@ namespace CodexMicroORM.Core
 
             var uw = CEF.CurrentServiceScope.GetWrapperOrTarget(wrapped);
 
-            if (uw is ICEFWrapper)
+            if (uw is ICEFWrapper wrapper2)
             {
-                var rt = ((ICEFWrapper)uw).GetBaseType();
+                var rt = wrapper2.GetBaseType();
                 _typeMap[wt] = rt;
                 return rt;
             }
@@ -788,6 +803,16 @@ namespace CodexMicroORM.Core
 
             _typeMap[wt] = uw.GetType();
             return uw.GetType();
+        }
+
+        /// <summary>
+        /// Similar to AsUnwrapped but will throw an exception if null would have been returned.
+        /// </summary>
+        /// <param name="wrapped">An object in the current service scope (can be wrapped or unwrapped).</param>
+        /// <returns>The "least wrapped" instance of the input object.</returns>
+        public static object MustUnwrap(this object wrapped)
+        {
+            return AsUnwrapped(wrapped) ?? throw new CEFInvalidStateException("Could not unwrap object. This indicates a likely programming issue.");
         }
 
         /// <summary>
@@ -877,17 +902,17 @@ namespace CodexMicroORM.Core
                 return null;
 
             // Special case - if o is a session scope, we're asking to serialize everything in scope, as one big array of objects!
-            if (o is ServiceScope)
+            if (o is ServiceScope scope)
             {
-                return ((ServiceScope)o).GetScopeSerializationText(mode);
+                return scope.GetScopeSerializationText(mode);
             }
 
-            if (o is ICEFList)
+            if (o is ICEFList list)
             {
-                return ((ICEFList)o).GetSerializationText(mode);
+                return list.GetSerializationText(mode);
             }
 
-            if (!(o.AsInfraWrapped(false) is ICEFSerializable iw))
+            if (o.AsInfraWrapped(false) is not ICEFSerializable iw)
             {
                 return JsonConvert.SerializeObject(o);
             }
@@ -935,7 +960,7 @@ namespace CodexMicroORM.Core
 
         public static string DictionaryKeyFromColumns(this ICEFInfraWrapper iw, IEnumerable<string> cols)
         {
-            StringBuilder sb = new StringBuilder(128);
+            StringBuilder sb = new(128);
 
             foreach (var c in cols)
             {
@@ -975,7 +1000,7 @@ namespace CodexMicroORM.Core
             // First pass for inserts, updates
             foreach (DataRowView drv in source)
             {
-                StringBuilder sb = new StringBuilder(128);
+                StringBuilder sb = new(128);
 
                 foreach (var k in key)
                 {
@@ -1004,7 +1029,7 @@ namespace CodexMicroORM.Core
             }
 
             // Second pass for deletes - use a separate DV we can sort for fast lookup
-            using DataView dv = new DataView(source.Table, source.RowFilter, string.Join(",", key.ToArray()), source.RowStateFilter);
+            using DataView dv = new(source.Table, source.RowFilter, string.Join(",", key.ToArray()), source.RowStateFilter);
 
             foreach (var kvp in setData.ToList())
             {
@@ -1027,9 +1052,9 @@ namespace CodexMicroORM.Core
         /// <typeparam name="T"></typeparam>
         /// <param name="src"></param>
         /// <returns></returns>
-        public static T DeepCopyObject<T>(this T src) where T : class, new()
+        public static T DeepCopyObject<T>(this T? src) where T : class, new()
         {
-            var n = (T)typeof(T).FastCreateNoParm();
+            var n = (T)(typeof(T).FastCreateNoParm() ?? throw new InvalidOperationException("Could not instantiate object."));
 
             if (src != null)
             {
@@ -1232,7 +1257,7 @@ namespace CodexMicroORM.Core
                 {
                     var di = dv.GetType().FastCreateNoParm();
 
-                    if (di.Equals(dv))
+                    if (di == dv)
                     {
                         continue;
                     }
@@ -1270,7 +1295,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static DataTable DeepCopyDataTable<T>(this EntitySet<T> source) where T : class, new()
         {
-            List<(string name, Type type, bool nullable)> columns = new List<(string name, Type type, bool nullable)>();
+            List<(string name, Type type, bool nullable)> columns = new();
 
             if (source.Any())
             {
@@ -1290,7 +1315,7 @@ namespace CodexMicroORM.Core
                 columns.AddRange(from a in typeof(T).GetProperties() select (a.Name, a.PropertyType, a.PropertyType.IsGenericType && a.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>)));
             }
 
-            DataTable dt = new DataTable();
+            DataTable dt = new();
 
             foreach (var (name, type, nullable) in columns)
             {

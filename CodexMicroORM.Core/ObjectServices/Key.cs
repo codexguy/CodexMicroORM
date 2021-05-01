@@ -41,16 +41,15 @@ namespace CodexMicroORM.Core.Services
         private static int _lowShortKey = short.MinValue;
 
         // Populated during startup, represents all object primary keys we track - should be eastablished prior to relationships!
-        private static readonly ConcurrentDictionary<Type, IList<string>> _primaryKeys = new ConcurrentDictionary<Type, IList<string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static readonly ConcurrentDictionary<Type, Type> _keyKnownTypes = new ConcurrentDictionary<Type, Type>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, IList<string>> _primaryKeys = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, Type> _keyKnownTypes = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         // Populated during startup, represents all object relationships we track
-        private static readonly ConcurrentIndexedList<TypeChildRelationship> _relations = new ConcurrentIndexedList<TypeChildRelationship>(
+        private static readonly ConcurrentIndexedList<TypeChildRelationship> _relations = new(
             nameof(TypeChildRelationship.ParentType),
             nameof(TypeChildRelationship.ChildType),
             nameof(TypeChildRelationship.FullParentChildPropertyName),
             nameof(TypeChildRelationship.FullChildParentPropertyName));
-
 
         #endregion
 
@@ -591,7 +590,7 @@ namespace CodexMicroORM.Core.Services
 
                 var childRels = _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), uw.GetBaseType()).ToArray();
 
-                Dictionary<TypeChildRelationship, List<(int ordinal, string name, object? value)>> kvCache = new Dictionary<TypeChildRelationship, List<(int ordinal, string name, object? value)>>();
+                Dictionary<TypeChildRelationship, List<(int ordinal, string name, object? value)>> kvCache = new();
                 List<(int ordinal, string name, object? value)>? curPK = null;
 
                 foreach (var rel in (from a in childRels where !string.IsNullOrEmpty(a.ParentPropertyName) select a))
@@ -856,10 +855,10 @@ namespace CodexMicroORM.Core.Services
                                 else
                                 {
                                     // Parent value might not be a CEF list type, see if we can convert it to be one now
-                                    if (asCefList == null && parVal is System.Collections.IEnumerable && type != null && WrappingHelper.IsWrappableListType(type, parVal))
+                                    if (asCefList == null && parVal is System.Collections.IEnumerable enumerable && type != null && WrappingHelper.IsWrappableListType(type, parVal))
                                     {
                                         asCefList = WrappingHelper.CreateWrappingList(ss, type, testParent.AsUnwrapped(), rel.ChildPropertyName!);
-                                        var sValEnum = ((System.Collections.IEnumerable)parVal).GetEnumerator();
+                                        var sValEnum = enumerable.GetEnumerator();
 
                                         while (sValEnum.MoveNext())
                                         {
@@ -931,7 +930,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            List<(int ordinal, string name, object? value)> values = new List<(int ordinal, string name, object? value)>();
+            List<(int ordinal, string name, object? value)> values = new();
             int ordinal = 0;
 
             var ss = CEF.CurrentServiceScope;
@@ -1023,7 +1022,7 @@ namespace CodexMicroORM.Core.Services
                     // If the unwrapped object exists in an EntitySet, replace it with a wrapped version
                     foreach (var tcr in (from a in tcrs where a.ChildPropertyName != null && a.ParentType != null select a))
                     {
-                        List<object?> childVals = new List<object?>();
+                        List<object?> childVals = new();
 
                         foreach (var crn in tcr.ChildResolvedKey)
                         {
@@ -1074,14 +1073,14 @@ namespace CodexMicroORM.Core.Services
 
         public static IDictionary<Type, IList<string>> GetChildTypes(object o, bool all = true)
         {
-            Dictionary<Type, IList<string>> visits = new Dictionary<Type, IList<string>>();
+            Dictionary<Type, IList<string>> visits = new();
             InternalGetChildTypes(o.GetBaseType(), visits, all);
             return visits;
         }
 
         public static IDictionary<Type, IList<string>> GetParentTypes(object o, bool all = true)
         {
-            Dictionary<Type, IList<string>> visits = new Dictionary<Type, IList<string>>();
+            Dictionary<Type, IList<string>> visits = new();
             InternalGetParentTypes(o.GetBaseType(), visits, all);
             return visits;
         }
@@ -1352,7 +1351,7 @@ namespace CodexMicroORM.Core.Services
                     var uw = Parent.GetTarget() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
                     var bt = uw.GetBaseType() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
 
-                    CompositeWrapper cw = new CompositeWrapper(bt);
+                    CompositeWrapper cw = new(bt);
 
                     foreach (var f in ParentKeyFields)
                     {
@@ -1377,7 +1376,7 @@ namespace CodexMicroORM.Core.Services
                         {
                             var o = Parent.GetInfraWrapperTarget();
 
-                            if (Globals.UseShadowPropertiesForNew && o is ICEFInfraWrapper && ((ICEFInfraWrapper)o).HasShadowProperty(f))
+                            if (Globals.UseShadowPropertiesForNew && o is ICEFInfraWrapper wrapper && wrapper.HasShadowProperty(f))
                             {
                                 pkGet = LinkedScope.GetGetter(o, SHADOW_PROP_PREFIX + f).getter;
                             }
@@ -1396,9 +1395,9 @@ namespace CodexMicroORM.Core.Services
 
                     return cw;
                 }
+
                 public override bool Equals(object obj)
                 {
-
                     if (obj is KeyObjectStatePK otherPK)
                     {
                         return otherPK.Parent.Equals(this.Parent);
@@ -1572,7 +1571,7 @@ namespace CodexMicroORM.Core.Services
 
                 internal IList<object?> GetParentKeyValue()
                 {
-                    List<object?> val = new List<object?>();
+                    List<object?> val = new();
 
                     if (Key.ParentKey != null && NotifyParent != null)
                     {
@@ -1593,7 +1592,7 @@ namespace CodexMicroORM.Core.Services
 
                 internal IList<object?> GetChildRoleValue()
                 {
-                    List<object?> val = new List<object?>();
+                    List<object?> val = new();
 
                     if (Child.Target != null)
                     {
@@ -1681,19 +1680,19 @@ namespace CodexMicroORM.Core.Services
 
             internal class UnlinkedChildByValueInfo
             {
-                public TypeChildRelationship Relationship = new TypeChildRelationship();
-                public ServiceScope.TrackedObject Child = new ServiceScope.TrackedObject();
+                public TypeChildRelationship Relationship = new();
+                public ServiceScope.TrackedObject Child = new();
                 public bool Processed;
             }
 
-            private readonly SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<object, ConcurrentObservableCollection<ServiceScope.TrackedObject>>> _missingParentByRef = new SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<object, ConcurrentObservableCollection<ServiceScope.TrackedObject>>>();
-            private readonly SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>> _missingParentByVal = new SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>>();
-            private readonly SlimConcurrentDictionary<Type, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>> _missingParentChildLinkback = new SlimConcurrentDictionary<Type, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>>();
+            private readonly SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<object, ConcurrentObservableCollection<ServiceScope.TrackedObject>>> _missingParentByRef = new();
+            private readonly SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>> _missingParentByVal = new();
+            private readonly SlimConcurrentDictionary<Type, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>> _missingParentChildLinkback = new();
 
-            private readonly object _asNull = new object();
+            private readonly object _asNull = new();
             private bool _firstInit = true;
 
-            internal ConcurrentIndexedList<KeyObjectStateFK> AllFK { get; private set; } = new ConcurrentIndexedList<KeyObjectStateFK>(nameof(KeyObjectStateFK.Parent), nameof(KeyObjectStateFK.Child));
+            internal ConcurrentIndexedList<KeyObjectStateFK> AllFK { get; private set; } = new(nameof(KeyObjectStateFK.Parent), nameof(KeyObjectStateFK.Child));
 
             internal ConcurrentIndexedList<KeyObjectStatePK> AllPK { get; private set; } = new ConcurrentIndexedList<KeyObjectStatePK>(nameof(KeyObjectStatePK.Composite)).AddUniqueConstraint(nameof(KeyObjectStatePK.Composite));
 
@@ -1825,7 +1824,7 @@ namespace CodexMicroORM.Core.Services
 
             internal IEnumerable<UnlinkedChildByValueInfo> GetMissingChildLinkbacksForParentByValue(Type parentType, IEnumerable<object> parentKey)
             {
-                CompositeWrapper cw = new CompositeWrapper(parentType);
+                CompositeWrapper cw = new(parentType);
 
                 foreach (var k in parentKey)
                 {
@@ -1850,7 +1849,7 @@ namespace CodexMicroORM.Core.Services
             {
                 if (key.ParentType != null)
                 {
-                    CompositeWrapper cw = new CompositeWrapper(key.ParentType);
+                    CompositeWrapper cw = new(key.ParentType);
 
                     foreach (var f in keyVal)
                     {
@@ -1887,7 +1886,7 @@ namespace CodexMicroORM.Core.Services
             public void TrackMissingParentChildLinkback(TypeChildRelationship key, ServiceScope.TrackedObject child, Type parentType, IEnumerable<object> parentKey)
             {
                 ConcurrentObservableCollection<UnlinkedChildByValueInfo>? tl = null;
-                CompositeWrapper cw = new CompositeWrapper(parentType);
+                CompositeWrapper cw = new(parentType);
 
                 foreach (var f in parentKey)
                 {
@@ -1919,7 +1918,7 @@ namespace CodexMicroORM.Core.Services
             public void TrackMissingParentByValue(TypeChildRelationship key, ServiceScope.TrackedObject child, Type parentType, IEnumerable<object> parentKey)
             {
                 ConcurrentObservableCollection<UnlinkedChildByValueInfo>? tl = null;
-                CompositeWrapper cw = new CompositeWrapper(parentType);
+                CompositeWrapper cw = new(parentType);
 
                 foreach (var f in parentKey)
                 {
@@ -2065,11 +2064,11 @@ namespace CodexMicroORM.Core.Services
 
             public ServiceScope.TrackedObject? GetTrackedByPKValue(Type parentType, IEnumerable<object?> keyValues)
             {
-                CompositeWrapper cw = new CompositeWrapper(parentType);
+                CompositeWrapper cw = new(parentType);
 
                 foreach (var f in keyValues)
                 {
-                    cw.Add(new CompositeItemWrapper(f));
+                    cw.Add(new(f));
                 }
 
                 var to = GetTrackedByCompositePK(cw);

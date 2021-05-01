@@ -441,7 +441,7 @@ namespace CodexMicroORM.Core
             CurrentServiceScope.AcceptAllChanges();
         }
 
-        public static async Task<IEnumerable<(object item, string? message, int status)>?> DBSaveTransactionalAsync(DBSaveSettings? settings = null)
+        public static async Task<IEnumerable<(object item, string? message, int status)>> DBSaveTransactionalAsync(DBSaveSettings? settings = null)
         {
             IEnumerable<(object item, string? message, int status)>? rv = null;
             Exception? ex = null;
@@ -450,7 +450,7 @@ namespace CodexMicroORM.Core
             {
                 try
                 {
-                    using var tx = CEF.NewTransactionScope();
+                    using var tx = NewTransactionScope();
                     rv = CurrentServiceScope.DBSave(settings);
                     tx.CanCommit();
                 }
@@ -465,7 +465,7 @@ namespace CodexMicroORM.Core
                 throw ex;
             }
 
-            return rv;
+            return rv!;
         }
 
         /// <summary>
@@ -473,7 +473,7 @@ namespace CodexMicroORM.Core
         /// </summary>
         /// <param name="settings"></param>
         /// <returns>One element per entity saved, indicating any message and/or status returned by the save process for that entity.</returns>
-        public static async Task<IEnumerable<(object item, string? message, int status)>?> DBSaveAsync(DBSaveSettings? settings = null)
+        public static async Task<IEnumerable<(object item, string? message, int status)>> DBSaveAsync(DBSaveSettings? settings = null)
         {
             IEnumerable<(object item, string? message, int status)>? rv = null;
             Exception? ex = null;
@@ -502,7 +502,7 @@ namespace CodexMicroORM.Core
                 throw ex;
             }
 
-            return rv;
+            return rv!;
         }
 
         /// <summary>
@@ -1298,118 +1298,140 @@ namespace CodexMicroORM.Core
 
         private static void InternalDBAppendByKey<T>(EntitySet<T> pop, object[] key) where T : class, new()
         {
-            Exception? tex = null;
-            var ss = CEF.CurrentServiceScope;
+            var prevAddedIsNew = pop.AddedIsNew;
 
-            void a(CancellationToken ct, DateTime? start)
+            try
             {
-                foreach (var row in CurrentDBService().RetrieveByKey<T>(key))
-                {
-                    if (Globals.GlobalQueryTimeout.HasValue)
-                    {
-                        ct.ThrowIfCancellationRequested();
+                pop.AddedIsNew = false;
 
-                        if (start.HasValue)
+                Exception? tex = null;
+                var ss = CEF.CurrentServiceScope;
+
+                void a(CancellationToken ct, DateTime? start)
+                {
+                    foreach (var row in CurrentDBService().RetrieveByKey<T>(key))
+                    {
+                        if (Globals.GlobalQueryTimeout.HasValue)
                         {
-                            if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                            ct.ThrowIfCancellationRequested();
+
+                            if (start.HasValue)
                             {
-                                throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
+                                if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                                {
+                                    throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
+                                }
                             }
                         }
+
+                        pop.Add(row);
                     }
+                };
 
-                    pop.Add(row);
-                }
-            };
-
-            tex = InternalRunQuery(ss, a);
+                tex = InternalRunQuery(ss, a);
+            }
+            finally
+            {
+                pop.AddedIsNew = prevAddedIsNew;
+            }
         }
 
         private static void InternalDBAppendByQuery<T>(EntitySet<T> pop, CommandType cmdType, string cmdText, ColumnDefinitionCallback? cc, object?[] parms) where T : class, new()
         {
-            Exception? tex = null;
-            var ss = CEF.CurrentServiceScope;
+            var prevAddedIsNew = pop.AddedIsNew;
 
-            HashSet<KeyServiceState.CompositeWrapper>? keys = new HashSet<KeyServiceState.CompositeWrapper>();
-            var keycols = KeyService.ResolveKeyDefinitionForType(typeof(T));
-
-            // Default is to check but can disable on case-by-case if needed
-            if (ss.RetrieveAppendChecksExisting)
+            try
             {
-                if (keycols.Count > 0)
+                pop.AddedIsNew = false;
+
+                Exception? tex = null;
+                var ss = CEF.CurrentServiceScope;
+
+                HashSet<KeyServiceState.CompositeWrapper>? keys = new HashSet<KeyServiceState.CompositeWrapper>();
+                var keycols = KeyService.ResolveKeyDefinitionForType(typeof(T));
+
+                // Default is to check but can disable on case-by-case if needed
+                if (ss.RetrieveAppendChecksExisting)
                 {
-                    // Make record of all existing values in collection so can ignore these if already present
-                    foreach (var er in pop)
+                    if (keycols.Count > 0)
                     {
-                        var iw = er.AsInfraWrapped(false, ss);
-
-                        if (iw != null)
+                        // Make record of all existing values in collection so can ignore these if already present
+                        foreach (var er in pop)
                         {
-                            var cw = new KeyServiceState.CompositeWrapper(typeof(T));
+                            var iw = er.AsInfraWrapped(false, ss);
 
-                            foreach (var kc in keycols)
+                            if (iw != null)
                             {
-                                cw.Add(new KeyServiceState.CompositeItemWrapper(iw.GetValue(kc)));
-                            }
+                                var cw = new KeyServiceState.CompositeWrapper(typeof(T));
 
-                            keys.Add(cw);
+                                foreach (var kc in keycols)
+                                {
+                                    cw.Add(new KeyServiceState.CompositeItemWrapper(iw.GetValue(kc)));
+                                }
+
+                                keys.Add(cw);
+                            }
                         }
                     }
                 }
-            }
 
-            void a(CancellationToken ct, DateTime? start)
-            {
-                long tickstart = DateTime.Now.Ticks;
-
-                foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, cc, parms))
+                void a(CancellationToken ct, DateTime? start)
                 {
-                    if (Globals.GlobalQueryTimeout.HasValue)
-                    {
-                        ct.ThrowIfCancellationRequested();
+                    long tickstart = DateTime.Now.Ticks;
 
-                        if (start.HasValue)
+                    foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, cc, parms))
+                    {
+                        if (Globals.GlobalQueryTimeout.HasValue)
                         {
-                            if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                            ct.ThrowIfCancellationRequested();
+
+                            if (start.HasValue)
                             {
-                                throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
+                                if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                                {
+                                    throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
+                                }
                             }
                         }
-                    }
 
-                    // If row already exists in collection, do not add!
-                    if (keycols.Count == 0 || keys.Count == 0)
-                    {
-                        pop.Add(row);
-                    }
-                    else
-                    {
-                        var cw = new KeyServiceState.CompositeWrapper(typeof(T));
-                        var iw = row.AsInfraWrapped(false, ss);
-
-                        if (iw != null)
+                        // If row already exists in collection, do not add!
+                        if (keycols.Count == 0 || keys.Count == 0)
                         {
-                            foreach (var kc in keycols)
-                            {
-                                cw.Add(new KeyServiceState.CompositeItemWrapper(iw.GetValue(kc)));
-                            }
+                            pop.Add(row);
+                        }
+                        else
+                        {
+                            var cw = new KeyServiceState.CompositeWrapper(typeof(T));
+                            var iw = row.AsInfraWrapped(false, ss);
 
-                            if (!keys.Contains(cw))
+                            if (iw != null)
+                            {
+                                foreach (var kc in keycols)
+                                {
+                                    cw.Add(new KeyServiceState.CompositeItemWrapper(iw.GetValue(kc)));
+                                }
+
+                                if (!keys.Contains(cw))
+                                {
+                                    pop.Add(row);
+                                }
+                            }
+                            else
                             {
                                 pop.Add(row);
                             }
                         }
-                        else
-                        {
-                            pop.Add(row);
-                        }
                     }
+
+                    _queryPerfInfo?.Invoke(cmdText, DateTime.Now.Ticks - tickstart);
                 }
 
-                _queryPerfInfo?.Invoke(cmdText, DateTime.Now.Ticks - tickstart);
+                tex = InternalRunQuery(ss, a);
             }
-
-            tex = InternalRunQuery(ss, a);
+            finally
+            {
+                pop.AddedIsNew = prevAddedIsNew;
+            }
         }
 
         #endregion

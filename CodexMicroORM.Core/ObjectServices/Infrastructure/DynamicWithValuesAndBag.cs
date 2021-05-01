@@ -38,6 +38,14 @@ namespace CodexMicroORM.Core.Services
 
         public event EventHandler<DirtyStateChangeEventArgs>? DirtyStateChange;
 
+#if DEBUG
+        public static (string typename, ObjectState state) DebugStopCondition
+        {
+            get;
+            set;
+        }
+#endif
+
         internal DynamicWithValuesAndBag(object o, ObjectState irs, IDictionary<string, object?>? props, IDictionary<string, Type>? types) : base(o, props, types)
         {
             if (o is INotifyPropertyChanged)
@@ -75,6 +83,19 @@ namespace CodexMicroORM.Core.Services
                     {
                         _isBagChanged = false;
                     }
+
+#if DEBUG
+                    if (System.Diagnostics.Debugger.IsAttached && DebugStopCondition.typename != null)
+                    {
+                        if (DebugStopCondition.typename == _source?.GetType()?.Name)
+                        {
+                            if (_rowState == DebugStopCondition.state)
+                            {
+                                System.Diagnostics.Debugger.Break();
+                            }
+                        }
+                    }
+#endif
                 }
             }
         }
@@ -101,8 +122,19 @@ namespace CodexMicroORM.Core.Services
             set;
         }
 
+        public static bool ReconcileModifiedIgnoresValueBag
+        {
+            get;
+            set;
+        } = true;
+
         public bool ReconcileModifiedState(Action<string, object?, object?>? onChanged = null, bool force = false)
         {
+            if (_disposedValue)
+            {
+                return false;
+            }
+
             // For cases where live binding was not possible, tries to identify possible changes in object state (typically at the time of saving)
             if ((!force && _rowState == ObjectState.Unchanged) || (force && (_rowState == ObjectState.Modified || _rowState == ObjectState.ModifiedPriority || _rowState == ObjectState.Unchanged)))
             {
@@ -111,6 +143,11 @@ namespace CodexMicroORM.Core.Services
                     var nval = GetValue(oval.Key);
 
                     if (CheckIgnorePropertyModifiedState != null && (_source == null || CheckIgnorePropertyModifiedState.Invoke(_source.GetBaseType(), oval.Key)))
+                    {
+                        continue;
+                    }
+
+                    if (ReconcileModifiedIgnoresValueBag && _valueBag.ContainsKey(oval.Key))
                     {
                         continue;
                     }
@@ -196,7 +233,7 @@ namespace CodexMicroORM.Core.Services
 
         private void CEFValueTrackingWrapper_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            if (_source != null)
+            if (_source != null && !_disposedValue)
             {
                 var (readable, value) = _source.FastPropertyReadableWithValue(e.PropertyName);
 
@@ -219,6 +256,11 @@ namespace CodexMicroORM.Core.Services
 
         public override void AcceptChanges()
         {
+            if (_disposedValue)
+            {
+                return;
+            }
+
             bool changed = false;
 
             using (new WriterLock(_lock))
@@ -279,6 +321,11 @@ namespace CodexMicroORM.Core.Services
 
         public override void SetOriginalValue(string propName, object? value)
         {
+            if (_disposedValue)
+            {
+                return;
+            }
+
             using (new WriterLock(_lock))
             {
                 _originalValues[propName] = value;
@@ -287,6 +334,11 @@ namespace CodexMicroORM.Core.Services
 
         public override object? GetOriginalValue(string propName, bool throwIfNotSet)
         {
+            if (_disposedValue)
+            {
+                throw new CEFInvalidStateException(InvalidStateType.BadAction, "Cannot use disposed object.");
+            }
+
             using (new ReaderLock(_lock))
             {
                 if (!_originalValues.ContainsKey(propName))

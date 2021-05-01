@@ -358,7 +358,11 @@ namespace CodexMicroORM.Core.Services
                             }
                             else
                             {
-                                throw new InvalidCastException("Cannot coerce type.");
+                                // Coercing only makes sense of type other than object
+                                if (pt != null && pt != typeof(object))
+                                {
+                                    throw new InvalidCastException("Cannot coerce type.");
+                                }
                             }
                         }
                     }

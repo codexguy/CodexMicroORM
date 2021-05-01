@@ -416,6 +416,13 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Add: MSSQLProcBasedProvider - various monitoring props such as DatabaseTime, DelayedTime; built-in retry logic for certain failure types (found connecting to Azure SQL)
 	* Change: MSSQLProcBasedProvider - Ignoring SaveRetryCount for a transactional save
 	* Change: DBService, added public parameterless constructor
+* 0.9.9 - May 2021
+	* Fix: Appending to set issue with change notification fixed, other minor fixes based on issues found
+	* Change: Nullable ref and various warnings fixed (clean-up)
+	* Change: Switch to Microsoft.Data.SqlClient from System.Data.SqlClient
+	* Add: MustInfraWrap, ScopeLevelCache, ReconcileModifiedIgnoresValueBag
+	* Change: Use of more pattern matching and addressing suggestions
+	* Change: caching supports ForList in name
 
 ## Roadmap / Plans
 Look for in coming releases:

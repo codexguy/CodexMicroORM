@@ -21,10 +21,11 @@ using System.Text;
 using CodexMicroORM.Core.Services;
 using System.Diagnostics;
 using System.Linq;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
+#nullable enable
 
 namespace CodexMicroORM.Core
 {
@@ -34,7 +35,7 @@ namespace CodexMicroORM.Core
     public static class CEFDebug
     {
         private static bool _handled = false;
-        private static Stopwatch _sw = new Stopwatch();
+        private readonly static Stopwatch _sw = new();
 
         public static long LastElapsedTick
         {
@@ -69,7 +70,6 @@ namespace CodexMicroORM.Core
             if (DebugEnabled || DebugTimeEnabled)
             {
                 Debug.WriteLine($"CEF Timer - {descriptor} - {LastElapsedTick}");
-                //File.AppendAllText(@"c:\temp\perf.txt", $"CEF Timer - {descriptor} - {LastElapsedTick}" + Environment.NewLine);
             }
 
             _sw.Restart();
@@ -114,15 +114,19 @@ namespace CodexMicroORM.Core
                 return;
 
             var kss = CEF.CurrentServiceScope.GetServiceState<KeyService.KeyServiceState>();
-            var i = 1;
 
-            foreach (var d in kss.AllFK)
+            if (kss != null)
             {
-                Debug.WriteLine($"{i}. {d.Parent.BaseName} -> {d.Parent.GetWrapperTarget().ToString()}");
-                Debug.WriteLine($"   {d.Child.BaseName} -> {d.Child.GetWrapperTarget().ToString()}");
-                Debug.WriteLine($"   P: {(string.Join(", ", (from a in d.GetParentKeyValue() select a == null ? "null" : a.ToString()).ToArray()))}");
-                Debug.WriteLine($"   C: {(string.Join(", ", (from a in d.GetChildRoleValue() select a == null ? "null" : a.ToString()).ToArray()))}");
-                ++i;
+                var i = 1;
+
+                foreach (var d in kss.AllFK)
+                {
+                    Debug.WriteLine($"{i}. {d.Parent.BaseName} -> {d.Parent.GetWrapperTarget()?.ToString()}");
+                    Debug.WriteLine($"   {d.Child.BaseName} -> {d.Child.GetWrapperTarget()?.ToString()}");
+                    Debug.WriteLine($"   P: {(string.Join(", ", (from a in d.GetParentKeyValue() select a == null ? "null" : a.ToString()).ToArray()))}");
+                    Debug.WriteLine($"   C: {(string.Join(", ", (from a in d.GetChildRoleValue() select a == null ? "null" : a.ToString()).ToArray()))}");
+                    ++i;
+                }
             }
         }
 
@@ -137,12 +141,12 @@ namespace CodexMicroORM.Core
         }
 
         [System.Diagnostics.Conditional("DEBUG")]
-        public static void WriteInfo(string info, object o = null)
+        public static void WriteInfo(string info, object? o = null)
         {
             if (!DebugEnabled)
                 return;
 
-            StringBuilder sb = new StringBuilder();
+            StringBuilder sb = new();
             if (o != null)
             {
                 foreach (var pi in o.GetType().GetProperties())
@@ -154,19 +158,19 @@ namespace CodexMicroORM.Core
                     sb.Append($"{pi.Name}={pi.GetValue(o)}");
                 }
             }
-            Debug.WriteLine($"I: {info} {sb.ToString()}");
+            Debug.WriteLine($"I: {info} {sb}");
         }
 
-        public static string ReturnIWTextFromList(System.Collections.IEnumerable list, string typename = null, bool dirty = false, bool origvals = true, params string[] fields)
+        public static string ReturnIWTextFromList(System.Collections.IEnumerable list, string? typename = null, bool dirty = false, bool origvals = true, params string[] fields)
         {
 #if !DEBUG
             throw new InvalidOperationException("Not intended for release builds.");
 #endif
-            StringBuilder sb2 = new StringBuilder();
+            StringBuilder sb2 = new();
 
             // Build list of filter conditions
-            List<(string field, string value)> filters = new List<(string field, string value)>();
-            List<string> toreturn = new List<string>();
+            List<(string field, string value)> filters = new();
+            List<string> toreturn = new();
 
             if (fields != null)
             {
@@ -261,7 +265,7 @@ namespace CodexMicroORM.Core
 #if !DEBUG
             throw new InvalidOperationException("Not intended for release builds.");
 #endif
-            StringBuilder sb2 = new StringBuilder();
+            StringBuilder sb2 = new();
 
             var ss = CEF.CurrentServiceScope;
             var ol = ss.Objects;
@@ -301,12 +305,12 @@ namespace CodexMicroORM.Core
             return sb2.ToString();
         }
 
-        public static string ReturnServiceScope(ServiceScope ss = null, string typename = null, bool dirty = false, bool origvals = true, params string[] fields)
+        public static string ReturnServiceScope(ServiceScope? ss = null, string? typename = null, bool dirty = false, bool origvals = true, params string[] fields)
         {
 #if !DEBUG
             throw new InvalidOperationException("Not intended for release builds.");
 #endif
-            StringBuilder sb2 = new StringBuilder();
+            StringBuilder sb2 = new();
 
             if (ss == null)
             {
@@ -314,8 +318,8 @@ namespace CodexMicroORM.Core
             }
 
             // Build list of filter conditions
-            List<(string field, string value)> filters = new List<(string field, string value)>();
-            List<string> toreturn = new List<string>();
+            List<(string field, string value)> filters = new();
+            List<string> toreturn = new();
 
             if (fields != null)
             {
@@ -401,12 +405,12 @@ namespace CodexMicroORM.Core
             return sb2.ToString();
         }
 
-        public static string ReturnServiceScope(string typename = null)
+        public static string ReturnServiceScope(string? typename = null)
         {
 #if !DEBUG
             throw new InvalidOperationException("Not intended for release builds.");
 #endif
-            StringBuilder sb2 = new StringBuilder();
+            StringBuilder sb2 = new();
 
             var ol = CEF.CurrentServiceScope.Objects;
 
@@ -419,7 +423,7 @@ namespace CodexMicroORM.Core
                 {
                     sb2.AppendLine($"{i}. {d.BaseName}, {d.IsAlive}, {d.GetInfra()?.GetRowState()}, {(d.GetTarget() == null ? "-" : "+")}{(d.GetWrapper() == null ? "-" : "+")}{(d.GetInfra() == null ? "-" : "+")}");
 
-                    StringBuilder sb = new StringBuilder();
+                    StringBuilder sb = new();
                     var o = d.GetWrapperTarget();
 
                     if (o != null)
@@ -432,7 +436,7 @@ namespace CodexMicroORM.Core
                             }
                             sb.Append($"{pi.Name}={pi.GetValue(o)}");
                         }
-                        sb2.AppendLine($"    {sb.ToString()}");
+                        sb2.AppendLine($"    {sb}");
                     }
 
                     sb = new StringBuilder();
@@ -448,7 +452,7 @@ namespace CodexMicroORM.Core
                             }
                             sb.Append($"{p.Key}={p.Value}");
                         }
-                        sb2.AppendLine($"    {sb.ToString()}");
+                        sb2.AppendLine($"    {sb}");
                     }
                 }
 
@@ -459,7 +463,7 @@ namespace CodexMicroORM.Core
         }
 
         [System.Diagnostics.Conditional("DEBUG")]
-        public static void DumpServiceScope(string typename = null)
+        public static void DumpServiceScope(string? typename = null)
         {
             if (!DebugEnabled)
                 return;
@@ -475,7 +479,7 @@ namespace CodexMicroORM.Core
                 {
                     Debug.WriteLine($"{i}. {d.BaseName}, {d.IsAlive}, {d.GetInfra()?.GetRowState()}, {(d.GetTarget() == null ? "-" : "+")}{(d.GetWrapper() == null ? "-" : "+")}{(d.GetInfra() == null ? "-" : "+")}");
 
-                    StringBuilder sb = new StringBuilder();
+                    StringBuilder sb = new();
                     var o = d.GetWrapperTarget();
 
                     if (o != null)
@@ -488,7 +492,7 @@ namespace CodexMicroORM.Core
                             }
                             sb.Append($"{pi.Name}={pi.GetValue(o)}");
                         }
-                        Debug.WriteLine($"    {sb.ToString()}");
+                        Debug.WriteLine($"    {sb}");
                     }
 
                     sb = new StringBuilder();
@@ -504,7 +508,7 @@ namespace CodexMicroORM.Core
                             }
                             sb.Append($"{p.Key}={p.Value}");
                         }
-                        Debug.WriteLine($"    {sb.ToString()}");
+                        Debug.WriteLine($"    {sb}");
                     }
                 }
 

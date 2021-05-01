@@ -18,7 +18,7 @@ Major Changes:
 ***********************************************************************/
 #nullable enable
 using System;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using System.Threading;
 using CodexMicroORM.Core;
 
@@ -92,7 +92,7 @@ namespace CodexMicroORM.Providers
             }
 
             var ccs = CurrentConnection?.State;
-            return ccs == System.Data.ConnectionState.Executing || ccs == System.Data.ConnectionState.Fetching;
+            return ccs.HasValue && (ccs == System.Data.ConnectionState.Executing || ccs == System.Data.ConnectionState.Fetching || ccs == System.Data.ConnectionState.Connecting);
         }
 
         public SqlConnection? CurrentConnection { get; private set; }
@@ -136,6 +136,7 @@ namespace CodexMicroORM.Providers
 
                 if (CurrentConnection != null)
                 {
+                    CurrentConnection.Close();
                     CurrentConnection.Dispose();
                     CurrentConnection = null;
                 }
