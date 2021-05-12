@@ -18,7 +18,7 @@ CEF.NewObject(new Person() { Name = "Bobby Tables", Age = 7, Gender = "M" }).DBS
 
 The demo project and tests show several other non-trivial use cases.
 
-The work done with CodexMicroORM leads naturally into some related tool work, including a *HybirdSQL* database add-on, where the goal is to *remove* the need to worry about object-relational mapping: as an object-oriented database, it will offer excellent in-memory performance with greater simplicity than many other alternatives. Follow this project to stay on top of [details](https://www.xskrape.com)!
+The work done with CodexMicroORM leads naturally into some related tool work, including a *HybridSQL* database add-on, where the goal is to *remove* the need to worry about object-relational mapping: as an object-oriented database, it will offer excellent in-memory performance with greater simplicity than many other alternatives. Follow this project to stay on top of [details](https://www.xskrape.com)!
 
 ## Design Goals
 Diving more deeply, what does CodexMicroORM try to do *better* than other frameworks? What are the guiding principles that have influenced it to date? (Too much detail if you're skimming? Feel free to skip forward, but check back here from time to time as this list will be updated to reflect any new base concepts that CEF will address.)
