@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ using System.Data;
 using Newtonsoft.Json;
 using CodexMicroORM.Core.Helper;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -33,24 +34,22 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithValuesAndBag : DynamicWithBag, IDisposable
     {
-        protected Dictionary<string, object?> _originalValues = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
+        protected Dictionary<string, object?> _originalValues = new(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
         protected ObjectState _rowState;
+        private static bool _debugStopEnabled = true;
 
         public event EventHandler<DirtyStateChangeEventArgs>? DirtyStateChange;
 
-#if DEBUG
-        public static (string typename, ObjectState state) DebugStopCondition
+        public static List<(Type type, ObjectState? state, string ignoreonstack)> DebugStopOnChangeImmediateByType
         {
             get;
-            set;
-        }
-#endif
+        } = new();
 
         internal DynamicWithValuesAndBag(object o, ObjectState irs, IDictionary<string, object?>? props, IDictionary<string, Type>? types) : base(o, props, types)
         {
-            if (o is INotifyPropertyChanged)
+            if (o is INotifyPropertyChanged changed)
             {
-                ((INotifyPropertyChanged)o).PropertyChanged += CEFValueTrackingWrapper_PropertyChanged;
+                changed.PropertyChanged += CEFValueTrackingWrapper_PropertyChanged;
             }
 
             using (new WriterLock(_lock))
@@ -65,9 +64,17 @@ namespace CodexMicroORM.Core.Services
             return $"DynamicWithValuesAndBag (for {_source?.GetType().Name}, {_rowState}, {string.Join("/", (from a in this.GetAllValues() select $"{a.Key}={a.Value}").ToArray())})";
         }
 
-        public override ObjectState GetRowState()
+        public override ObjectState GetRowState(bool canCheckBag = true)
         {
-            return State;
+            if (canCheckBag)
+            {
+                return ResolvedState;
+            }
+
+            using (new ReaderLock(_lock))
+            {
+                return _rowState;
+            }
         }
 
         public override void SetRowState(ObjectState rs)
@@ -85,14 +92,29 @@ namespace CodexMicroORM.Core.Services
                     }
 
 #if DEBUG
-                    if (System.Diagnostics.Debugger.IsAttached && DebugStopCondition.typename != null)
+                    if (_debugStopEnabled && System.Diagnostics.Debugger.IsAttached)
                     {
-                        if (DebugStopCondition.typename == _source?.GetType()?.Name)
+                        var (type, state, ignoreonstack) = (from a in DebugStopOnChangeImmediateByType
+                                  where a.type == _source?.GetType()
+                                  && (!a.state.HasValue || a.state.Value == rs)
+                                  select a).FirstOrDefault();
+
+                        if (type != null)
                         {
-                            if (_rowState == DebugStopCondition.state)
+                            if (ignoreonstack != null)
                             {
-                                System.Diagnostics.Debugger.Break();
+                                System.Diagnostics.StackTrace st = new();
+
+                                foreach (var frame in st.GetFrames())
+                                {
+                                    if (Regex.IsMatch(frame.GetMethod().Name, ignoreonstack, RegexOptions.IgnoreCase))
+                                    {
+                                        return;
+                                    }
+                                }
                             }
+
+                            System.Diagnostics.Debugger.Break();
                         }
                     }
 #endif
@@ -100,18 +122,13 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public ObjectState State
+        private ObjectState ResolvedState
         {
             get
             {
                 using (new ReaderLock(_lock))
                 {
-                    if (_isBagChanged && _rowState == ObjectState.Unchanged)
-                    {
-                        return ObjectState.Modified;
-                    }
-
-                    return _rowState;
+                    return _isBagChanged && _rowState == ObjectState.Unchanged ? ObjectState.Modified : _rowState;
                 }
             }
         }
@@ -309,11 +326,11 @@ namespace CodexMicroORM.Core.Services
 
                     if (Globals.SerializationStateAsInteger)
                     {
-                        tw.WriteValue((int)State);
+                        tw.WriteValue((int)ResolvedState);
                     }
                     else
                     {
-                        tw.WriteValue(State.ToString());
+                        tw.WriteValue(ResolvedState.ToString());
                     }
                 }
             }

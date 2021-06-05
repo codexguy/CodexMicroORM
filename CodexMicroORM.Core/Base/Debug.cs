@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -131,7 +131,7 @@ namespace CodexMicroORM.Core
         }
 
         [System.Diagnostics.Conditional("DEBUG")]
-        public static void DumpSQLCall(string cmd, IDictionary<string, object> spc)
+        public static void DumpSQLCall(string cmd, IDictionary<string, object?> spc)
         {
             if (!DebugEnabled)
                 return;
@@ -144,7 +144,9 @@ namespace CodexMicroORM.Core
         public static void WriteInfo(string info, object? o = null)
         {
             if (!DebugEnabled)
+            {
                 return;
+            }
 
             StringBuilder sb = new();
             if (o != null)

@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -37,12 +37,13 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public class DynamicWithBag : DynamicObject, ICEFInfraWrapper, ICEFSerializable
     {
-        protected RWLockInfo _lock = new RWLockInfo() { AllowDirtyReads = false };
-        protected Dictionary<string, object?> _valueBag = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
-        protected Dictionary<string, Type> _preferredType = new Dictionary<string, Type>(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
+        protected RWLockInfo _lock = new() { AllowDirtyReads = false };
+        protected Dictionary<string, object?> _valueBag = new(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
+        protected Dictionary<string, Type> _preferredType = new(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
         protected object _source;
         protected bool _isBagChanged = false;
         protected int _shadowPropCount = 0;
+        private bool _allowPropChanged = true;
 
         internal DynamicWithBag(object o, IDictionary<string, object?>? props, IDictionary<string, Type>? types)
         {
@@ -54,9 +55,20 @@ namespace CodexMicroORM.Core.Services
         {
             if (props != null)
             {
-                foreach (var prop in props)
+                var allowedPropChange = _allowPropChanged;
+
+                try
                 {
-                    SetValue(prop.Key, prop.Value);
+                    _allowPropChanged = false;
+
+                    foreach (var prop in props)
+                    {
+                        SetValue(prop.Key, prop.Value);
+                    }
+                }
+                finally
+                {
+                    _allowPropChanged = allowedPropChange;
                 }
             }
 
@@ -270,6 +282,19 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
+                if (ntt == typeof(DateOnly) && source != null && !string.IsNullOrEmpty(source.ToString()))
+                {
+                    if (source.GetType() == typeof(DateTime))
+                    {
+                        return new DateOnly((DateTime)source);
+                    }
+
+                    if (DateOnly.TryParse(source.ToString(), out DateOnly dov))
+                    {
+                        return dov;
+                    }
+                }
+
                 if (source is IConvertible)
                 {
                     return Activator.CreateInstance(targetType, Convert.ChangeType(source, ntt));
@@ -293,6 +318,19 @@ namespace CodexMicroORM.Core.Services
                 if (TimeSpan.TryParse(source.ToString(), out TimeSpan pts))
                 {
                     return pts;
+                }
+            }
+
+            if (targetType == typeof(DateOnly) && source != null && !string.IsNullOrEmpty(source.ToString()))
+            {
+                if (source.GetType() == typeof(DateTime))
+                {
+                    return new DateOnly((DateTime)source);
+                }
+
+                if (DateOnly.TryParse(source.ToString(), out DateOnly dov))
+                {
+                    return dov;
                 }
             }
 
@@ -322,7 +360,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public virtual bool SetValue(string propName, object? value, Type? preferredType = null, bool isRequired = false)
+        public virtual bool SetValue(string propName, object? value, Type? preferredType = null, bool isRequired = false, bool canUseBag = true)
         {
             using var wl = new WriterLock(_lock);
             if (preferredType != null)
@@ -413,14 +451,27 @@ namespace CodexMicroORM.Core.Services
                         _source.FastSetValue(propName, InternalChangeType(value, info.First().type));
 
                         wl.Release();
-                        OnPropertyChanged(propName, oldVal, value, false);
+
+                        if (_allowPropChanged)
+                        {
+                            OnPropertyChanged(propName, oldVal, value, false);
+                        }
+
                         return true;
                     }
+
                     return false;
                 }
             }
 
+            if (!canUseBag)
+            {
+                return false;
+            }
+
             wl.Reacquire();
+
+            var isSpecial = propName[0] == KeyService.SPECIAL_PROP_PREFIX;
 
             if (_valueBag.ContainsKey(propName))
             {
@@ -430,11 +481,20 @@ namespace CodexMicroORM.Core.Services
 
                     if (!oldVal.IsSame(value))
                     {
-                        _isBagChanged = true;
+                        if (!isSpecial)
+                        {
+                            _isBagChanged = true;
+                        }
+
                         _valueBag[propName] = value;
 
                         wl.Release();
-                        OnPropertyChanged(propName, oldVal, value, true);
+
+                        if (!isSpecial && _allowPropChanged)
+                        {
+                            OnPropertyChanged(propName, oldVal, value, true);
+                        }
+
                         return true;
                     }
                 }
@@ -450,10 +510,18 @@ namespace CodexMicroORM.Core.Services
                 return false;
             }
 
-            _isBagChanged = true;
+            if (!isSpecial)
+            {
+                _isBagChanged = true;
+            }
 
             wl.Release();
-            OnPropertyChanged(propName, null, value, true);
+
+            if (!isSpecial && _allowPropChanged)
+            {
+                OnPropertyChanged(propName, null, value, true);
+            }
+
             return true;
         }
 
@@ -479,7 +547,7 @@ namespace CodexMicroORM.Core.Services
         {
             if (_source != null)
             {
-                HashSet<object> hs = new HashSet<object>
+                HashSet<object> hs = new()
                 {
                     _source
                 };
@@ -549,7 +617,7 @@ namespace CodexMicroORM.Core.Services
             return _source;
         }
 
-        public virtual ObjectState GetRowState()
+        public virtual ObjectState GetRowState(bool canCheckBag = true)
         {
             return ObjectState.Unchanged;
         }
@@ -559,7 +627,7 @@ namespace CodexMicroORM.Core.Services
             throw new NotSupportedException();
         }
 
-        private static readonly ConcurrentDictionary<Type, bool> _serializableCahce = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, bool> _serializableCahce = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         private bool IsTypeSerializable(Type t)
         {
@@ -585,7 +653,7 @@ namespace CodexMicroORM.Core.Services
 
         public IDictionary<string, Type> GetAllPreferredTypes(bool onlyWriteable = false, bool onlySerializable = false)
         {
-            Dictionary<string, Type> info = new Dictionary<string, Type>(Globals.DefaultDictionaryCapacity);
+            Dictionary<string, Type> info = new(Globals.DefaultDictionaryCapacity);
 
             if (_source != null)
             {
@@ -611,7 +679,7 @@ namespace CodexMicroORM.Core.Services
 
         public IDictionary<string, object?> GetAllValues(bool onlyWriteable = false, bool onlySerializable = false)
         {
-            Dictionary<string, object?> vals = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity);
+            Dictionary<string, object?> vals = new(Globals.DefaultDictionaryCapacity);
 
             if (_source != null)
             {
@@ -671,7 +739,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public string GetSerializationText(SerializationMode? mode = null)
         {
-            StringBuilder sb = new StringBuilder(4096);
+            StringBuilder sb = new(4096);
             var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode);
 
             using (var jw = new JsonTextWriter(new StringWriter(sb)))

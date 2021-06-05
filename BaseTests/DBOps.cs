@@ -879,7 +879,7 @@ namespace BaseTests
                 Assert.IsTrue(t1);
             }
 
-            MemoryFileSystemBacked.FlushAll("CEF_Testing");
+            //MemoryFileSystemBacked.FlushAll();
 
             using (CEF.NewServiceScope(new ServiceScopeSettings() { CacheBehavior = CacheBehavior.MaximumDefault }, new MemoryFileSystemBacked("CEF_Testing", MemoryFileSystemBacked.CacheStorageStrategy.SingleDirectory)))
             {
@@ -1020,7 +1020,7 @@ namespace BaseTests
                 es3.Add(p4.Phones.First());
                 p2.AsWrapped<PersonWrapped>().Phones.RemoveAt(0);
                 p4.AsWrapped<PersonWrapped>().Phones.RemoveAt(0);
-                es3.ForAll((ph) => ph.PhoneTypeID = PhoneType.Home);
+                es3.Sequential((ph) => ph.PhoneTypeID = PhoneType.Home);
                 Assert.IsTrue(es3.All((p) => p.PhoneTypeID == PhoneType.Home && p.AsDynamic().PersonID == null));
                 Assert.AreEqual(2, es3.DBSave().Count());
                 CEF.DeleteObject(p1);

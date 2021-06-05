@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -918,10 +918,7 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                if (res.Any())
-                {
-                    cache.AddByQuery(res, cmdText, parms, null, cb);
-                }
+                cache.AddByQuery(res, cmdText, parms, null, cb);
             }
 
             return res;
@@ -969,10 +966,7 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                if (res.Any())
-                {
-                    cache.AddByQuery(res, "ALL", null, null, cb);
-                }
+                cache.AddByQuery(res, "ALL", null, null, cb);
             }
 
             return res;

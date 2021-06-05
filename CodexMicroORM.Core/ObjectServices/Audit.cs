@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -91,19 +91,19 @@ namespace CodexMicroORM.Core.Services
         {
             if (!IsLastUpdatedByDBAssigned && !string.IsNullOrEmpty(LastUpdatedByField))
             {
-                saving.SetValue(LastUpdatedByField, settings?.LastUpdatedBy ?? (ss.Settings.GetLastUpdatedBy ?? GetLastUpdatedBy).Invoke());
+                saving.SetValue(LastUpdatedByField, settings?.LastUpdatedBy ?? (ss.Settings.GetLastUpdatedBy ?? GetLastUpdatedBy).Invoke(), canUseBag: false);
             }
 
             if (!IsLastUpdatedDateDBAssigned && !string.IsNullOrEmpty(LastUpdatedDateField))
             {
-                saving.SetValue(LastUpdatedDateField, GetLastUpdatedDate.Invoke());
+                saving.SetValue(LastUpdatedDateField, GetLastUpdatedDate.Invoke(), canUseBag: false);
             }
 
             if (state == ObjectState.Added)
             {
                 if (!string.IsNullOrEmpty(IsDeletedField))
                 {
-                    saving.SetValue(IsDeletedField, false);
+                    saving.SetValue(IsDeletedField, false, canUseBag: false);
                 }
             }
 

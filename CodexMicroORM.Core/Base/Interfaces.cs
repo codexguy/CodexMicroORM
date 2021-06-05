@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -206,6 +206,8 @@ namespace CodexMicroORM.Core
         void DoingWork();
 
         void DoneWork();
+
+        void FlushAll();
     }
 
     public interface ICEFSerializable
@@ -296,7 +298,7 @@ namespace CodexMicroORM.Core
 
         object GetWrappedObject();
 
-        ObjectState GetRowState();
+        ObjectState GetRowState(bool canCheckBag = true);
 
         void SetRowState(ObjectState rs);
 
@@ -306,7 +308,7 @@ namespace CodexMicroORM.Core
 
         IDictionary<string, Type> GetAllPreferredTypes(bool onlyWriteable = false, bool onlySerializable = false);
 
-        bool SetValue(string propName, object? value, Type? preferredType = null, bool isRequired = false);
+        bool SetValue(string propName, object? value, Type? preferredType = null, bool isRequired = false, bool canUseBag = true);
 
         object? GetValue(string propName);
 

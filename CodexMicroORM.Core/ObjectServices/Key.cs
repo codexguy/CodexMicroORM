@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ namespace CodexMicroORM.Core.Services
     public class KeyService : ICEFKeyHost
     {
         public const char SHADOW_PROP_PREFIX = '\\';
+        public const char SPECIAL_PROP_PREFIX = '~';
 
         #region "Internal state"
 
@@ -1211,6 +1212,13 @@ namespace CodexMicroORM.Core.Services
                                                 if (val is DateTime dt)
                                                 {
                                                     AsWhole = dt.Ticks;
+                                                }
+                                                else
+                                                {
+                                                    if (val is DateOnly dov)
+                                                    {
+                                                        AsWhole = dov.GetAsInt();
+                                                    }
                                                 }
                                             }
                                         }

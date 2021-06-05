@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -182,6 +182,11 @@ namespace CodexMicroORM.Core
         {
             get;
             set;
+        } = new();
+
+        public static List<Type> DebugStopOnSaveWithTypeChange
+        {
+            get;
         } = new();
 
         /// <summary>
@@ -1425,6 +1430,17 @@ namespace CodexMicroORM.Core
 
             void work(TrackedObject to)
             {
+#if DEBUG
+                // Primarily for debugging purposes in identifying calling code that might be improperly updating certain object types
+                if (DebugStopOnSaveWithTypeChange.Contains(to.GetBaseType()))
+                {
+                    if (System.Diagnostics.Debugger.IsAttached)
+                    {
+                        System.Diagnostics.Debugger.Break();
+                    }
+                }
+#endif
+
                 if (_doNotSave.Contains(to.GetBaseType()))
                 {
                     return;
@@ -1507,16 +1523,9 @@ namespace CodexMicroORM.Core
             {
                 try
                 {
-                    IEnumerable<TrackedObject> list;
-
-                    if (filterRows != null && filterRows.Any())
-                    {
-                        list = (from a in filterRows let t = GetTrackedByWrapperOrTarget(a) where t != null select t);
-                    }
-                    else
-                    {
-                        list = Objects;
-                    }
+                    IEnumerable<TrackedObject> list = filterRows != null && filterRows.Any()
+                        ? (from a in filterRows let t = GetTrackedByWrapperOrTarget(a) where t != null select t)
+                        : Objects;
 
                     var cnt = list.Count();
 
@@ -1534,7 +1543,7 @@ namespace CodexMicroORM.Core
                                 {
                                     if (v.GetCreateInfra() is DynamicWithValuesAndBag db)
                                     {
-                                        if (db.State != ObjectState.Unlinked && db.State != ObjectState.Unchanged)
+                                        if (db.GetRowState(settings.ConsiderBagPropertiesOnSave) is not ObjectState.Unlinked and not ObjectState.Unchanged)
                                         {
                                             lock (tosave)
                                             {
@@ -1946,7 +1955,7 @@ namespace CodexMicroORM.Core
             private set;
         }
 
-        void Dispose(bool disposing)
+        void Dispose(bool _)
         {
             if (Settings.CanDispose)
             {

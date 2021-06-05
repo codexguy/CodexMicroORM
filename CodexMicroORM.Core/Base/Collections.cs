@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -1099,22 +1099,22 @@ namespace CodexMicroORM.Core.Collections
         #region "Private state"
 
         private static readonly int _baseCapacity = Environment.ProcessorCount * 14;
-        private static readonly object _asNull = new object();
+        private static readonly object _asNull = new();
         private static readonly T[] _empty = Array.Empty<T>();
 
         private long _dataID = long.MinValue;
-        private readonly RWLockInfo _lock = new RWLockInfo();
+        private readonly RWLockInfo _lock = new();
         private int _initCapacity = _baseCapacity;
 
         // Config related
-        private readonly HashSet<string> _isUnique = new HashSet<string>();
-        private readonly HashSet<string> _neverNull = new HashSet<string>();
+        private readonly HashSet<string> _isUnique = new();
+        private readonly HashSet<string> _neverNull = new();
 
         // Instance state
         private SlimConcurrentDictionary<long, T> _data;
         private SlimConcurrentDictionary<T, long> _contains;
 
-        private readonly Dictionary<string, SlimConcurrentDictionary<object, LightweightLongList>> _masterIndex = new Dictionary<string, SlimConcurrentDictionary<object, LightweightLongList>>();
+        private readonly Dictionary<string, SlimConcurrentDictionary<object, LightweightLongList>> _masterIndex = new();
 
         #endregion
 

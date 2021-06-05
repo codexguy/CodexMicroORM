@@ -27,6 +27,8 @@ using System.Collections.Concurrent;
 using System.Data;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using System.Collections.ObjectModel;
 #if CGEH
 namespace CodexMicroORM.Core.CG
 #else
@@ -85,7 +87,9 @@ namespace CodexMicroORM.Core
         public static int MinOf(this int i1, int i2)
         {
             if (i1 < i2)
+            {
                 return i1;
+            }
 
             return i2;
         }
@@ -93,7 +97,9 @@ namespace CodexMicroORM.Core
         public static int MaxOf(this int i1, int i2)
         {
             if (i1 > i2)
+            {
                 return i1;
+            }
 
             return i2;
         }
@@ -103,6 +109,361 @@ namespace CodexMicroORM.Core
             return new T[] { item };
         }
 
+        /// <summary>
+        /// Implements AddRange for ObservableCollection.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="c"></param>
+        /// <param name="toAdd"></param>
+        /// <param name="withClear"></param>
+        public static void AddRange<T>(this ObservableCollection<T> c, IEnumerable<T> toAdd, bool withClear = false)
+        {
+            if (withClear)
+            {
+                c.Clear();
+            }
+
+            foreach (var i in toAdd)
+            {
+                c.Add(i);
+            }
+        }
+
+        /// <summary>
+        /// Processes elements of source enumerable, sequentially. Supports gauranteed exec over all elements or stop on error (default). (Signature similar enough to async varieties to make transitioning easier.)
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="items"></param>
+        /// <param name="work"></param>
+        /// <param name="earlystop"></param>
+        public static void Sequential<T>(this IEnumerable<T> items, Action<T> work, bool earlystop = true)
+        {
+            List<Exception> faults = new();
+
+            foreach (var i in items)
+            {
+                try
+                {
+                    work(i);
+                }
+                catch (Exception ex)
+                {
+                    if (earlystop)
+                    {
+                        throw;
+                    }
+
+                    faults.Add(ex);
+                }
+            }
+
+            if (faults.Any())
+            {
+                throw new AggregateException(faults.ToArray());
+            }
+        }
+
+        /// <summary>
+        /// Processes elements of source enumerable, sequentially using async. Supports gauranteed exec over all elements or stop on error (default).
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="items"></param>
+        /// <param name="work"></param>
+        /// <param name="earlystop"></param>
+        /// <returns></returns>
+        public static async Task SequentialAsync<T>(this IEnumerable<T> items, Action<T> work, bool earlystop = true)
+        {
+            List<Exception> faults = new();
+
+            foreach (var i in items)
+            {
+                try
+                {
+                    await Task.Run(() =>
+                    {
+                        work.Invoke(i);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    if (earlystop)
+                    {
+                        throw;
+                    }
+
+                    faults.Add(ex);
+                }
+            }
+
+            if (faults.Any())
+            {
+                throw new AggregateException(faults.ToArray());
+            }
+        }
+
+        /// <summary>
+        /// Processes elements of source enumerable, sequentially using async. Supports gauranteed exec over all elements or stop on error (default).
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="items"></param>
+        /// <param name="work"></param>
+        /// <param name="earlystop"></param>
+        /// <returns></returns>
+        public static async Task SequentialAsync<T>(this IEnumerable<T> items, Func<T, Task> work, bool earlystop = true)
+        {
+            List<Exception> faults = new();
+
+            foreach (var i in items)
+            {
+                try
+                {
+                    await work.Invoke(i);
+                }
+                catch (Exception ex)
+                {
+                    if (earlystop)
+                    {
+                        throw;
+                    }
+
+                    faults.Add(ex);
+                }
+            }
+
+            if (faults.Any())
+            {
+                throw new AggregateException(faults.ToArray());
+            }
+        }
+
+        /// <summary>
+        /// Processes elements of source enumerable, in parallel using async. Any exceptions are collected and thrown in an AggregateException at end. Supports gauranteed exec over all elements or stop on error.
+        /// </summary>
+        /// <typeparam name="TSource"></typeparam>
+        /// <param name="source"></param>
+        /// <param name="work"></param>
+        /// <param name="dop"></param>
+        /// <param name="earlystop"></param>
+        /// <returns></returns>
+        public static async Task ParallelAsync<TSource>(this IEnumerable<TSource> source, Action<TSource> work, int? dop = null, bool earlystop = false)
+        {
+            if (!source.Any())
+            {
+                return;
+            }
+
+            if (dop.GetValueOrDefault() <= 0)
+            {
+                dop = Environment.ProcessorCount;
+            }
+
+            ConcurrentBag<Exception> faults = new();
+            List<Task<Exception?>> worklist = new();
+            var senum = source.GetEnumerator();
+            var morework = true;
+
+            for (int i = 0; i < dop!.Value && morework; ++i)
+            {
+                morework = senum.MoveNext();
+
+                if (morework)
+                {
+                    worklist.Add(ProcessAsync(senum.Current, work));
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            while (morework)
+            {
+                await await Task.WhenAny(worklist);
+
+                for (int i = 0; i < worklist.Count; ++i)
+                {
+                    var wli = worklist[i];
+
+                    if (wli.IsCompleted)
+                    {
+                        var ex = await wli;
+
+                        if (ex != null)
+                        {
+                            faults.Add(ex);
+
+                            if (earlystop)
+                            {
+                                morework = false;
+                                break;
+                            }
+                        }
+
+                        worklist[i] = ProcessAsync(senum.Current, work);
+
+                        morework = senum.MoveNext();
+
+                        if (!morework)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            await Task.WhenAll(worklist);
+
+            foreach (var wli in worklist)
+            {
+                var ex = await wli;
+
+                if (ex != null)
+                {
+                    if (!earlystop || !faults.Contains(ex))
+                    {
+                        faults.Add(ex);
+                    }
+                }
+            }
+
+            if (faults.Any())
+            {
+                throw new AggregateException(faults.ToArray());
+            }
+        }
+
+        /// <summary>
+        /// Processes elements of source enumerable, in parallel using async. Any exceptions are collected and thrown in an AggregateException at end. Works with async lambda's.
+        /// </summary>
+        /// <typeparam name="TSource"></typeparam>
+        /// <param name="source"></param>
+        /// <param name="work"></param>
+        /// <param name="dop"></param>
+        /// <param name="earlystop"></param>
+        /// <returns></returns>
+        public static async Task ParallelAsync<TSource>(this IEnumerable<TSource> source, Func<TSource, Task> work, int? dop = null, bool earlystop = false)
+        {
+            if (!source.Any())
+            {
+                return;
+            }
+
+            if (dop.GetValueOrDefault() <= 0)
+            {
+                dop = Environment.ProcessorCount;
+            }
+
+            ConcurrentBag<Exception> faults = new();
+            List<Task<Exception?>> worklist = new();
+            var senum = source.GetEnumerator();
+            var morework = true;
+
+            for (int i = 0; i < dop!.Value && morework; ++i)
+            {
+                morework = senum.MoveNext();
+
+                if (morework)
+                {
+                    worklist.Add(ProcessAsync(senum.Current, work));
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            while (morework)
+            {
+                await await Task.WhenAny(worklist);
+
+                for (int i = 0; i < worklist.Count; ++i)
+                {
+                    var wli = worklist[i];
+
+                    if (wli.IsCompleted)
+                    {
+                        var ex = await wli;
+
+                        if (ex != null)
+                        {
+                            faults.Add(ex);
+
+                            if (earlystop)
+                            {
+                                morework = false;
+                                break;
+                            }
+                        }
+
+                        worklist[i] = ProcessAsync(senum.Current, work);
+
+                        morework = senum.MoveNext();
+
+                        if (!morework)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            await Task.WhenAll(worklist);
+
+            foreach (var wli in worklist)
+            {
+                var ex = await wli;
+
+                if (ex != null)
+                {
+                    if (!earlystop || !faults.Contains(ex))
+                    {
+                        faults.Add(ex);
+                    }
+                }
+            }
+
+            if (faults.Any())
+            {
+                throw new AggregateException(faults.ToArray());
+            }
+        }
+
+        private static async Task<Exception?> ProcessAsync<TSource>(TSource item, Action<TSource> taskSelector)
+        {
+            try
+            {
+                await Task.Run(() =>
+                {
+                    taskSelector.Invoke(item);
+                });
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex;
+            }
+        }
+
+        private static async Task<Exception?> ProcessAsync<TSource>(TSource item, Func<TSource, Task> taskSelector)
+        {
+            try
+            {
+                await taskSelector(item);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex;
+            }
+        }
+
+        /// <summary>
+        /// A safe way to take left-most characters in string; if overflows, appends ellipsis.
+        /// </summary>
+        /// <param name="str"></param>
+        /// <param name="count"></param>
+        /// <returns></returns>
         public static string? LeftWithEllipsis(this string? str, int count)
         {
             if (string.IsNullOrEmpty(str))
@@ -118,6 +479,12 @@ namespace CodexMicroORM.Core
             return str.Substring(0, count - 4) + " ...";
         }
 
+        /// <summary>
+        /// A safe way to take left-most characters in string.
+        /// </summary>
+        /// <param name="str"></param>
+        /// <param name="count"></param>
+        /// <returns></returns>
         public static string? Left(this string? str, int count)
         {
             if (string.IsNullOrEmpty(str))
@@ -133,6 +500,12 @@ namespace CodexMicroORM.Core
             return str.Substring(0, count);
         }
 
+        /// <summary>
+        /// A safe way to take right-mist characters in string.
+        /// </summary>
+        /// <param name="str"></param>
+        /// <param name="count"></param>
+        /// <returns></returns>
         public static string? Right(this string? str, int count)
         {
             if (string.IsNullOrEmpty(str))
@@ -148,39 +521,59 @@ namespace CodexMicroORM.Core
             return str.Substring(str.Length - count, count);
         }
 
+        /// <summary>
+        /// A safe way to extract InnerText from an XmlNode.
+        /// </summary>
+        /// <param name="xn"></param>
+        /// <param name="defval"></param>
+        /// <returns></returns>
         public static string InnerTextSafe(this System.Xml.XmlNode xn, string defval = "")
         {
-            if (xn == null)
-            {
-                return defval;
-            }
-
-            return xn.InnerText ?? defval;
+            return xn == null ? defval : xn.InnerText ?? defval;
         }
 
+        /// <summary>
+        /// An all-encompassing way to compare two objects for equality, with intelligence around casting.
+        /// </summary>
+        /// <param name="o1"></param>
+        /// <param name="o2"></param>
+        /// <param name="canCompareNull"></param>
+        /// <returns></returns>
         public static bool IsSame(this object? o1, object? o2, bool canCompareNull = true)
         {
             if (o1 == DBNull.Value)
+            {
                 o1 = null;
+            }
 
             if (o2 == DBNull.Value)
+            {
                 o2 = null;
+            }
 
             if (canCompareNull)
             {
                 if (o1 == null && o2 == null)
+                {
                     return true;
+                }
 
                 if (o1 == null && o2 != null)
+                {
                     return false;
+                }
 
                 if (o2 == null && o1 != null)
+                {
                     return false;
+                }
             }
             else
             {
                 if (o1 == null || o2 == null)
+                {
                     return false;
+                }
             }
 
             if (o1!.GetType() == o2!.GetType())
@@ -194,14 +587,6 @@ namespace CodexMicroORM.Core
             }
 
             return o1.ToString() == o2.ToString();
-        }
-
-        public static void ForAll<T>(this IEnumerable<T> items, Action<T> work)
-        {
-            foreach (var i in items)
-            {
-                work(i);
-            }
         }
 
         public static object? CoerceType(this string? source, Type prefType, object? defaultIfFail = null)
@@ -238,6 +623,14 @@ namespace CodexMicroORM.Core
                 if (TimeSpan.TryParse(source, out TimeSpan ts))
                 {
                     return ts;
+                }
+            }
+
+            if (prefType == typeof(DateOnly))
+            {
+                if (DateOnly.TryParse(source, out DateOnly dov))
+                {
+                    return dov;
                 }
             }
 
@@ -306,20 +699,39 @@ namespace CodexMicroORM.Core
             return Activator.CreateInstance(nullType, source);
         }
 
-        public static object? CoerceDBNullableType(this object? source, Type prefType)
+        public static object? CoerceObjectType(this object? source, Type prefType)
         {
             if (source == null || DBNull.Value.Equals(source))
             {
                 return null;
             }
 
+            var st = source.GetType();
+            var bt = Nullable.GetUnderlyingType(st);
+            var pbt = Nullable.GetUnderlyingType(prefType);
+
+            if (bt == null && pbt == null && prefType.IsValueType)
+            {
+                bt = typeof(Nullable<>).MakeGenericType(prefType);
+            }
+
             // Avoid casting to string if the types match
-            if (source.GetType() == prefType)
+            if (st == prefType || bt == prefType || st == pbt)
             {
                 return source;
             }
 
-            if (source.GetType() == typeof(DateTime))
+            if (prefType == typeof(string))
+            {
+                return source.ToString();
+            }
+
+            if (st == typeof(DateOnly) || bt == typeof(DateOnly))
+            {
+                return ((DateOnly)source).ToDateTime().ToString("O").CoerceType(prefType);
+            }
+
+            if (st == typeof(DateTime) || bt == typeof(DateTime))
             {
                 return ((DateTime)source).ToString("O").CoerceType(prefType);
             }
@@ -486,7 +898,7 @@ namespace CodexMicroORM.Core
             return w;
         }
 
-        public static T? AsNullValue<T>(this object v) where T : struct
+        public static T? AsNullValue<T>(this object? v) where T : struct
         {
             if (v == null)
             {
@@ -504,6 +916,24 @@ namespace CodexMicroORM.Core
             }
 
             throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}?.");
+        }
+
+        public static object? TypeFixup(this object? v, Type tt)
+        {
+            if (v == null)
+            {
+                return null;
+            }
+
+            if (tt == typeof(DateOnly?) || tt == typeof(DateOnly))
+            {
+                if (v.GetType() == typeof(DateTime))
+                {
+                    return new DateOnly((DateTime)v);
+                }
+            }
+
+            return v;
         }
 
         /// <summary>
@@ -1023,7 +1453,7 @@ namespace CodexMicroORM.Core
                     foreach (DataColumn dc in nonKeyCol)
                     {
                         var setter = ss.GetSetter(iw, dc.ColumnName);
-                        setter.setter?.Invoke(drv[dc.ColumnName].CoerceDBNullableType(setter.type ?? dc.DataType));
+                        setter.setter?.Invoke(drv[dc.ColumnName].CoerceObjectType(setter.type ?? dc.DataType));
                     }
                 }
             }

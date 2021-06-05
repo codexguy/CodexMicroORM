@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ namespace CodexMicroORM.Core
 
         #endregion
 
-        public delegate void GlobalPropertyChangeCallback(object source, string propName, object oldval, object newval);
+        public delegate void GlobalPropertyChangeCallback(object source, string propName, object? oldval, object? newval);
 
         /// <summary>
         /// Offers a mechanism to detect changes in infrastructure objects globally. (e.g. used in a syncing framework)
@@ -255,6 +255,12 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = true;
+
+        public static bool ConsiderBagPropertiesOnSave
+        {
+            get;
+            set;
+        } = false;
 
         public static bool UseGlobalServiceScope
         {

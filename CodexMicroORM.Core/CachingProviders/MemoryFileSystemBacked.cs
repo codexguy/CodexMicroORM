@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -90,7 +90,7 @@ namespace CodexMicroORM.Providers
 
             public IEnumerable<object>? SourceList { get; set; }
 
-            public object ObjSync { get; } = new object();
+            public object ObjSync { get; } = new();
 
             public DateTime LastRead { get; set; }
 
@@ -107,9 +107,9 @@ namespace CodexMicroORM.Providers
 
         private string _rootDir = "";
 
-        private readonly ConcurrentIndexedList<MFSEntry> _index = new ConcurrentIndexedList<MFSEntry>(nameof(MFSEntry.ByIdentityComposite), nameof(MFSEntry.ByQuerySHA), nameof(MFSEntry.ObjectTypeName), nameof(MFSEntry.FileName));
+        private readonly ConcurrentIndexedList<MFSEntry> _index = new(nameof(MFSEntry.ByIdentityComposite), nameof(MFSEntry.ByQuerySHA), nameof(MFSEntry.ObjectTypeName), nameof(MFSEntry.FileName));
 
-        private System.Timers.Timer _monitor = new System.Timers.Timer();
+        private System.Timers.Timer _monitor = new();
 
         private double? _lastMonitorTimerDuration;
 
@@ -117,10 +117,10 @@ namespace CodexMicroORM.Providers
 
         private long _stopping = 0;
 
-        private readonly object _indexLock = new object();
+        private readonly object _indexLock = new();
 
         [ThreadStatic]
-        private readonly BinaryFormatter _formatter = new BinaryFormatter();
+        private readonly BinaryFormatter _formatter = new();
         
         #endregion
 
@@ -198,10 +198,13 @@ namespace CodexMicroORM.Providers
 
         #region "Static methods"
 
-        public static void FlushAll(string rootDir)
+        public static void FlushAllFile(string? rootDir)
         {
-            InternalFlush(Path.Combine(Path.GetTempPath(), rootDir));
-            Directory.CreateDirectory(rootDir);
+            if (rootDir != null)
+            {
+                InternalFlush(Path.Combine(Path.GetTempPath(), rootDir));
+                Directory.CreateDirectory(rootDir);
+            }
         }
 
         private static void InternalFlush(string dir)
@@ -240,6 +243,15 @@ namespace CodexMicroORM.Providers
         public void DoneWork()
         {
             Interlocked.Decrement(ref _working);
+        }
+
+        public void FlushAll()
+        {
+            lock (_indexLock)
+            {
+                FlushAllFile(RootDirectory);
+                _index.Clear();
+            }
         }
 
         /// <summary>
@@ -289,7 +301,7 @@ namespace CodexMicroORM.Providers
         /// <param name="props"></param>
         public void InvalidateIdentityEntry(Type baseType, IDictionary<string, object?> props)
         {
-            StringBuilder sb = new StringBuilder(128);
+            StringBuilder sb = new(128);
             sb.Append(baseType.Name);
 
             var key = (from a in KeyService.ResolveKeyDefinitionForType(baseType) select props[a]).ToArray();
@@ -323,7 +335,7 @@ namespace CodexMicroORM.Providers
         /// <param name="expirySeconds"></param>
         public void UpdateByIdentity(Type baseType, IDictionary<string, object?> props, object[]? key = null, int? expirySeconds = null)
         {
-            StringBuilder sb = new StringBuilder(128);
+            StringBuilder sb = new(128);
             sb.Append(baseType.Name);
 
             if (key == null)
@@ -371,7 +383,7 @@ namespace CodexMicroORM.Providers
         /// <returns></returns>
         public IEnumerable<T>? GetByQuery<T>(string text, object?[]? parms) where T : class, new()
         {
-            StringBuilder sb = new StringBuilder(128);
+            StringBuilder sb = new(128);
             sb.Append(typeof(T).Name);
             sb.Append(text.ToUpperInvariant());
 
@@ -408,7 +420,7 @@ namespace CodexMicroORM.Providers
         /// <returns></returns>
         public T? GetByIdentity<T>(object[] key) where T : class, new()
         {
-            StringBuilder sb = new StringBuilder(128);
+            StringBuilder sb = new(128);
             sb.Append(typeof(T).Name);
 
             foreach (var k in key)
@@ -479,7 +491,7 @@ namespace CodexMicroORM.Providers
                 return;
             }
 
-            StringBuilder sb = new StringBuilder(128);
+            StringBuilder sb = new(128);
             sb.Append(typeof(T).Name);
             sb.Append(text.ToUpperInvariant());
 
@@ -545,7 +557,7 @@ namespace CodexMicroORM.Providers
                     using (CEF.UseServiceScope(ss))
                     {
                         // Process all items in parallel, building a list we'll turn into json but also potentially caching "by identity" per row
-                        ConcurrentBag<IDictionary<string, object?>> rows = new ConcurrentBag<IDictionary<string, object?>>();
+                        ConcurrentBag<IDictionary<string, object?>> rows = new();
 
                         var aiw = list.AllAsInfraWrapped().ToArray();
 
@@ -615,7 +627,7 @@ namespace CodexMicroORM.Providers
                 return;
             }
 
-            StringBuilder sb = new StringBuilder(128);
+            StringBuilder sb = new(128);
             sb.Append(o.GetBaseType().Name);
 
             if (key == null)
@@ -852,11 +864,11 @@ namespace CodexMicroORM.Providers
             return (IDictionary<string, object?>)bf.Deserialize(fs);
         }
 
-        private static readonly ConcurrentDictionary<Type, bool> _skipTypeForSave = new ConcurrentDictionary<Type, bool>();
+        private static readonly ConcurrentDictionary<Type, bool> _skipTypeForSave = new();
 
         private IDictionary<string, object?> ScrubDictionary(IDictionary<string, object?> source)
         {
-            Dictionary<string, object?> toSave = new Dictionary<string, object?>();
+            Dictionary<string, object?> toSave = new();
 
             // We only persist serializable values or would get error!
             foreach (var kvp in source)
@@ -948,7 +960,7 @@ namespace CodexMicroORM.Providers
 
             try
             {
-                List<MFSEntry> items = new List<MFSEntry>();
+                List<MFSEntry> items = new();
 
                 foreach (var i in _index)
                 {
@@ -1059,8 +1071,7 @@ namespace CodexMicroORM.Providers
                 }
                 else
                 {
-                    FlushAll(RootDirectory);
-                    _index.Clear();
+                    FlushAll();
                 }
             }
             catch (Exception ex)
@@ -1068,8 +1079,7 @@ namespace CodexMicroORM.Providers
                 CEFDebug.WriteInfo($"Exception in cache restore index: {ex.Message}");
 
                 // Any problems, go with an empty cache
-                FlushAll(RootDirectory);
-                _index.Clear();
+                FlushAll();
             }
         }
 
@@ -1083,7 +1093,7 @@ namespace CodexMicroORM.Providers
                 return;
             }
 
-            StringBuilder sb = new StringBuilder();
+            StringBuilder sb = new();
             var d = DateTime.Now;
 
             using (var jw = new JsonTextWriter(new StringWriter(sb)))
@@ -1232,7 +1242,7 @@ namespace CodexMicroORM.Providers
             }
 
             // Will actually use a background thread that's low priority
-            Thread bwt = new Thread(() =>
+            Thread bwt = new(() =>
             {
                 if (Interlocked.Read(ref _stopping) > 0)
                 {

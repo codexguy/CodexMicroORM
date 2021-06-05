@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2018 CodeX Enterprises LLC
+Copyright 2021 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@ using System.Threading.Tasks;
 using System.Collections;
 using static CodexMicroORM.Core.Services.KeyService;
 using CodexMicroORM.Core.Helper;
+using System.Runtime.CompilerServices;
 
 namespace CodexMicroORM.Core
 {
@@ -40,20 +41,20 @@ namespace CodexMicroORM.Core
     {
         #region "Private state (global)"
 
-        private static readonly SlimConcurrentDictionary<Type, IList<ICEFService>> _resolvedServicesByType = new SlimConcurrentDictionary<Type, IList<ICEFService>>();
-        private static readonly ConcurrentDictionary<Type, IList<ICEFService>> _regServicesByType = new ConcurrentDictionary<Type, IList<ICEFService>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly SlimConcurrentDictionary<Type, IList<ICEFService>> _resolvedServicesByType = new();
+        private static readonly ConcurrentDictionary<Type, IList<ICEFService>> _regServicesByType = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static ImmutableArray<ICEFService> _globalServices = ImmutableArray<ICEFService>.Empty;
 
         internal static ServiceScope? InternalGlobalServiceScope = null;
-        internal static ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?>> SaveTriggers = new ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?>>();
+        internal static ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?>> SaveTriggers = new();
 
-        private static readonly AsyncLocal<ImmutableStack<ServiceScope>> _allServiceScopes = new AsyncLocal<ImmutableStack<ServiceScope>>();
+        private static readonly AsyncLocal<ImmutableStack<ServiceScope>> _allServiceScopes = new();
 
-        private static readonly AsyncLocal<ServiceScope?> _currentServiceScope = new AsyncLocal<ServiceScope?>();
+        private static readonly AsyncLocal<ServiceScope?> _currentServiceScope = new();
 
-        private static readonly AsyncLocal<ImmutableStack<ConnectionScope>> _allConnScopes = new AsyncLocal<ImmutableStack<ConnectionScope>>();
+        private static readonly AsyncLocal<ImmutableStack<ConnectionScope>> _allConnScopes = new();
 
-        private static readonly AsyncLocal<ConnectionScope> _currentConnScope = new AsyncLocal<ConnectionScope>();
+        private static readonly AsyncLocal<ConnectionScope> _currentConnScope = new();
 
         public static ICollection<ICEFService> GlobalServices => _globalServices.ToArray();
 
@@ -62,10 +63,10 @@ namespace CodexMicroORM.Core
 
         private static Action<string, long>? _queryPerfInfo = null;
 
-        private static readonly object _lockDB = new object();
-        private static readonly object _lockAudit = new object();
-        private static readonly object _lockKey = new object();
-        private static readonly object _lockPCT = new object();
+        private static readonly object _lockDB = new();
+        private static readonly object _lockAudit = new();
+        private static readonly object _lockKey = new();
+        private static readonly object _lockPCT = new();
 
         #endregion
 
@@ -248,6 +249,23 @@ namespace CodexMicroORM.Core
 
             ServiceScopeInit(new ServiceScope(settings), additionalServices);
             return _currentServiceScope.Value ?? throw new CEFInvalidStateException(InvalidStateType.LowLevelState, "Could not determine service scope.");
+        }
+
+        /// <summary>
+        /// Throws an exception if not in a valid service scope
+        /// </summary>
+        public static void AssertInServiceScope()
+        {
+            if (_currentServiceScope.Value == null)
+            {
+#if DEBUG
+                if (System.Diagnostics.Debugger.IsAttached)
+                {
+                    System.Diagnostics.Debugger.Break();
+                }
+#endif
+                throw new CEFInvalidStateException(InvalidStateType.MissingServiceState);
+            }
         }
 
         /// <summary>
@@ -468,15 +486,29 @@ namespace CodexMicroORM.Core
             return rv!;
         }
 
+#if DEBUG
+        public static string? DebugLastAsyncSaveFrom
+        {
+            get;
+            private set;
+        }
+#endif
+
         /// <summary>
         /// Requests database persistence over all entities in the ambient service scope.
         /// </summary>
         /// <param name="settings"></param>
         /// <returns>One element per entity saved, indicating any message and/or status returned by the save process for that entity.</returns>
-        public static async Task<IEnumerable<(object item, string? message, int status)>> DBSaveAsync(DBSaveSettings? settings = null)
+        public static async Task<IEnumerable<(object item, string? message, int status)>> DBSaveAsync(DBSaveSettings? settings = null, [CallerFilePath] string? filepath = null, [CallerLineNumber] int? linenumber = null)
         {
             IEnumerable<(object item, string? message, int status)>? rv = null;
             Exception? ex = null;
+
+#if DEBUG
+            var cf = $"{filepath};{linenumber}";
+            System.Diagnostics.Debug.WriteLine($"I: DBSaveAsync called from {cf}");
+            DebugLastAsyncSaveFrom = cf;
+#endif
 
             await Task.Run(() =>
             {
@@ -551,9 +583,9 @@ namespace CodexMicroORM.Core
                 settings = new DBSaveSettings();
             }
 
-            if (tosave != null && tosave is IEnumerable)
+            if (tosave != null && tosave is IEnumerable enumerable)
             {
-                settings.SourceList = ((IEnumerable)tosave).Cast<object>();
+                settings.SourceList = enumerable.Cast<object>();
             }
             else
             {
@@ -1179,9 +1211,9 @@ namespace CodexMicroORM.Core
                 {
                     foreach (var s in additionalServices)
                     {
-                        if (s is IDisposable)
+                        if (s is IDisposable disposable)
                         {
-                            ((IDisposable)s).Dispose();
+                            disposable.Dispose();
                         }
                     }
                 }
@@ -1239,7 +1271,7 @@ namespace CodexMicroORM.Core
 
             if (Globals.GlobalQueryTimeout.HasValue)
             {
-                CancellationTokenSource cts = new CancellationTokenSource();
+                CancellationTokenSource cts = new();
                 DateTime start = DateTime.Now;
 
                 void b()
@@ -1277,7 +1309,7 @@ namespace CodexMicroORM.Core
                 else
                 {
                     // We'll just use cooperative checks to wait for completion
-                    CancellationToken ct = new CancellationToken();
+                    CancellationToken ct = new();
                     a(ct, start);
                 }
 
@@ -1289,7 +1321,7 @@ namespace CodexMicroORM.Core
             else
             {
                 // No timeout means we just wait as long as it takes! If we're using an RDBMS, its timeout may be in force and offer non-cooperative timeouts which is actually a good thing.
-                CancellationToken ct = new CancellationToken();
+                CancellationToken ct = new();
                 a(ct, null);
             }
 
@@ -1347,7 +1379,7 @@ namespace CodexMicroORM.Core
                 Exception? tex = null;
                 var ss = CEF.CurrentServiceScope;
 
-                HashSet<KeyServiceState.CompositeWrapper>? keys = new HashSet<KeyServiceState.CompositeWrapper>();
+                HashSet<KeyServiceState.CompositeWrapper>? keys = new();
                 var keycols = KeyService.ResolveKeyDefinitionForType(typeof(T));
 
                 // Default is to check but can disable on case-by-case if needed

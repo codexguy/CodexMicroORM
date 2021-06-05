@@ -422,7 +422,18 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Change: Switch to Microsoft.Data.SqlClient from System.Data.SqlClient
 	* Add: MustInfraWrap, ScopeLevelCache, ReconcileModifiedIgnoresValueBag
 	* Change: Use of more pattern matching and addressing suggestions
-	* Change: caching supports ForList in name
+	* Change: "all" caching supports ForList in name
+* 0.9.10 - June 2021
+	* Add: DateOnly data type to match SQL "date" type; largely interchangeable with DateTime and addresses date conversion issues with UTC; template support added (optional, default continues to use DateTime)
+	* Add: Debug features available to those running from source (eg DebugStopTypeNamesWithChanges)
+	* Add: FlushAll (caching); Sequential/ParallelAsync helper extensions; TypeFixup
+	* Add: Added canUseBag param to ICEFInfraWrapper.SetValue (and require audit fields, if any, to *not* be bag props)
+	* Fix: Caching improperly handled empty collections
+	* Change: SetInitialProps suppresses firing prop changed as this is considered setup only
+	* Change: properties starting with ~ are ignored for dirty check (used internally by ZDB)
+	* Change: improvements in CoerceObjectType (formerly CoerceDBNullableType)
+	* Change: GetRowState accepts flag for ignoring extended/bag prop changes and default behavior on save is to ignore these properties for dirtiness (see: ConsiderBagPropertiesOnSave)
+	* Change: some stylistic changes based on warnings/suggestions
 
 ## Roadmap / Plans
 Look for in coming releases:
