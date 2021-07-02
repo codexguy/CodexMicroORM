@@ -321,7 +321,7 @@ namespace CodexMicroORM.Providers
 
             while (r.Read())
             {
-                Dictionary<string, (object?, Type)> values = new Dictionary<string, (object?, Type)>(Globals.DefaultLargerDictionaryCapacity);
+                Dictionary<string, (object?, Type)> values = new(Globals.DefaultLargerDictionaryCapacity);
 
                 for (int i = 0; i < r.FieldCount; ++i)
                 {
@@ -333,7 +333,8 @@ namespace CodexMicroORM.Providers
                         val = null;
                     }
 
-                    values[r.GetName(i)] = (val, prefType);
+                    var name = r.GetName(i);
+                    values[name] = (val, prefType);
                 }
 
                 yield return values;
@@ -346,6 +347,12 @@ namespace CodexMicroORM.Providers
 
             try
             {
+                // Should never be closed, but just in case
+                if (_cmd.Connection.State == ConnectionState.Closed)
+                {
+                    _cmd.Connection.Open();
+                }
+
                 _cmd.ExecuteNonQuery();
             }
             catch (Exception ex)

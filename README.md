@@ -434,13 +434,26 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Change: improvements in CoerceObjectType (formerly CoerceDBNullableType)
 	* Change: GetRowState accepts flag for ignoring extended/bag prop changes and default behavior on save is to ignore these properties for dirtiness (see: ConsiderBagPropertiesOnSave)
 	* Change: some stylistic changes based on warnings/suggestions
+* 0.9.11 - July 2021
+	* Add: XS Tool Suite template adjustments to include static factory methods to simplify object creation. For example what was previously 3 lines:
+	            var ingset = new IngredientSet();
+                await ingset.RetrieveByKeyAsync(ingredientID);
+                var ing = ingset.FirstOrDefault() ?? throw new InvalidOperationException("Could not find ingredient by ID.");
+		... can become 1 line:
+                var ing = (await IngredientSet.RetrieveByKeyAsync(ingredientID)).FirstOrDefault() ?? throw new InvalidOperationException("Could not find ingredient by ID.");
+	* Add: AddRange to EntitySet
+	* Add/Change: Adjustments to conversion and json serialization for DateOnly
+	* Fix: rare error in MSSQLCommand about trying to use a closed connection (noticed with Azure SQL)
+	* Change: multitarget net461 and netstandard 2.0 (for increased reach, very minor changes to accomodate, nothing is platform-specific) [See](https://docs.microsoft.com/en-us/dotnet/standard/library-guidance/cross-platform-targeting) for rationale.
 
 ## Roadmap / Plans
 Look for in coming releases:
 
-* Support for more complex types of object mapping
+* Support for more complex types of object mapping (as needed)
 * ZableDB as an optional storage provider (OODBMS with high performance Linq to Objects queries)
 * Real-world usage in the context of a published app (will be discussing at length in blog - [coming soon](https://www.wizerfood.com))
+
+Expect a 1.0 release in Fall 2021. This will be the transition point at which I've been testing it "live" for a while. ZableDB is something that I have working (quite nicely I might add) but am still deciding on the licensing approach.
 
 Come and subscribe to [blog updates](https://www.xskrape.com/Home/Articles).
 

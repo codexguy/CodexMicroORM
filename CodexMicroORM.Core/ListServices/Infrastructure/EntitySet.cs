@@ -666,6 +666,23 @@ namespace CodexMicroORM.Core.Services
             return t;
         }
 
+        /// <summary>
+        /// Adds possibly multiple items to the collection.
+        /// </summary>
+        /// <param name="items"></param>
+        public EntitySet<T> AddRange(IEnumerable<T> items)
+        {
+            if (items != null)
+            {
+                foreach (var i in items)
+                {
+                    Add(i);
+                }
+            }
+
+            return this;
+        }
+
         private void StartToAddWorkers()
         {
             if (Interlocked.Read(ref _toAddWorkers) == 0 && _toAdd.Count > 0)

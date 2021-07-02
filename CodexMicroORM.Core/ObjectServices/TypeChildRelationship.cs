@@ -49,7 +49,9 @@ namespace CodexMicroORM.Core.Services
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(_identity);
+            var h1 = unchecked((uint)_identity.GetHashCode());
+            uint rol = (h1 << 5) | (h1 >> 27);
+            return unchecked((int)(rol + h1));
         }
 
         public override bool Equals(object obj) => this._identity.IsSame((obj as TypeChildRelationship)?._identity);

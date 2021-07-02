@@ -245,12 +245,16 @@ namespace CodexMicroORM.Core.Services
                 return null;
             }
 
+            var asstr = source.ToString();
+
             if (targetType == typeof(string))
             {
-                return source.ToString();
+                return asstr;
             }
 
-            if (source.GetType() == targetType)
+            var valtype = source.GetType();
+
+            if (valtype == targetType)
             {
                 return source;
             }
@@ -259,39 +263,53 @@ namespace CodexMicroORM.Core.Services
 
             if (ntt != null)
             {
-                if (ntt == source.GetType())
+                if (ntt == valtype)
                 {
                     return Activator.CreateInstance(targetType, source);
                 }
 
-                if (ntt.IsEnum)
+                if (!string.IsNullOrEmpty(asstr))
                 {
-                    return Activator.CreateInstance(targetType, Enum.Parse(ntt, source.ToString()));
-                }
-
-                if (ntt == typeof(Guid) && source != null && !string.IsNullOrEmpty(source.ToString()))
-                {
-                    return new Guid(source.ToString());
-                }
-
-                if (ntt == typeof(TimeSpan) && source != null && !string.IsNullOrEmpty(source.ToString()))
-                {
-                    if (TimeSpan.TryParse(source.ToString(), out TimeSpan pts))
+                    if (ntt.IsEnum)
                     {
-                        return pts;
-                    }
-                }
-
-                if (ntt == typeof(DateOnly) && source != null && !string.IsNullOrEmpty(source.ToString()))
-                {
-                    if (source.GetType() == typeof(DateTime))
-                    {
-                        return new DateOnly((DateTime)source);
+                        return Activator.CreateInstance(targetType, Enum.Parse(ntt, asstr));
                     }
 
-                    if (DateOnly.TryParse(source.ToString(), out DateOnly dov))
+                    if (ntt == typeof(Guid))
                     {
-                        return dov;
+                        return new Guid(asstr);
+                    }
+
+                    if (ntt == typeof(TimeSpan))
+                    {
+                        if (TimeSpan.TryParse(asstr, out TimeSpan pts))
+                        {
+                            return pts;
+                        }
+                    }
+
+                    if (ntt == typeof(DateOnly))
+                    {
+                        if (valtype == typeof(DateTime))
+                        {
+                            return new DateOnly((DateTime)source);
+                        }
+
+                        if (DateOnly.TryParse(asstr, out DateOnly dov))
+                        {
+                            return dov;
+                        }
+                    }
+
+                    if (ntt == typeof(DateTime))
+                    {
+                        if (valtype == typeof(int) || valtype == typeof(long))
+                        {
+                            if (DateOnly.TryParse(asstr, out DateOnly dov))
+                            {
+                                return dov.ToDateTime();
+                            }
+                        }
                     }
                 }
 
@@ -303,34 +321,48 @@ namespace CodexMicroORM.Core.Services
                 throw new InvalidCastException("Cannot coerce type.");
             }
 
-            if (targetType.IsEnum)
+            if (!string.IsNullOrEmpty(asstr))
             {
-                return Enum.Parse(targetType, source.ToString());
-            }
-
-            if (targetType == typeof(Guid) && source != null && !string.IsNullOrEmpty(source.ToString()))
-            {
-                return new Guid(source.ToString());
-            }
-
-            if (targetType == typeof(TimeSpan) && source != null && !string.IsNullOrEmpty(source.ToString()))
-            {
-                if (TimeSpan.TryParse(source.ToString(), out TimeSpan pts))
+                if (targetType.IsEnum)
                 {
-                    return pts;
-                }
-            }
-
-            if (targetType == typeof(DateOnly) && source != null && !string.IsNullOrEmpty(source.ToString()))
-            {
-                if (source.GetType() == typeof(DateTime))
-                {
-                    return new DateOnly((DateTime)source);
+                    return Enum.Parse(targetType, asstr);
                 }
 
-                if (DateOnly.TryParse(source.ToString(), out DateOnly dov))
+                if (targetType == typeof(Guid))
                 {
-                    return dov;
+                    return new Guid(asstr);
+                }
+
+                if (targetType == typeof(TimeSpan))
+                {
+                    if (TimeSpan.TryParse(asstr, out TimeSpan pts))
+                    {
+                        return pts;
+                    }
+                }
+
+                if (targetType == typeof(DateOnly))
+                {
+                    if (valtype == typeof(DateTime))
+                    {
+                        return new DateOnly((DateTime)source);
+                    }
+
+                    if (DateOnly.TryParse(asstr, out DateOnly dov))
+                    {
+                        return dov;
+                    }
+                }
+
+                if (targetType == typeof(DateTime))
+                {
+                    if (valtype == typeof(int) || valtype == typeof(long))
+                    {
+                        if (DateOnly.TryParse(asstr, out DateOnly dov))
+                        {
+                            return dov.ToDateTime();
+                        }
+                    }
                 }
             }
 
@@ -339,7 +371,7 @@ namespace CodexMicroORM.Core.Services
                 return Convert.ChangeType(source, targetType);
             }
 
-            if (source != null && !source.GetType().IsValueType)
+            if (!valtype.IsValueType)
             {
                 return source;
             }

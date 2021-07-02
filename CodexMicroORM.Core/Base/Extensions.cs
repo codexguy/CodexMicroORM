@@ -110,6 +110,26 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Implements AddRange for HashSet.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="hs"></param>
+        /// <param name="toAdd"></param>
+        /// <param name="withClear"></param>
+        public static void AddRange<T>(this HashSet<T> hs, IEnumerable<T> toAdd, bool withClear = false)
+        {
+            if (withClear)
+            {
+                hs.Clear();
+            }
+
+            foreach (var i in toAdd)
+            {
+                hs.Add(i);
+            }
+        }
+
+        /// <summary>
         /// Implements AddRange for ObservableCollection.
         /// </summary>
         /// <typeparam name="T"></typeparam>
@@ -242,7 +262,7 @@ namespace CodexMicroORM.Core
         /// <typeparam name="TSource"></typeparam>
         /// <param name="source"></param>
         /// <param name="work"></param>
-        /// <param name="dop"></param>
+        /// <param name="dop">Max number of worker threads; defaults to number of CPU.</param>
         /// <param name="earlystop"></param>
         /// <returns></returns>
         public static async Task ParallelAsync<TSource>(this IEnumerable<TSource> source, Action<TSource> work, int? dop = null, bool earlystop = false)
@@ -257,7 +277,7 @@ namespace CodexMicroORM.Core
                 dop = Environment.ProcessorCount;
             }
 
-            ConcurrentBag<Exception> faults = new();
+            List<Exception> faults = new();
             List<Task<Exception?>> worklist = new();
             var senum = source.GetEnumerator();
             var morework = true;
@@ -270,17 +290,13 @@ namespace CodexMicroORM.Core
                 {
                     worklist.Add(ProcessAsync(senum.Current, work));
                 }
-                else
-                {
-                    break;
-                }
             }
 
             while (morework)
             {
-                await await Task.WhenAny(worklist);
+                await Task.WhenAny(worklist);
 
-                for (int i = 0; i < worklist.Count; ++i)
+                for (int i = 0; i < worklist.Count && morework; ++i)
                 {
                     var wli = worklist[i];
 
@@ -302,11 +318,6 @@ namespace CodexMicroORM.Core
                         worklist[i] = ProcessAsync(senum.Current, work);
 
                         morework = senum.MoveNext();
-
-                        if (!morework)
-                        {
-                            break;
-                        }
                     }
                 }
             }
@@ -333,12 +344,12 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
-        /// Processes elements of source enumerable, in parallel using async. Any exceptions are collected and thrown in an AggregateException at end. Works with async lambda's.
+        /// Processes elements of source enumerable, in parallel using async. Any exceptions are collected and thrown in an AggregateException at end. Supports gauranteed exec over all elements or stop on error. Works with async lambda's.
         /// </summary>
         /// <typeparam name="TSource"></typeparam>
         /// <param name="source"></param>
         /// <param name="work"></param>
-        /// <param name="dop"></param>
+        /// <param name="dop">Max number of worker threads; defaults to number of CPU.</param>
         /// <param name="earlystop"></param>
         /// <returns></returns>
         public static async Task ParallelAsync<TSource>(this IEnumerable<TSource> source, Func<TSource, Task> work, int? dop = null, bool earlystop = false)
@@ -353,7 +364,7 @@ namespace CodexMicroORM.Core
                 dop = Environment.ProcessorCount;
             }
 
-            ConcurrentBag<Exception> faults = new();
+            List<Exception> faults = new();
             List<Task<Exception?>> worklist = new();
             var senum = source.GetEnumerator();
             var morework = true;
@@ -366,17 +377,13 @@ namespace CodexMicroORM.Core
                 {
                     worklist.Add(ProcessAsync(senum.Current, work));
                 }
-                else
-                {
-                    break;
-                }
             }
 
             while (morework)
             {
-                await await Task.WhenAny(worklist);
+                await Task.WhenAny(worklist);
 
-                for (int i = 0; i < worklist.Count; ++i)
+                for (int i = 0; i < worklist.Count && morework; ++i)
                 {
                     var wli = worklist[i];
 
@@ -398,11 +405,6 @@ namespace CodexMicroORM.Core
                         worklist[i] = ProcessAsync(senum.Current, work);
 
                         morework = senum.MoveNext();
-
-                        if (!morework)
-                        {
-                            break;
-                        }
                     }
                 }
             }
@@ -434,7 +436,7 @@ namespace CodexMicroORM.Core
             {
                 await Task.Run(() =>
                 {
-                    taskSelector.Invoke(item);
+                    taskSelector(item);
                 });
 
                 return null;
@@ -589,6 +591,13 @@ namespace CodexMicroORM.Core
             return o1.ToString() == o2.ToString();
         }
 
+        /// <summary>
+        /// Attempts to change input string into a desired type using rules that go beyond BCL Convert.
+        /// </summary>
+        /// <param name="source"></param>
+        /// <param name="prefType"></param>
+        /// <param name="defaultIfFail"></param>
+        /// <returns></returns>
         public static object? CoerceType(this string? source, Type prefType, object? defaultIfFail = null)
         {
             if (source == null)
@@ -699,6 +708,12 @@ namespace CodexMicroORM.Core
             return Activator.CreateInstance(nullType, source);
         }
 
+        /// <summary>
+        /// Attempts to change input object into a desired type using rules that go beyond BCL Convert.
+        /// </summary>
+        /// <param name="source"></param>
+        /// <param name="prefType"></param>
+        /// <returns></returns>
         public static object? CoerceObjectType(this object? source, Type prefType)
         {
             if (source == null || DBNull.Value.Equals(source))
@@ -739,44 +754,15 @@ namespace CodexMicroORM.Core
             return source.ToString().CoerceType(prefType);
         }
 
-        public static T CoerceType<T>(this string? source)
+        /// <summary>
+        /// Attempts to change input string into a desired type using rules that go beyond BCL Convert.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="source"></param>
+        /// <returns></returns>
+        public static T? CoerceType<T>(this string? source)
         {
-            if (source == null)
-            {
-                return default!;
-            }
-
-            if (typeof(T) == typeof(string))
-            {
-                return (T)(object)source;
-            }
-
-            if (Nullable.GetUnderlyingType(typeof(T)) != null)
-            {
-                if (string.IsNullOrEmpty(source))
-                {
-                    return (T)Activator.CreateInstance(typeof(T));
-                }
-
-                return (T)Activator.CreateInstance(typeof(T), Convert.ChangeType(source, Nullable.GetUnderlyingType(typeof(T))));
-            }
-
-            if (typeof(T).IsEnum)
-            {
-                return (T)Enum.Parse(typeof(T), source);
-            }
-
-            if (source is IConvertible)
-            {
-                return (T)Convert.ChangeType(source, typeof(T));
-            }
-
-            if (!source.GetType().IsValueType)
-            {
-                return (T)(object)source;
-            }
-
-            throw new InvalidCastException("Cannot coerce type.");
+            return (T?)CoerceType(source, typeof(T));
         }
 
 #if !CGEH

@@ -887,7 +887,7 @@ namespace CodexMicroORM.Core
 
                     if (isOrig)
                     {
-                        propName = propName[2..];
+                        propName = propName.Substring(2);
                         anyOrig = true;
                     }
 

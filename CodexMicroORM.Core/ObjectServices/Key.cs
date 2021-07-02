@@ -1416,7 +1416,9 @@ namespace CodexMicroORM.Core.Services
 
                 public override int GetHashCode()
                 {
-                    return HashCode.Combine(Parent);
+                    var h1 = unchecked((uint)Parent.GetHashCode());
+                    uint rol = (h1 << 5) | (h1 >> 27);
+                    return unchecked((int)(rol + h1));
                 }
 
                 public object? GetValue(string propName, bool unwrap)

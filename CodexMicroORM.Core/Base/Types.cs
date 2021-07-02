@@ -16,13 +16,35 @@ limitations under the License.
 Major Changes:
 6/2021     0.9.10  Introduced (Joel Champagne)
 ***********************************************************************/
+using Newtonsoft.Json;
 using System;
 using System.Runtime.Serialization;
 #nullable enable
 
 namespace CodexMicroORM.Core
 {
+    internal class DateOnlyJsonConverter : JsonConverter<DateOnly>
+    {
+        public override DateOnly ReadJson(JsonReader reader, Type objectType, DateOnly existingValue, bool hasExistingValue, JsonSerializer serializer)
+        {
+            var asint = reader.ReadAsInt32();
+
+            if (!asint.HasValue)
+            {
+                throw new InvalidOperationException("Invalid Json format for DateOnly (should be an integer).");
+            }
+
+            return new DateOnly(asint.Value);
+        }
+
+        public override void WriteJson(JsonWriter writer, DateOnly value, JsonSerializer serializer)
+        {
+            writer.WriteRawValue(value.GetAsInt().ToString());
+        }
+    }
+
     [Serializable]
+    [JsonConverter(typeof(DateOnlyJsonConverter))]
     public readonly struct DateOnly : IComparable, IComparable<DateOnly>, IComparable<DateTime>, IConvertible, IEquatable<DateOnly>, IEquatable<DateTime>, IFormattable, ISerializable
     {
         private readonly short Year;
@@ -57,10 +79,15 @@ namespace CodexMicroORM.Core
                 Year = Convert.ToInt16(year);
                 Month = Convert.ToByte(month);
                 Day = Convert.ToByte(day);
+
+                if (!InternalValidate(null))
+                {
+                    throw new ArgumentException($"Invalid date information ({year},{month},{day}).");
+                }
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException($"Invalid date information ({year},{month},{day}).", ex);
+                throw new ArgumentException($"Invalid date information ({year},{month},{day}).", ex);
             }
         }
 
@@ -68,7 +95,7 @@ namespace CodexMicroORM.Core
         {
             if (from?.Length != 4)
             {
-                throw new InvalidOperationException("DateOnly invalid format.");
+                throw new ArgumentException("DateOnly invalid format.");
             }
 
             int ai = -1;
@@ -82,7 +109,7 @@ namespace CodexMicroORM.Core
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException($"Invalid date information ({ai}).", ex);
+                throw new ArgumentException($"Invalid date information ({ai}).", ex);
             }
         }
 
@@ -118,7 +145,47 @@ namespace CodexMicroORM.Core
                 return true;
             }
 
+            if (int.TryParse(src, out var dai))
+            {
+                parsed = new DateOnly(dai);
+                return parsed.InternalValidate(null);
+            }
+
             return false;
+        }
+
+        private bool InternalValidate(int? asint)
+        {
+            asint ??= GetAsInt();
+            var year = Convert.ToInt16(asint / 10000);
+            var month = Convert.ToByte(asint / 100 % 100);
+            var day = Convert.ToByte(asint % 100);
+
+            return year >= 1 && year <= 9999 && month >= 1 && month <= 12 && day >= 1 && day <= 31;
+        }
+
+        public DateOnly(int asint)
+        {
+            Year = Convert.ToInt16(asint / 10000);
+            Month = Convert.ToByte(asint / 100 % 100);
+            Day = Convert.ToByte(asint % 100);
+
+            if (!InternalValidate(null))
+            {
+                throw new ArgumentException($"Invalid DateOnly value ({asint}).");
+            }
+        }
+
+        public DateOnly(long aslong)
+        {
+            Year = Convert.ToInt16(aslong / 10000);
+            Month = Convert.ToByte(aslong / 100 % 100);
+            Day = Convert.ToByte(aslong % 100);
+
+            if (!InternalValidate(null))
+            {
+                throw new ArgumentException($"Invalid DateOnly value ({aslong}).");
+            }
         }
 
         public byte[] GetBytes()
