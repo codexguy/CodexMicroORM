@@ -435,23 +435,22 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Change: GetRowState accepts flag for ignoring extended/bag prop changes and default behavior on save is to ignore these properties for dirtiness (see: ConsiderBagPropertiesOnSave)
 	* Change: some stylistic changes based on warnings/suggestions
 * 0.9.11 - July 2021
-	* Add: XS Tool Suite template adjustments to include static factory methods to simplify object creation. For example what was previously 3 lines:
-```c#
-	            var ingset = new IngredientSet();
-                await ingset.RetrieveByKeyAsync(ingredientID);
-                var ing = ingset.FirstOrDefault() ?? throw new InvalidOperationException("Could not find ingredient by ID.");
-```
-
-		... can become 1 line:
-
-```c#
-                var ing = (await IngredientSet.RetrieveByKeyAsync(ingredientID)).FirstOrDefault() ?? throw new InvalidOperationException("Could not find ingredient by ID.");
-```
-
 	* Add: AddRange to EntitySet
 	* Add/Change: Adjustments to conversion and json serialization for DateOnly
 	* Fix: rare error in MSSQLCommand about trying to use a closed connection (noticed with Azure SQL)
 	* Change: multitarget net461 and netstandard 2.0 (for increased reach, very minor changes to accomodate, nothing is platform-specific) [See](https://docs.microsoft.com/en-us/dotnet/standard/library-guidance/cross-platform-targeting) for rationale.
+	* Add: XS Tool Suite template adjustments to include static factory methods to simplify object creation. For example what was previously 3 lines:
+
+```c#
+	var ingset = new IngredientSet();
+    await ingset.RetrieveByKeyAsync(ingredientID);
+    var ing = ingset.FirstOrDefault() ?? throw new InvalidOperationException("Could not find ingredient by ID.");
+```
+... can become 1 line:
+
+```c#
+    var ing = (await IngredientSet.RetrieveByKeyAsync(ingredientID)).FirstOrDefault() ?? throw new InvalidOperationException("Could not find ingredient by ID.");
+```
 
 ## Roadmap / Plans
 Look for in coming releases:
