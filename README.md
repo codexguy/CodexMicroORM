@@ -441,10 +441,13 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
                 await ingset.RetrieveByKeyAsync(ingredientID);
                 var ing = ingset.FirstOrDefault() ?? throw new InvalidOperationException("Could not find ingredient by ID.");
 ```
+
 		... can become 1 line:
+
 ```c#
                 var ing = (await IngredientSet.RetrieveByKeyAsync(ingredientID)).FirstOrDefault() ?? throw new InvalidOperationException("Could not find ingredient by ID.");
 ```
+
 	* Add: AddRange to EntitySet
 	* Add/Change: Adjustments to conversion and json serialization for DateOnly
 	* Fix: rare error in MSSQLCommand about trying to use a closed connection (noticed with Azure SQL)
