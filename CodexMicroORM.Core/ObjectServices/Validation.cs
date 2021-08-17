@@ -31,11 +31,11 @@ namespace CodexMicroORM.Core.Services
 {
     public class ValidationService : ICEFValidationHost
     {
-        private readonly static ConcurrentDictionary<Type, List<(string prop, object? defval)>> _typePropRequired = new ConcurrentDictionary<Type, List<(string prop, object? defval)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, List<(string prop, int maxlength)>> _typePropMaxLength = new ConcurrentDictionary<Type, List<(string prop, int maxlength)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>> _typePropRange = new ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, List<(string? prop, Func<object, string?> fn)>> _typeCustomValidator = new ConcurrentDictionary<Type, List<(string? prop, Func<object, string?> fn)>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, List<string>> _typeIllegalUpdate = new ConcurrentDictionary<Type, List<string>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<(string prop, object? defval)>> _typePropRequired = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<(string prop, int maxlength)>> _typePropMaxLength = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<(string prop, double minval, double maxval)>> _typePropRange = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<(string? prop, Func<object, string?> fn)>> _typeCustomValidator = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, List<string>> _typeIllegalUpdate = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         /// <summary>
         /// Registers a global validation for a specific type / specific property, indicating it cannot be updated after having been assigned a value.
@@ -257,7 +257,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public IEnumerable<(ValidationErrorCode error, string? message)> GetObjectMessage<T>(T? o) where T : class
         {
-            List<(ValidationErrorCode error, string? message)> messages = new List<(ValidationErrorCode error, string? message)>();
+            List<(ValidationErrorCode error, string? message)> messages = new();
 
             if (o == null)
             {
@@ -373,7 +373,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public IEnumerable<(ValidationErrorCode error, string? message)> GetPropertyMessages<T>(T? o, string propName) where T : class
         {
-            List<(ValidationErrorCode error, string? message)> messages = new List<(ValidationErrorCode error, string? message)>();
+            List<(ValidationErrorCode error, string? message)> messages = new();
 
             if (o == null)
             {

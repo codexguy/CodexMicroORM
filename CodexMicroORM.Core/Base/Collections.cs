@@ -830,9 +830,7 @@ namespace CodexMicroORM.Core.Collections
             return -1;
         }
 
-#pragma warning disable IDE0060 // Remove unused parameter
         public void Insert(int index, object value)
-#pragma warning restore IDE0060 // Remove unused parameter
         {
             throw new NotSupportedException();
         }
@@ -843,9 +841,7 @@ namespace CodexMicroORM.Core.Collections
             Remove(t);
         }
 
-#pragma warning disable IDE0060 // Remove unused parameter
         public void CopyTo(Array array, int index)
-#pragma warning restore IDE0060 // Remove unused parameter
         {
             throw new NotSupportedException();
         }

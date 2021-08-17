@@ -105,7 +105,7 @@ namespace CodexMicroORM.Core.Services
                 case SerializationType.ObjectWithSchemaType1AndRows:
                     {
                         // Read schema
-                        Dictionary<string, Type> schema = new Dictionary<string, Type>();
+                        Dictionary<string, Type> schema = new();
 
                         var root = JObject.Parse(json);
 

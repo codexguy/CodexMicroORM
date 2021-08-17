@@ -451,6 +451,11 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 ```c#
     var ing = (await IngredientSet.RetrieveByKeyAsync(ingredientID)).FirstOrDefault() ?? throw new InvalidOperationException("Could not find ingredient by ID.");
 ```
+* 0.9.12 - August 2021
+	* Add: AuditService.RegisterCanUseBagPropertyForAudit (canUseBag default of false caused some tests to fail, however default should be to assume biz objs *will* have audit fields, if specified/enabled)
+	* Change/Add: MemoryFileSystemBacked caching - removed use of BinaryFormatter in favor of System.Text.Json (security *and* performance *and* fact BinaryFormatter appears to be heading out the door eventually)
+	* Add: MemoryFileSystemBacked caching - add optional encryption for file-backed data (AES) (see: SetEncryptionKeySource)
+	* Fix: warnings and other minor cleanup
 
 ## Roadmap / Plans
 Look for in coming releases:

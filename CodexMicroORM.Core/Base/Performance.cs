@@ -158,11 +158,11 @@ namespace CodexMicroORM.Core.Helper
             if (!string.IsNullOrEmpty(name))
             {
                 // If name provided, a direct lookup can be used
-                if (pnmap.TryGetValue(name, out var info)
+                if (pnmap.TryGetValue(name!, out var info)
                     && (!canRead.HasValue || canRead.Value == info.readable)
                     && (!canWrite.HasValue || canWrite.Value == info.writeable))
                 {
-                    return new(string name, Type type, bool readable, bool writeable)[] { (name, info.type, info.readable, info.writeable) };
+                    return new(string name, Type type, bool readable, bool writeable)[] { (name!, info.type, info.readable, info.writeable) };
                 }
 
                 return Array.Empty<(string name, Type type, bool readable, bool writeable)>();

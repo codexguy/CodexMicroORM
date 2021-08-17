@@ -34,7 +34,7 @@ namespace CodexMicroORM.Providers
     /// </summary>
     public sealed class MSSQLCommand : IDBProviderCommand
     {
-        private static readonly ConcurrentDictionary<string, IEnumerable<SqlParameter>> _paramCache = new ConcurrentDictionary<string, IEnumerable<SqlParameter>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultLargerDictionaryCapacity, Globals.CurrentStringComparer);
+        private static readonly ConcurrentDictionary<string, IEnumerable<SqlParameter>> _paramCache = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultLargerDictionaryCapacity, Globals.CurrentStringComparer);
         private readonly SqlCommand _cmd;
 
         public static bool UseNullForMissingValues
@@ -55,19 +55,17 @@ namespace CodexMicroORM.Providers
                 throw new CEFInvalidStateException(InvalidStateType.SQLLayer, "CurrentConnection is not set.");
             }
 
-#pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
             _cmd = new SqlCommand(cmdText, conn.CurrentConnection)
             {
                 CommandType = cmdType,
                 CommandTimeout = timeoutOverride.GetValueOrDefault(Globals.CommandTimeoutSeconds.GetValueOrDefault(conn.CurrentConnection.ConnectionTimeout)),
                 Transaction = conn.CurrentTransaction
             };
-#pragma warning restore CA2100 // Review SQL queries for security vulnerabilities
         }
 
         public override string ToString()
         {
-            StringBuilder sb = new StringBuilder();
+            StringBuilder sb = new();
             sb.Append(_cmd.CommandText);
             sb.Append("?");
             bool first = true;
@@ -93,7 +91,7 @@ namespace CodexMicroORM.Providers
 
         public IDictionary<string, object?> GetParameterValues()
         {
-            Dictionary<string, object?> parms = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity);
+            Dictionary<string, object?> parms = new(Globals.DefaultDictionaryCapacity);
 
             if (_cmd.Parameters != null)
             {
@@ -118,7 +116,7 @@ namespace CodexMicroORM.Providers
             private set;
         }
 
-        private static readonly Regex _splitter = new Regex(@"^(?:\[?(?<s>.+?)\]?\.)?\[?(?<n>.+?)\]?$", RegexOptions.Compiled);
+        private static readonly Regex _splitter = new(@"^(?:\[?(?<s>.+?)\]?\.)?\[?(?<n>.+?)\]?$", RegexOptions.Compiled);
 
         public static (string schema, string name) SplitIntoSchemaAndName(string fullname)
         {
@@ -152,7 +150,7 @@ namespace CodexMicroORM.Providers
             }
 
             using var da = new SqlDataAdapter(discoverCmd);
-            DataTable dtParm = new DataTable();
+            DataTable dtParm = new();
             da.Fill(dtParm);
             _cmd.Parameters.Clear();
 
@@ -375,10 +373,10 @@ namespace CodexMicroORM.Providers
         public IDictionary<string, Type> GetResultSetShape()
         {
             using var da = new SqlDataAdapter(_cmd);
-            DataTable dt = new DataTable();
+            DataTable dt = new();
             da.Fill(dt);
 
-            Dictionary<string, Type> ret = new Dictionary<string, Type>();
+            Dictionary<string, Type> ret = new();
 
             foreach (DataColumn dc in dt.Columns)
             {

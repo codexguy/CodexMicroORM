@@ -314,14 +314,14 @@ namespace CodexMicroORM.Core.Services
                         // If we are missing the ID values (on CLR) but we do have a parent property...
                         if (!string.IsNullOrEmpty(k.ParentPropertyName) && (from a in k.ChildRoleName ?? k.ParentKey where !o.FastPropertyReadable(a) && iw.HasProperty(a) select a).Any())
                         {
-                            if (iw.GetValue(k.ParentPropertyName) == null && k.ParentType != null)
+                            if (iw.GetValue(k.ParentPropertyName!) == null && k.ParentType != null)
                             {
                                 // Do a retrieve by key on the parent type
                                 var parentSet = RetrieveByKeyNonGeneric(k.ParentType, (from a in k.ChildRoleName ?? k.ParentKey select iw.GetValue(a)).ToList()).GetEnumerator();
 
                                 if (parentSet.MoveNext())
                                 {
-                                    o.FastSetValue(k.ParentPropertyName, parentSet.Current);
+                                    o.FastSetValue(k.ParentPropertyName!, parentSet.Current);
                                     set = true;
                                 }
                             }
@@ -438,7 +438,7 @@ namespace CodexMicroORM.Core.Services
 
             if (!string.IsNullOrEmpty(settings.EntityPersistName))
             {
-                var (schema, name) = MSSQLCommand.SplitIntoSchemaAndName(settings.EntityPersistName);
+                var (schema, name) = MSSQLCommand.SplitIntoSchemaAndName(settings.EntityPersistName!);
                 schemaOverride = schema;
                 nameOverride = name;
             }
@@ -778,6 +778,12 @@ namespace CodexMicroORM.Core.Services
 
         internal IEnumerable RetrieveByKeyNonGeneric(Type bt, params object[] key)
         {
+            // Possibility that list was passed in as first element of an enumerable, unwap if needed
+            if (key.Length == 1 && key[0] is IEnumerable asenum)
+            {
+                key = asenum.Cast<object>().ToArray();
+            }
+
             if (_retrieveByKeyCache.TryGetValue(bt, out Func<object[], IEnumerable> vl))
             {
                 return vl.Invoke(key);

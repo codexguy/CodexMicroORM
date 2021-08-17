@@ -38,7 +38,7 @@ namespace CodexMicroORM.Core
         private static Type _defaultValidationServiceType = typeof(ValidationService);
         private static Type _entitySetType = typeof(EntitySet<>);
         private static bool _useGlobalServiceScope = false;
-        private static HashSet<string> _globalPropExclDirtyCheck = new();
+        private static readonly HashSet<string> _globalPropExclDirtyCheck = new();
 
         [ThreadStatic]
         private static string? _currentThreadUser = null;

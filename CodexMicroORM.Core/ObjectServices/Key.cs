@@ -780,9 +780,9 @@ namespace CodexMicroORM.Core.Services
                     {
                         foreach (var pobj in objstate.GetMissingChildLinkbacksForParentByValue(to.BaseType ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue), (from k in curPK select k.value)))
                         {
-                            if (!string.IsNullOrEmpty(pobj.Relationship.ChildPropertyName))
+                            if (!string.IsNullOrEmpty(pobj?.Relationship?.ChildPropertyName))
                             {
-                                var (getter, type) = ss.GetGetter(to.GetInfraWrapperTarget(), pobj.Relationship.ChildPropertyName);
+                                var (getter, type) = ss.GetGetter(to.GetInfraWrapperTarget(), pobj!.Relationship!.ChildPropertyName!);
 
                                 if (type != null && getter != null && WrappingHelper.IsWrappableListType(type, null))
                                 {
@@ -797,7 +797,7 @@ namespace CodexMicroORM.Core.Services
                                             parVal = WrappingHelper.CreateWrappingList(ss, type, wt, pobj.Relationship.ChildPropertyName);
                                         }
 
-                                        var parChildSet = ss.GetSetter(to.GetInfraWrapperTarget(), pobj.Relationship.ChildPropertyName);
+                                        var parChildSet = ss.GetSetter(to.GetInfraWrapperTarget(), pobj.Relationship.ChildPropertyName!);
                                         parChildSet.setter?.Invoke(parVal);
                                     }
 

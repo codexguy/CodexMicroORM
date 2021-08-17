@@ -39,7 +39,7 @@ namespace CodexMicroORM.Core
     public sealed class RWLockInfo
     {
         [NonSerialized]
-        public ReaderWriterLockSlim Lock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
+        public ReaderWriterLockSlim Lock = new(LockRecursionPolicy.SupportsRecursion);
 
 #if DEBUG
         public static int GlobalTimeout
@@ -82,7 +82,7 @@ namespace CodexMicroORM.Core
     /// <typeparam name="TV"></typeparam>
     public class ConcurrentDictionaryEx<TK, TV> : ConcurrentDictionary<TK, TV>
     {
-        private readonly object _lock = new object();
+        private readonly object _lock = new();
 
         public TV SafeGetSetValue(TK key, Func<TK, TV> factoryPred)
         {
@@ -386,6 +386,7 @@ namespace CodexMicroORM.Core
     /// This class affords us a way to do equality comparisons with WeakReference's that are based on the Target, not the WeakReference itself.
     /// This is critical when using it as a dictionary key: I care about finding based on the Target, not the WeakReference itself.
     /// </summary>
+    [Serializable]
     public sealed class CEFWeakReference<T> : WeakReference where T : class
     {
         private readonly int? _hash;

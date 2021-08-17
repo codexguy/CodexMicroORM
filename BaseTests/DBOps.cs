@@ -34,6 +34,16 @@ namespace BaseTests
             CEF.AddGlobalService(DBService.Create(new MSSQLProcBasedProvider($@"Data Source={DB_SERVER};Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true", defaultSchema: "CEFTest")));
             CEF.AddGlobalService(new AuditService());
 
+            // New in 0.9.12 - this is probably the exception not the rule, where ordinarily better to assume audit fields *will* be first class props on biz objs; but we support the option to not be
+            AuditService.RegisterCanUseBagPropertyForAudit(typeof(Phone));
+            AuditService.RegisterCanUseBagPropertyForAudit(typeof(Person));
+            AuditService.RegisterCanUseBagPropertyForAudit(typeof(Widget));
+            AuditService.RegisterCanUseBagPropertyForAudit(typeof(Customer));
+            AuditService.RegisterCanUseBagPropertyForAudit(typeof(Receipt));
+            AuditService.RegisterCanUseBagPropertyForAudit(typeof(GroupItem));
+            AuditService.RegisterCanUseBagPropertyForAudit(typeof(Shipment));
+            AuditService.RegisterCanUseBagPropertyForAudit(typeof(WidgetReview));
+
             // Primary keys
             KeyService.RegisterKey<Person>(nameof(Person.PersonID));
             KeyService.RegisterKey<Phone>("PhoneID");
@@ -108,6 +118,13 @@ namespace BaseTests
             // Optionally call CRUD for 1:1/0 parent when saving these types (insert/update before, deletes after)
             DBService.RegisterOnSaveParentSave<Receipt>("WidgetGroup");
             DBService.RegisterOnSaveParentSave<Shipment>("WidgetGroup");
+
+            // Test encryption for memory back cache - will always be different!
+            MemoryStream enckeysrc = new MemoryStream();
+            enckeysrc.Write(Guid.NewGuid().ToByteArray());
+            enckeysrc.Write(Guid.NewGuid().ToByteArray());
+            enckeysrc.Write(Guid.NewGuid().ToByteArray());
+            MemoryFileSystemBacked.SetEncryptionKeySource(MemoryFileSystemBacked.SerializationFileEncryptionType.AES256, enckeysrc);
 
             // This will construct a new test database, if needed - if the script changes, you'll need to drop the CodexMicroORMTest database before running
             using (CEF.NewConnectionScope(new ConnectionScopeSettings() { IsTransactional = false, ConnectionStringOverride = $@"Data Source={DB_SERVER};Database=master;Integrated Security=SSPI;MultipleActiveResultSets=true" }))
@@ -879,10 +896,10 @@ namespace BaseTests
                 Assert.IsTrue(t1);
             }
 
-            //MemoryFileSystemBacked.FlushAll();
-
             using (CEF.NewServiceScope(new ServiceScopeSettings() { CacheBehavior = CacheBehavior.MaximumDefault }, new MemoryFileSystemBacked("CEF_Testing", MemoryFileSystemBacked.CacheStorageStrategy.SingleDirectory)))
             {
+                CEF.CurrentCacheService().FlushAll();
+
                 // By retrieving from db, we're caching it by identity
                 var p1b = new EntitySet<Person>().DBRetrieveByKey(p1id).First();
                 Assert.AreEqual(48, p1b.Age);

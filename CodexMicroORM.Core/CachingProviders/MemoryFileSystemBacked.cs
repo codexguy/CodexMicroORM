@@ -15,6 +15,10 @@ limitations under the License.
 
 Major Changes:
 1/2018     0.2.3   Primary implementation (Joel Champagne)
+8/2021     0.9.12  Removed use of BinaryFormatter in favor of reasonably fast System.Text.Json serialization (https://docs.microsoft.com/en-us/dotnet/standard/serialization/binaryformatter-security-guide and https://medium.com/takeaway-tech/json-serialization-libraries-performance-tests-b54cbb3cccbb)
+                    Note: considered protobuf, but latest version has deprecated DynamicType, meaning Dictionary<string, object> will not work properly for that. Considered SpanJson, but does not work with net461 which would prefer to support (for now)
+                    In the end System.Text.Json has advantages such as Microsoft support, high visibility/use, no additional packages needed. Would still have preferred a compact binary format, however.
+                    Performed some minor refactoring to hopefully make a future change possible to an even more performant serialization methodology
 ***********************************************************************/
 #nullable enable
 using System;
@@ -33,8 +37,9 @@ using CodexMicroORM.Core;
 using CodexMicroORM.Core.Collections;
 using CodexMicroORM.Core.Services;
 using CodexMicroORM.Core.Helper;
-using Newtonsoft.Json;
-using System.Runtime.Serialization.Formatters.Binary;
+//using Newtonsoft.Json;
+using System.Text.Json;
+using System.IO.Compression;
 
 namespace CodexMicroORM.Providers
 {
@@ -56,6 +61,20 @@ namespace CodexMicroORM.Providers
             SingleDirectory = 2,
             DirPerType = 3,
             DirPerDay = 4
+        }
+
+        /// <summary>
+        /// Supported serialization types, on disk.
+        /// </summary>
+        public enum SerializationFormat
+        {
+            SystemTextJson = 1
+        }
+
+        public enum SerializationFileEncryptionType
+        {
+            None = 0,
+            AES256 = 1
         }
 
         /// <summary>
@@ -84,7 +103,7 @@ namespace CodexMicroORM.Providers
 
             // If this is null, need to fetch from disk (can be nullified when evicted due to memory pressure)
             // Should have 1 of either Properties or Rows, not both...
-            public IDictionary<string, object?>? Properties { get; set; }
+            public Dictionary<string, object?>? Properties { get; set; }
 
             public IEnumerable<IDictionary<string, object?>>? Rows { get; set; }
 
@@ -99,6 +118,8 @@ namespace CodexMicroORM.Providers
             public bool Active { get; set; }
 
             public bool Persisted { get; set; }
+
+            public bool PersistPending { get; set; }
 
             public long Sequence { get; set; }
         }
@@ -118,9 +139,6 @@ namespace CodexMicroORM.Providers
         private long _stopping = 0;
 
         private readonly object _indexLock = new();
-
-        [ThreadStatic]
-        private readonly BinaryFormatter _formatter = new();
         
         #endregion
 
@@ -161,6 +179,43 @@ namespace CodexMicroORM.Providers
                     Directory.CreateDirectory(_rootDir);
                 }
             }
+        }
+
+        public static SerializationFormat CurrentSerializationFormat
+        {
+            get;
+            set;
+        } = SerializationFormat.SystemTextJson;
+
+        public static SerializationFileEncryptionType CurrentEncryptionType
+        {
+            get;
+            set;
+        } = SerializationFileEncryptionType.None;
+
+        private static ICryptoTransform? _globalEncryptor;
+        private static ICryptoTransform? _globalDecryptor;
+
+        public static void SetEncryptionKeySource(SerializationFileEncryptionType type, MemoryStream ms)
+        {
+            switch (type)
+            {
+                case SerializationFileEncryptionType.None:
+                    throw new InvalidOperationException("Cannot set an encryption key source with encryption type = None.");
+
+                case SerializationFileEncryptionType.AES256:
+                    AesManaged a = new();
+                    var key = new byte[a.KeySize / 8];
+                    var iv = new byte[a.BlockSize / 8];
+                    ms.Seek(0, SeekOrigin.Begin);
+                    ms.Read(key, 0, key.Length);
+                    ms.Read(iv, 0, iv.Length);
+                    _globalEncryptor = a.CreateEncryptor(key, iv);
+                    _globalDecryptor = a.CreateDecryptor(key, iv);
+                    break;
+            }
+
+            CurrentEncryptionType = type;
         }
 
         public int MonitorTimerMillisecondInterval
@@ -367,9 +422,18 @@ namespace CodexMicroORM.Providers
                 lock (c.ObjSync)
                 {
                     c.ExpiryDate = newExpDate;
-                    c.Properties = props;
                     c.Persisted = false;
+                    c.PersistPending = true;
                     c.Active = true;
+
+                    if (props is Dictionary<string, object?> asDic)
+                    {
+                        c.Properties = asDic;
+                    }
+                    else
+                    {
+                        c.Properties = props.ToDictionary((i) => i.Key, (i) => i.Value);
+                    }
                 }
             }
         }
@@ -476,7 +540,7 @@ namespace CodexMicroORM.Providers
 
                 if (Globals.AsyncCacheUpdates)
                 {
-                    Task.Factory.StartNew(act2);
+                    Task.Run(act2);
                 }
                 else
                 {
@@ -535,7 +599,8 @@ namespace CodexMicroORM.Providers
                 c.ByQuerySHA = hash;
                 c.FileName = BuildNewFileName(typeof(T));
                 c.QueryForAll = string.Compare(text, "All", true) == 0 || text.EndsWith("_ForList]");
-                _index.Add(c);
+
+                _index.AddSafe(c);
             }
 
             long current;
@@ -546,6 +611,7 @@ namespace CodexMicroORM.Providers
                 c.ExpiryDate = newExpDate;
                 c.SourceList = list;
                 c.Active = true;
+                c.PersistPending = true;
             }
 
             void act()
@@ -595,6 +661,7 @@ namespace CodexMicroORM.Providers
                     c.Active = false;
                     c.Properties = null;
                     c.Rows = null;
+                    c.PersistPending = false;
                 }
                 finally
                 {
@@ -604,7 +671,7 @@ namespace CodexMicroORM.Providers
 
             if (Globals.AsyncCacheUpdates)
             {
-                Task.Factory.StartNew(act);
+                Task.Run(act);
             }
             else
             {
@@ -663,7 +730,8 @@ namespace CodexMicroORM.Providers
                     ByIdentityComposite = sb.ToString(),
                     FileName = BuildNewFileName(o.GetBaseType())
                 };
-                _index.Add(c);
+
+                _index.AddSafe(c);
             }
 
             long current;
@@ -672,9 +740,20 @@ namespace CodexMicroORM.Providers
             {
                 current = ++c.Sequence;
                 c.ExpiryDate = newExpDate;
-                c.Properties = iw.GetAllValues(true, true);
                 c.Persisted = false;
+                c.PersistPending = true;
                 c.Active = true;
+
+                var allval = iw.GetAllValues(true, true);
+
+                if (allval is Dictionary<string, object?> asDic)
+                {
+                    c.Properties = asDic;
+                }
+                else
+                {
+                    c.Properties = allval.ToDictionary((i) => i.Key, (i) => i.Value);
+                }
             }
         }
 
@@ -689,11 +768,12 @@ namespace CodexMicroORM.Providers
         public void Shutdown()
         {
             _monitor.Elapsed -= _monitor_Elapsed;
+            _monitor.Stop();
 
             // Request stop - if monitor is running, it should honor this and stop as early as it can (safely)
             Interlocked.Increment(ref _stopping);
 
-            // Wait until no longer "working"
+            // Wait until no longer "working" and nothing appears to be partially saved
             while (Interlocked.Read(ref _working) > 0)
             {
                 Thread.Sleep(10);
@@ -741,7 +821,7 @@ namespace CodexMicroORM.Providers
         /// <returns></returns>
         private T? GetSingle<T>(MFSEntry c) where T : class, new()
         {
-            IDictionary<string, object?>? props = null;
+            Dictionary<string, object?>? props = null;
             string? cfn = null;
 
             lock (c.ObjSync)
@@ -761,7 +841,7 @@ namespace CodexMicroORM.Providers
 
                     if (File.Exists(fn))
                     {
-                        props = GetPropertiesFromFile(_formatter, fn);
+                        props = GetPropertiesFromFile(fn);
 
                         lock (c.ObjSync)
                         {
@@ -821,7 +901,7 @@ namespace CodexMicroORM.Providers
 
                     if (File.Exists(fn))
                     {
-                        rows = GetRowsFromFile(_formatter, fn);
+                        rows = GetRowsFromFile(fn);
 
                         lock (c.ObjSync)
                         {
@@ -852,21 +932,62 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        private void SaveProperties(BinaryFormatter bf, string fn, IDictionary<string, object?> r)
+        private void SaveProperties(string fn, Dictionary<string, object?> r)
         {
-            using var fs = File.OpenWrite(fn);
-            bf.Serialize(fs, ScrubDictionary(r));
+            switch (CurrentSerializationFormat)
+            {
+                case SerializationFormat.SystemTextJson:
+                    {
+                        using var fs = File.OpenWrite(fn);
+                        Stream efs = fs;
+                        CryptoStream? cs = null;
+
+                        if (_globalEncryptor != null)
+                        {
+                            efs = cs = new CryptoStream(fs, _globalEncryptor, CryptoStreamMode.Write);
+                        }
+
+                        using var gs = new GZipStream(efs, CompressionMode.Compress);
+                        using var bw = new BinaryWriter(gs);
+                        bw.Write(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(ScrubDictionary(r), r.GetType())));
+
+                        bw.Close();
+                        gs.Close();
+                        cs?.FlushFinalBlock();
+                        cs?.Close();
+                        fs.Close();
+                        break;
+                    }
+            }
         }
 
-        private IDictionary<string, object?> GetPropertiesFromFile(BinaryFormatter bf, string fn)
+        private Dictionary<string, object?> GetPropertiesFromFile(string fn)
         {
-            using var fs = File.OpenRead(fn);
-            return (IDictionary<string, object?>)bf.Deserialize(fs);
+            switch (CurrentSerializationFormat)
+            {
+                case SerializationFormat.SystemTextJson:
+                    {
+                        using var fs = File.OpenRead(fn);
+                        Stream efs = fs;
+
+                        if (_globalDecryptor != null)
+                        {
+                            efs = new CryptoStream(fs, _globalDecryptor, CryptoStreamMode.Read);
+                        }
+
+                        var mso = new MemoryStream(Convert.ToInt32(fs.Length) * 2);
+                        using var gs = new GZipStream(efs, CompressionMode.Decompress);
+                        CopyStreamTo(gs, mso);
+                        return ScrubDictionary((Dictionary<string, object?>)JsonSerializer.Deserialize(Encoding.UTF8.GetString(mso.ToArray()), typeof(Dictionary<string, object?>)));
+                    }
+            }
+
+            throw new InvalidOperationException("Could not deserialize data.");
         }
 
         private static readonly ConcurrentDictionary<Type, bool> _skipTypeForSave = new();
 
-        private IDictionary<string, object?> ScrubDictionary(IDictionary<string, object?> source)
+        private Dictionary<string, object?> ScrubDictionary(IDictionary<string, object?> source)
         {
             Dictionary<string, object?> toSave = new();
 
@@ -875,17 +996,94 @@ namespace CodexMicroORM.Providers
             {
                 if (kvp.Value != null)
                 {
-                    var t = kvp.Value.GetType();
-
-                    if (!_skipTypeForSave.TryGetValue(t, out bool doSkip))
+                    if (kvp.Value is JsonElement je)
                     {
-                        doSkip = !t.IsSerializable || (!t.IsEnum && !t.IsPrimitive && !t.FullName.StartsWith("System."));
-                        _skipTypeForSave[t] = doSkip;
+                        var jes = je.ToString();
+
+                        // We try to make a valid guess as to the best native type for the element - all else fails, leave as a string
+                        switch (je.ValueKind)
+                        {
+                            case JsonValueKind.False:
+                            case JsonValueKind.True:
+                                toSave[kvp.Key] = jes.CoerceType(typeof(bool));
+                                break;
+
+                            case JsonValueKind.Number:
+                                // Start with smallest possible numeric types
+                                if (byte.TryParse(jes, out var n1))
+                                {
+                                    toSave[kvp.Key] = n1;
+                                }
+                                else
+                                {
+                                    if (short.TryParse(jes, out var n2))
+                                    {
+                                        toSave[kvp.Key] = n2;
+                                    }
+                                    else
+                                    {
+                                        if (int.TryParse(jes, out var n3))
+                                        {
+                                            toSave[kvp.Key] = n3;
+                                        }
+                                        else
+                                        {
+                                            if (long.TryParse(jes, out var n4))
+                                            {
+                                                toSave[kvp.Key] = n4;
+                                            }
+                                            else
+                                            {
+                                                if (double.TryParse(jes, out var n5))
+                                                {
+                                                    toSave[kvp.Key] = n5;
+                                                }
+                                                else
+                                                {
+                                                    toSave[kvp.Key] = jes;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                break;
+
+                            case JsonValueKind.String:
+                                if (DateTime.TryParse(jes, out var d))
+                                {
+                                    toSave[kvp.Key] = d;
+                                }
+                                else
+                                {
+                                    if (Guid.TryParse(jes, out var guid))
+                                    {
+                                        toSave[kvp.Key] = guid;
+                                    }
+                                    else
+                                    {
+                                        toSave[kvp.Key] = jes;
+                                    }
+                                }
+                                break;
+
+                            case JsonValueKind.Null:
+                                continue;
+                        }
                     }
-
-                    if (!doSkip)
+                    else
                     {
-                        toSave[kvp.Key] = kvp.Value;
+                        var t = kvp.Value.GetType();
+
+                        if (!_skipTypeForSave.TryGetValue(t, out bool doSkip))
+                        {
+                            doSkip = !t.IsSerializable || (!t.IsEnum && !t.IsPrimitive && !t.FullName.StartsWith("System."));
+                            _skipTypeForSave[t] = doSkip;
+                        }
+
+                        if (!doSkip)
+                        {
+                            toSave[kvp.Key] = kvp.Value;
+                        }
                     }
                 }
             }
@@ -893,24 +1091,88 @@ namespace CodexMicroORM.Providers
             return toSave;
         }
 
-        private void SaveRows(BinaryFormatter bf, string fn, IEnumerable<IDictionary<string, object?>> rows)
+        private void SaveRows(string fn, IEnumerable<IDictionary<string, object?>> rows)
         {
             if (Directory.Exists(Path.GetDirectoryName(fn)))
             {
-                using var fs = File.OpenWrite(fn);
-                foreach (var r in rows)
+                switch (CurrentSerializationFormat)
                 {
-                    bf.Serialize(fs, ScrubDictionary(r));
+                    case SerializationFormat.SystemTextJson:
+                        {
+                            using var fs = File.OpenWrite(fn);
+                            Stream efs = fs;
+                            CryptoStream? cs = null;
+
+                            if (_globalEncryptor != null)
+                            {
+                                efs = cs = new CryptoStream(fs, _globalEncryptor, CryptoStreamMode.Write);
+                            }
+
+                            using var gs = new GZipStream(efs, CompressionMode.Compress);
+                            using var bw = new BinaryWriter(gs);
+
+                            // Write to stream
+                            foreach (var r in rows)
+                            {
+                                var jsonrep = JsonSerializer.Serialize(ScrubDictionary(r), r.GetType());
+                                bw.Write(jsonrep.Length);
+                                bw.Write(Encoding.UTF8.GetBytes(jsonrep));
+                            }
+
+                            bw.Close();
+                            gs.Close();
+                            cs?.FlushFinalBlock();
+                            cs?.Close();
+                            fs.Close();
+                            break;
+                        }
                 }
             }
         }
 
-        private IEnumerable<IDictionary<string, object?>> GetRowsFromFile(BinaryFormatter bf, string fn)
+        private static void CopyStreamTo(Stream src, Stream dest)
         {
-            using var fs = File.OpenRead(fn);
-            while (fs.Position < fs.Length)
+            byte[] bytes = new byte[4096];
+            int cnt;
+
+            while ((cnt = src.Read(bytes, 0, bytes.Length)) != 0)
             {
-                yield return (IDictionary<string, object?>)bf.Deserialize(fs);
+                dest.Write(bytes, 0, cnt);
+            }
+        }
+
+
+        private IEnumerable<Dictionary<string, object?>> GetRowsFromFile(string fn)
+        {
+            switch (CurrentSerializationFormat)
+            {
+                case SerializationFormat.SystemTextJson:
+                    {
+                        // Entire file is compressed to get biggest benefit
+                        using var fs = File.OpenRead(fn);
+                        Stream efs = fs;
+
+                        if (_globalDecryptor != null)
+                        {
+                            efs = new CryptoStream(fs, _globalDecryptor, CryptoStreamMode.Read);
+                        }
+
+                        var mso = new MemoryStream(Convert.ToInt32(fs.Length) * 2);
+                        using var gs = new GZipStream(efs, CompressionMode.Decompress);
+                        CopyStreamTo(gs, mso);
+                        mso.Seek(0, SeekOrigin.Begin);
+                        using var br = new BinaryReader(mso);
+
+                        while (mso.Position < mso.Length)
+                        {
+                            var length = br.ReadInt32();
+                            var record = br.ReadBytes(length);
+                            yield return ScrubDictionary((Dictionary<string, object?>)JsonSerializer.Deserialize(Encoding.UTF8.GetString(record), typeof(Dictionary<string, object?>)));
+                        }
+
+                        br.Close();
+                        break;
+                    }
             }
         }
 
@@ -971,7 +1233,7 @@ namespace CodexMicroORM.Providers
 
                     lock (i.ObjSync)
                     {
-                        if (!i.Persisted && i.Active && !string.IsNullOrEmpty(i.FileName) && (i.Properties != null || i.Rows != null) && i.ExpiryDate > DateTime.Now)
+                        if ((!i.Persisted || i.PersistPending) && i.Active && !string.IsNullOrEmpty(i.FileName) && (i.Properties != null || i.Rows != null) && i.ExpiryDate > DateTime.Now)
                         {
                             items.Add(i);
                         }
@@ -988,21 +1250,22 @@ namespace CodexMicroORM.Providers
                             return;
                         }
 
-                        if (i.Properties != null)
-                        {
-                            SaveProperties(_formatter, Path.Combine(RootDirectory, i.FileName), i.Properties);
-                        }
-                        else
-                        {
-                            if (i.Rows != null)
-                            {
-                                SaveRows(_formatter, Path.Combine(RootDirectory, i.FileName), i.Rows);
-                            }
-                        }
-
                         lock (i.ObjSync)
                         {
+                            if (i.Properties != null)
+                            {
+                                SaveProperties(Path.Combine(RootDirectory, i.FileName), i.Properties);
+                            }
+                            else
+                            {
+                                if (i.Rows != null)
+                                {
+                                    SaveRows(Path.Combine(RootDirectory, i.FileName), i.Rows);
+                                }
+                            }
+
                             i.Persisted = true;
+                            i.PersistPending = false;
                         }
                     }
                     catch (Exception ex)
@@ -1033,31 +1296,47 @@ namespace CodexMicroORM.Providers
 
                 if (File.Exists(fn))
                 {
-                    using var jr = new JsonTextReader(new StreamReader(File.OpenRead(fn)));
+                    ReadOnlySpan<byte> ros;
+
+                    lock (_indexLock)
+                    {
+                        using var fs = File.OpenRead(fn);
+                        using var sr = new StreamReader(fs);
+                        ros = new ReadOnlySpan<byte>(Encoding.UTF8.GetBytes(sr.ReadToEnd()));
+                        fs.Close();
+                    }
+
+                    var jr = new Utf8JsonReader(ros);
 
                     // Should be start array
                     jr.Read();
 
-                    while (jr.Read() && jr.TokenType != JsonToken.EndArray)
+                    while (jr.Read() && jr.TokenType != JsonTokenType.EndArray)
                     {
                         // Should be start object
+                        jr.Read();
                         jr.Read();
 
                         var i = new MFSEntry
                         {
-                            FileName = jr.ReadAsString()
+                            FileName = jr.GetString()
                         };
 
                         jr.Read();
-                        i.ObjectTypeName = jr.ReadAsString();
                         jr.Read();
-                        i.ByQuerySHA = jr.ReadAsString();
+                        i.ObjectTypeName = jr.GetString();
                         jr.Read();
-                        i.QueryForAll = jr.ReadAsBoolean().GetValueOrDefault();
                         jr.Read();
-                        i.ByIdentityComposite = jr.ReadAsString();
+                        i.ByQuerySHA = jr.GetString();
                         jr.Read();
-                        i.ExpiryDate = jr.ReadAsDateTime().GetValueOrDefault();
+                        jr.Read();
+                        i.QueryForAll = jr.GetBoolean();
+                        jr.Read();
+                        jr.Read();
+                        i.ByIdentityComposite = jr.GetString();
+                        jr.Read();
+                        jr.Read();
+                        i.ExpiryDate = jr.GetDateTime();
 
                         jr.Read();
 
@@ -1093,60 +1372,53 @@ namespace CodexMicroORM.Providers
                 return;
             }
 
-            StringBuilder sb = new();
-            var d = DateTime.Now;
-
-            using (var jw = new JsonTextWriter(new StringWriter(sb)))
-            {
-                jw.WriteStartArray();
-
-                // There's no point in trying to save index for items where there's no backing file - these were just fleeting memory cached items
-                foreach (var i in (from a in _index
-                                   where a.Active && 
-                                   !string.IsNullOrEmpty(a.FileName) && 
-                                   a.ExpiryDate > d && 
-                                   a.Persisted
-                                   select new { a.FileName, a.ObjectTypeName, a.ByIdentityComposite, a.ByQuerySHA, a.QueryForAll, a.ExpiryDate }).ToList())
-                {
-                    if (honorShutdown && Interlocked.Read(ref _stopping) > 0)
-                    {
-                        return;
-                    }
-
-                    jw.WriteStartObject();
-
-                    jw.WritePropertyName(nameof(MFSEntry.FileName));
-                    jw.WriteValue(i.FileName);
-
-                    jw.WritePropertyName(nameof(MFSEntry.ObjectTypeName));
-                    jw.WriteValue(i.ObjectTypeName);
-
-                    jw.WritePropertyName(nameof(MFSEntry.ByQuerySHA));
-                    jw.WriteValue(i.ByQuerySHA);
-
-                    jw.WritePropertyName(nameof(MFSEntry.QueryForAll));
-                    jw.WriteValue(i.QueryForAll);
-
-                    jw.WritePropertyName(nameof(MFSEntry.ByIdentityComposite));
-                    jw.WriteValue(i.ByIdentityComposite);
-
-                    jw.WritePropertyName(nameof(MFSEntry.ExpiryDate));
-                    jw.WriteValue(i.ExpiryDate);
-
-                    jw.WriteEndObject();
-                }
-
-                jw.WriteEndArray();
-            }
-
-            if (honorShutdown && Interlocked.Read(ref _stopping) > 0)
-            {
-                return;
-            }
-
             lock (_indexLock)
             {
-                File.WriteAllText(Path.Combine(RootDirectory, "index.json"), sb.ToString());
+                using var ms = new MemoryStream();
+                var d = DateTime.Now;
+
+                using (var jw = new Utf8JsonWriter(ms))
+                {
+                    jw.WriteStartArray();
+
+                    if (_index.Count > 0)
+                    {
+                        // There's no point in trying to save index for items where there's no backing file - these were just fleeting memory cached items
+                        foreach (var i in (from a in _index
+                                           where a.Active &&
+                                           !string.IsNullOrEmpty(a.FileName) &&
+                                           a.ExpiryDate > d &&
+                                           (a.Persisted || a.PersistPending)
+                                           select new { a.FileName, a.ObjectTypeName, a.ByIdentityComposite, a.ByQuerySHA, a.QueryForAll, a.ExpiryDate }).ToList())
+                        {
+                            if (honorShutdown && Interlocked.Read(ref _stopping) > 0)
+                            {
+                                return;
+                            }
+
+                            jw.WriteStartObject();
+
+                            jw.WriteString(nameof(MFSEntry.FileName), i.FileName);
+                            jw.WriteString(nameof(MFSEntry.ObjectTypeName), i.ObjectTypeName);
+                            jw.WriteString(nameof(MFSEntry.ByQuerySHA), i.ByQuerySHA);
+                            jw.WriteBoolean(nameof(MFSEntry.QueryForAll), i.QueryForAll);
+                            jw.WriteString(nameof(MFSEntry.ByIdentityComposite), i.ByIdentityComposite);
+                            jw.WriteString(nameof(MFSEntry.ExpiryDate), i.ExpiryDate);
+
+                            jw.WriteEndObject();
+                        }
+                    }
+
+                    jw.WriteEndArray();
+                }
+
+                if (honorShutdown && Interlocked.Read(ref _stopping) > 0)
+                {
+                    return;
+                }
+
+                var content = Encoding.UTF8.GetString(ms.ToArray());
+                File.WriteAllText(Path.Combine(RootDirectory, "index.json"), content);
             }
         }
 

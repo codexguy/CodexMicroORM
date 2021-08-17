@@ -25,6 +25,19 @@ namespace CodexMicroORM.Core.Services
 {
     public class AuditService : ICEFAuditHost
     {
+        private readonly static HashSet<string> _canUseBagProp = new();
+
+        public static void RegisterCanUseBagPropertyForAudit(Type t)
+        {
+            _canUseBagProp.Add(t.Name);
+        }
+
+        public static void RegisterCanUseBagPropertyForAudit(string typeName)
+        {
+            _canUseBagProp.Add(typeName);
+        }
+
+
         public Func<string> GetLastUpdatedBy
         {
             get;
@@ -89,21 +102,35 @@ namespace CodexMicroORM.Core.Services
 
         public ICEFInfraWrapper SavePreview(ServiceScope ss, ICEFInfraWrapper saving, ObjectState state, DBSaveSettings settings)
         {
+            // Use of bag can depend on type, registered with audit provider
+            bool? canUseBag = null;
+
+            void SetCanUseBag()
+            {
+                if (!canUseBag.HasValue)
+                {
+                    canUseBag = _canUseBagProp.Contains(saving.GetBaseType().Name);
+                }
+            }
+
             if (!IsLastUpdatedByDBAssigned && !string.IsNullOrEmpty(LastUpdatedByField))
             {
-                saving.SetValue(LastUpdatedByField, settings?.LastUpdatedBy ?? (ss.Settings.GetLastUpdatedBy ?? GetLastUpdatedBy).Invoke(), canUseBag: false);
+                SetCanUseBag();
+                saving.SetValue(LastUpdatedByField!, settings?.LastUpdatedBy ?? (ss.Settings.GetLastUpdatedBy ?? GetLastUpdatedBy).Invoke(), canUseBag: canUseBag!.Value);
             }
 
             if (!IsLastUpdatedDateDBAssigned && !string.IsNullOrEmpty(LastUpdatedDateField))
             {
-                saving.SetValue(LastUpdatedDateField, GetLastUpdatedDate.Invoke(), canUseBag: false);
+                SetCanUseBag();
+                saving.SetValue(LastUpdatedDateField!, GetLastUpdatedDate.Invoke(), canUseBag: canUseBag!.Value);
             }
 
             if (state == ObjectState.Added)
             {
+                SetCanUseBag();
                 if (!string.IsNullOrEmpty(IsDeletedField))
                 {
-                    saving.SetValue(IsDeletedField, false, canUseBag: false);
+                    saving.SetValue(IsDeletedField!, false, canUseBag: canUseBag!.Value);
                 }
             }
 
@@ -122,9 +149,9 @@ namespace CodexMicroORM.Core.Services
 
         WrappingSupport ICEFService.IdentifyInfraNeeds(object o, object? replaced, ServiceScope ss, bool isNew)
         {
-            if ((!string.IsNullOrEmpty(LastUpdatedByField) && !(replaced ?? o).HasProperty(LastUpdatedByField)) ||
-                (!string.IsNullOrEmpty(LastUpdatedDateField) && !(replaced ?? o).HasProperty(LastUpdatedDateField)) ||
-                (!string.IsNullOrEmpty(IsDeletedField) && !(replaced ?? o).HasProperty(IsDeletedField)))
+            if ((!string.IsNullOrEmpty(LastUpdatedByField) && !(replaced ?? o).HasProperty(LastUpdatedByField!)) ||
+                (!string.IsNullOrEmpty(LastUpdatedDateField) && !(replaced ?? o).HasProperty(LastUpdatedDateField!)) ||
+                (!string.IsNullOrEmpty(IsDeletedField) && !(replaced ?? o).HasProperty(IsDeletedField!)))
             {
                 return WrappingSupport.PropertyBag;
             }

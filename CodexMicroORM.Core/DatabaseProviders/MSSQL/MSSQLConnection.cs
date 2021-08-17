@@ -44,7 +44,7 @@ namespace CodexMicroORM.Providers
 #endif
 
         private int _working = 0;
-        private readonly object _worklock = new object();
+        private readonly object _worklock = new();
 
         internal MSSQLConnection(SqlConnection conn, SqlTransaction? tx)
         {

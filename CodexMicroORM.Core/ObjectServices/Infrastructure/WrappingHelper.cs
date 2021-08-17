@@ -41,13 +41,13 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     public static class WrappingHelper
     {
-        private readonly static ConcurrentDictionary<Type, Type> _directTypeMap = new ConcurrentDictionary<Type, Type>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, string> _cachedTypeMap = new ConcurrentDictionary<Type, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, object> _defValMap = new ConcurrentDictionary<Type, object>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, bool> _isWrapListCache = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, IDictionary<string, Type>> _propCache = new ConcurrentDictionary<Type, IDictionary<string, Type>>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, bool> _sourceValTypeOk = new ConcurrentDictionary<Type, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static SlimConcurrentDictionary<string, Type> _typeByName = new SlimConcurrentDictionary<string, Type>();
+        private readonly static ConcurrentDictionary<Type, Type> _directTypeMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, string> _cachedTypeMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, object> _defValMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, bool> _isWrapListCache = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, IDictionary<string, Type>> _propCache = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, bool> _sourceValTypeOk = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static SlimConcurrentDictionary<string, Type> _typeByName = new();
         private static long _copyNesting = 0;
 
 
@@ -338,7 +338,7 @@ namespace CodexMicroORM.Core.Services
 
         internal static void CopyPropertyValuesObject(object source, object target, bool isNew, ServiceScope ss, IDictionary<string, object>? removeIfSet, IDictionary<object, object> visits)
         {
-            Dictionary<string, object?> props = new Dictionary<string, object?>(Globals.DefaultDictionaryCapacity);
+            Dictionary<string, object?> props = new(Globals.DefaultDictionaryCapacity);
 
             var pkFields = KeyService.ResolveKeyDefinitionForType(source.GetBaseType());
 
@@ -491,9 +491,7 @@ namespace CodexMicroORM.Core.Services
 
             Parallel.ForEach(av, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (kvp) =>
             {
-                var asEnum = kvp.Value as IEnumerable;
-
-                if (asEnum != null)
+                if (kvp.Value is IEnumerable asEnum)
                 {
                     var sValEnum = asEnum.GetEnumerator();
 

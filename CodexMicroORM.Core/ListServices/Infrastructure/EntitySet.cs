@@ -53,7 +53,7 @@ namespace CodexMicroORM.Core.Services
 
         private long _init = 1;
 
-        private readonly List<T> _toWire = new List<T>();
+        private readonly List<T> _toWire = new();
 
         #endregion
 
@@ -61,21 +61,21 @@ namespace CodexMicroORM.Core.Services
 
         public EntitySet() : base()
         {
-            _contains = new SlimConcurrentDictionary<T, bool>(Globals.DefaultLargerDictionaryCapacity);
+            _contains = new(Globals.DefaultLargerDictionaryCapacity);
             BoundScope = CEF.CurrentServiceScope;
             EndInit();
         }
 
         public EntitySet(ServiceScope ss) : base()
         {
-            _contains = new SlimConcurrentDictionary<T, bool>(Globals.DefaultLargerDictionaryCapacity);
+            _contains = new(Globals.DefaultLargerDictionaryCapacity);
             BoundScope = ss;
             EndInit();
         }
 
         public EntitySet(IEnumerable<T> source) : base()
         {
-            _contains = new SlimConcurrentDictionary<T, bool>(Globals.DefaultLargerDictionaryCapacity);
+            _contains = new(Globals.DefaultLargerDictionaryCapacity);
             BoundScope = CEF.CurrentServiceScope;
 
             foreach (var i in source)
@@ -90,7 +90,7 @@ namespace CodexMicroORM.Core.Services
 
         #region "Public methods"
 
-        public RWLockInfo LockInfo { get; } = new RWLockInfo();
+        public RWLockInfo LockInfo { get; } = new();
 
         public bool IsInitialized => Interlocked.Read(ref _init) == 0;
 
@@ -99,7 +99,7 @@ namespace CodexMicroORM.Core.Services
         public Dictionary<string, Type> ExternalSchema
         {
             get;
-        } = new Dictionary<string, Type>();
+        } = new();
 
         public bool ContainsItemByKey(object o)
         {
@@ -171,7 +171,7 @@ namespace CodexMicroORM.Core.Services
         {
             if (jss == null)
             {
-                jss = new JsonSerializationSettings();
+                jss = new();
             }
 
             // Must be an array...
@@ -201,7 +201,7 @@ namespace CodexMicroORM.Core.Services
                 throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(cols));
             }
 
-            Dictionary<string, T> ret = new Dictionary<string, T>();
+            Dictionary<string, T> ret = new();
 
             foreach (T i in this)
             {
@@ -228,7 +228,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns>A shallow copy of the set being acted upon, where deleted rows are *not* present. (They remain in the acted on set, to support "saving by set".)</returns>
         public EntitySet<T> ApplyChangesFromPortableText(string json)
         {
-            EntitySet<T> retVal = new EntitySet<T>();
+            EntitySet<T> retVal = new();
 
             if (string.IsNullOrWhiteSpace(json) || json.Length > 100000000)
             {
@@ -250,97 +250,105 @@ namespace CodexMicroORM.Core.Services
                 var sourceTypes = new List<string>();
                 var keyIndexes = new List<int>();
                 var idx = 0;
+                var iter = jq.Value<Newtonsoft.Json.Linq.JArray>("schema");
 
-                foreach (Newtonsoft.Json.Linq.JObject scol in jq.Value<Newtonsoft.Json.Linq.JArray>("schema"))
+                if (iter != null)
                 {
-                    var pcn = scol.Property("cn");
-                    var pdt = scol.Property("dt");
-
-                    if (pcn != null && pdt != null)
+                    foreach (Newtonsoft.Json.Linq.JObject scol in iter)
                     {
-                        var cn = pcn.Value.ToString();
-                        sourceCols.Add(cn);
-                        var dt = pdt.Value.ToString();
-                        sourceTypes.Add(dt);
+                        var pcn = scol.Property("cn");
+                        var pdt = scol.Property("dt");
 
-                        if (kdef.Contains(cn))
+                        if (pcn != null && pdt != null)
                         {
-                            keyIndexes.Add(idx);
-                        }
+                            var cn = pcn.Value.ToString();
+                            sourceCols.Add(cn);
+                            var dt = pdt.Value.ToString();
+                            sourceTypes.Add(dt);
 
-                        idx++;
+                            if (kdef.Contains(cn))
+                            {
+                                keyIndexes.Add(idx);
+                            }
+
+                            idx++;
+                        }
                     }
                 }
 
                 // An indexed view in this case can be a dictionary for fast lookup
                 var index = ToDictionary(kdef);
-                HashSet<T> sourceVisits = new HashSet<T>();
+                HashSet<T> sourceVisits = new();
+                var rows = jq.Value<Newtonsoft.Json.Linq.JArray>("rows");
 
-                foreach (Newtonsoft.Json.Linq.JArray row in jq.Value<Newtonsoft.Json.Linq.JArray>("rows"))
+                if (rows != null)
                 {
-                    var keyval = new StringBuilder(128);
-
-                    foreach (var c in kdef)
+                    foreach (Newtonsoft.Json.Linq.JArray row in rows)
                     {
-                        if (keyval.Length > 0)
+                        var keyval = new StringBuilder(128);
+
+                        foreach (var c in kdef)
                         {
-                            keyval.Append("~");
+                            if (keyval.Length > 0)
+                            {
+                                keyval.Append("~");
+                            }
+
+                            var kloc = sourceCols.IndexOf(c);
+                            keyval.Append(row[kloc].ToString());
                         }
 
-                        var kloc = sourceCols.IndexOf(c);
-                        keyval.Append(row[kloc].ToString());
-                    }
+                        bool isnew = false;
 
-                    bool isnew = false;
-
-                    if (!index.TryGetValue(keyval.ToString(), out T target))
-                    {
-                        target = new T();
-                        Add(target);
-                        isnew = true;
-                    }
-                    else
-                    {
-                        sourceVisits.Add(target);
-                        retVal.Add(target);
-                    }
-
-                    var tiw = target.AsInfraWrapped() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
-                    var prefTypes = tiw.GetAllPreferredTypes();
-
-                    for (int i = 0; i < sourceCols.Count; ++i)
-                    {
-                        if (!keyIndexes.Contains(i) || isnew)
+                        if (!index.TryGetValue(keyval.ToString(), out T target))
                         {
-                            var v = row[i].ToString();
+                            target = new();
+                            Add(target);
+                            isnew = true;
+                        }
+                        else
+                        {
+                            sourceVisits.Add(target);
+                            retVal.Add(target);
+                        }
 
-                            if (!string.IsNullOrEmpty(v))
+                        var tiw = target.AsInfraWrapped() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
+                        var prefTypes = tiw.GetAllPreferredTypes();
+
+                        for (int i = 0; i < sourceCols.Count; ++i)
+                        {
+                            if (!keyIndexes.Contains(i) || isnew)
                             {
-                                var scn = sourceCols[i];
-                                var oldval = tiw.GetValue(scn)?.ToString();
+                                var v = row[i].ToString();
 
-                                if (string.Compare(sourceTypes[i], "datetime") == 0)
+                                if (!string.IsNullOrEmpty(v))
                                 {
-                                    if (long.TryParse(v, out long ld))
+                                    var scn = sourceCols[i];
+                                    var oldval = tiw.GetValue(scn)?.ToString();
+
+                                    if (string.Compare(sourceTypes[i], "datetime") == 0)
                                     {
-                                        v = (new DateTime((ld * 10000L) + 621355968000000000L, DateTimeKind.Utc)).ToString("O");
+                                        if (long.TryParse(v, out long ld))
+                                        {
+                                            v = (new DateTime((ld * 10000L) + 621355968000000000L, DateTimeKind.Utc)).ToString("O");
+                                        }
+
+                                        if (!string.IsNullOrEmpty(oldval))
+                                        {
+                                            oldval = Convert.ToDateTime(oldval).ToString("O");
+                                        }
                                     }
 
-                                    if (!string.IsNullOrEmpty(oldval))
+                                    if (string.Compare(oldval, v, false) != 0)
                                     {
-                                        oldval = Convert.ToDateTime(oldval).ToString("O");
-                                    }
-                                }
-
-                                if (string.Compare(oldval, v, false) != 0)
-                                {
-                                    if (prefTypes.TryGetValue(scn, out Type pt))
-                                    {
-                                        tiw.SetValue(scn, v.CoerceType(pt));
-                                    }
-                                    else
-                                    {
-                                        tiw.SetValue(scn, v);
+                                        if (prefTypes.TryGetValue(scn, out Type pt))
+                                        {
+                                            tiw.SetValue(scn, v.CoerceType(pt));
+                                        }
+                                        else
+                                        {
+                                            tiw.SetValue(scn, v);
+                                        }
                                     }
                                 }
                             }
@@ -377,7 +385,7 @@ namespace CodexMicroORM.Core.Services
                 options = new PortableSerializationOptions();
             }
 
-            StringBuilder sb = new StringBuilder(4096);
+            StringBuilder sb = new(4096);
             var actmode = options.Mode.GetValueOrDefault(Globals.PortableJSONMode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode));
 
             CEF.CurrentServiceScope.ReconcileModifiedState(null);
@@ -456,8 +464,8 @@ namespace CodexMicroORM.Core.Services
                 // Get any available key for this type
                 var keydef = KeyService.ResolveKeyDefinitionForType(typeof(T));
 
-                List<string> finalName = new List<string>();
-                List<Type> finalType = new List<Type>();
+                List<string> finalName = new();
+                List<Type> finalType = new();
 
                 // Actual schema write based on distinct list of columns and types
                 foreach (var prop in (from n in (from a in c select a.name).Distinct() select new { Name = n, Type = (from t in c where string.Compare(t.name, n, true) == 0 orderby (t.type == null ? 1 : 0) select t.type).First() }))
@@ -593,7 +601,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public string GetSerializationText(SerializationMode? mode = null)
         {
-            StringBuilder sb = new StringBuilder(4096);
+            StringBuilder sb = new(4096);
             var actmode = mode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode);
             var st = new SerializationVisitTracker();
 
@@ -630,7 +638,7 @@ namespace CodexMicroORM.Core.Services
 
             if (kv != null && kv.Count > 0)
             {
-                StringBuilder sb = new StringBuilder();
+                StringBuilder sb = new();
 
                 foreach (var (_, _, value) in kv)
                 {
@@ -721,7 +729,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private readonly ConcurrentQueue<T> _toAdd = new ConcurrentQueue<T>();
+        private readonly ConcurrentQueue<T> _toAdd = new();
         private long _toAddWorkers = 0;
 
         public void QueuedAdd(T o)
@@ -953,7 +961,7 @@ namespace CodexMicroORM.Core.Services
                     if (oi != null && !string.IsNullOrEmpty(ParentTypeName) && !string.IsNullOrEmpty(ParentFieldName))
                     {
                         // Attempt to establish a FK relationship, carry parent key down
-                        CEF.CurrentKeyService()?.UnlinkChildFromParentContainer(BoundScope, ParentTypeName, ParentFieldName, ParentContainer, oi);
+                        CEF.CurrentKeyService()?.UnlinkChildFromParentContainer(BoundScope, ParentTypeName!, ParentFieldName!, ParentContainer, oi);
                     }
                 }
             }

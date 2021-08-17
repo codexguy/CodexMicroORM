@@ -119,7 +119,7 @@ namespace CodexMicroORM.Providers
             set;
         } = 3000;
 
-        private readonly static ConcurrentDictionary<string, string> _csMap = new ConcurrentDictionary<string, string>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
+        private readonly static ConcurrentDictionary<string, string> _csMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
 
         public enum CommandType
         {
@@ -433,7 +433,7 @@ namespace CodexMicroORM.Providers
         {
             schema ??= DefaultSchema ?? DEFAULT_DB_SCHEMA;
 
-            using DataTable dt = new DataTable();
+            using DataTable dt = new();
 
             // Issue independent SELECT * to get schema from underlying table
             var cc = ((ICloneable?)((MSSQLConnection)conn.CurrentConnection).CurrentConnection) ?? throw new CEFInvalidStateException(InvalidStateType.SQLLayer, "Missing current data connection.");
@@ -441,10 +441,7 @@ namespace CodexMicroORM.Providers
             using (var discoverConn = (SqlConnection)cc.Clone())
             {
                 discoverConn.Open();
-
-#pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
                 using var da = new SqlDataAdapter($"SELECT * FROM [{schema}].[{name}] WHERE 1=0", discoverConn);
-#pragma warning restore CA2100 // Review SQL queries for security vulnerabilities
                 da.Fill(dt);
             }
 
@@ -515,7 +512,7 @@ namespace CodexMicroORM.Providers
 
             dt.EndLoadData();
 
-            using SqlBulkCopy sbc = new SqlBulkCopy(((MSSQLConnection)conn.CurrentConnection).CurrentConnection, SqlBulkCopyOptions.Default, ((MSSQLConnection)conn.CurrentConnection).CurrentTransaction)
+            using SqlBulkCopy sbc = new(((MSSQLConnection)conn.CurrentConnection).CurrentConnection, SqlBulkCopyOptions.Default, ((MSSQLConnection)conn.CurrentConnection).CurrentTransaction)
             {
                 DestinationTableName = $"[{schema}].[{name}]"
             };
@@ -576,7 +573,7 @@ namespace CodexMicroORM.Providers
         /// <returns>A compatible number of "rows" as input with per row save status.</returns>
         private IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> SaveRows(ServiceScope ss, ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, CommandType cmdType, DBSaveSettings settings)
         {
-            ConcurrentBag<(ICEFInfraWrapper row, string? msg, int status)> rowsOut = new ConcurrentBag<(ICEFInfraWrapper row, string? msg, int status)>();
+            ConcurrentBag<(ICEFInfraWrapper row, string? msg, int status)> rowsOut = new();
             Exception? stopEx = null;
 
             // It's a problem to be doing retries in a transaction!
@@ -640,7 +637,7 @@ namespace CodexMicroORM.Providers
                             Interlocked.Add(ref _dbSaveTime, dbTime);
 
                             var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(false);
-                            List<(string name, object? value)> toRB = new List<(string name, object? value)>();
+                            List<(string name, object? value)> toRB = new();
 
                             foreach (var (name, value) in outVals)
                             {
@@ -746,7 +743,7 @@ namespace CodexMicroORM.Providers
 
         IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> IDBProvider.InsertRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, bool isLeaf, DBSaveSettings settings)
         {
-            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new List<(ICEFInfraWrapper row, string? msg, int status)>();
+            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new();
 
             if (settings.BulkInsertRules == BulkRules.Never)
             {
@@ -779,14 +776,14 @@ namespace CodexMicroORM.Providers
 
         IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> IDBProvider.UpdateRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, DBSaveSettings settings)
         {
-            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new List<(ICEFInfraWrapper row, string? msg, int status)>();
+            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new();
             retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rows, CommandType.Update, settings));
             return retVal;
         }
 
         IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> IDBProvider.DeleteRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, DBSaveSettings settings)
         {
-            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new List<(ICEFInfraWrapper row, string? msg, int status)>();
+            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new();
             retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rows, CommandType.Delete, settings));
             return retVal;
         }
@@ -812,7 +809,7 @@ namespace CodexMicroORM.Providers
                     throw new CEFInvalidStateException(InvalidStateType.SQLLayer, "Missing command text");
                 }
 
-                sqlcmd = CreateRawCommand(dbconn, System.Data.CommandType.Text, cmdText, parms, conn.TimeoutOverride);
+                sqlcmd = CreateRawCommand(dbconn, System.Data.CommandType.Text, cmdText!, parms, conn.TimeoutOverride);
             }
             else
             {
@@ -823,7 +820,7 @@ namespace CodexMicroORM.Providers
                         throw new CEFInvalidStateException(InvalidStateType.SQLLayer, "Missing command text");
                     }
 
-                    var sn = MSSQLCommand.SplitIntoSchemaAndName(cmdText);
+                    var sn = MSSQLCommand.SplitIntoSchemaAndName(cmdText!);
                     
                     if (!string.IsNullOrEmpty(sn.schema))
                     {
@@ -840,7 +837,7 @@ namespace CodexMicroORM.Providers
             {
                 dbconn.IncrementWorking();
 
-                CEFDebug.DumpSQLCall(cmdText, sqlcmd.GetParameterValues());
+                CEFDebug.DumpSQLCall(cmdText!, sqlcmd.GetParameterValues());
 
                 bool fetchedOutput = false;
                 bool hasData = false;

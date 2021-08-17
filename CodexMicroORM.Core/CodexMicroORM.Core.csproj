@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net461</TargetFrameworks>
 	<PackageId>CodexMicroORM.Core</PackageId>
-	<Version>0.9.11</Version>
+	<Version>0.9.12</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Product>CodexMicroORM.Core</Product>
@@ -17,15 +17,15 @@
 	<PackageIconUrl></PackageIconUrl>
 	<ApplicationIcon>xSkrape.ico</ApplicationIcon>
 	<PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
-	<AssemblyVersion>0.9.11.0</AssemblyVersion>
-	<FileVersion>0.9.11.0</FileVersion>
+	<AssemblyVersion>0.9.12.0</AssemblyVersion>
+	<FileVersion>0.9.12.0</FileVersion>
 	<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
 	<PackageIcon>xSkrapeIcon.jpg</PackageIcon>
     <LangVersion>9.0</LangVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <NoWarn>1701;1702;IDE0008;IDE0058;IDE0047</NoWarn>
+    <NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

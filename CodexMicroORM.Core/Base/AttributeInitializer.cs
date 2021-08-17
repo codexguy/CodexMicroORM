@@ -84,7 +84,7 @@ namespace CodexMicroORM.Core
                                 if (defValAttr != null)
                                 {
                                     PreviewHandler?.Invoke((t, prop.Name, typeof(EntityDefaultValueAttribute)));
-                                    typeof(DBService).GetMethod("RegisterDefault").MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name, defValAttr.Value.CoerceType(prop.PropertyType) });
+                                    typeof(DBService).GetMethod("RegisterDefault").MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name, defValAttr.Value.CoerceType(prop.PropertyType)! });
                                 }
 
                                 var reqValAttr = prop.GetCustomAttribute<EntityRequiredAttribute>();
@@ -109,7 +109,7 @@ namespace CodexMicroORM.Core
                         if (dnsAttr != null)
                         {
                             PreviewHandler?.Invoke((t, null, typeof(EntityDoNotSaveAttribute)));
-                            typeof(ServiceScope).GetMethod("RegisterDoNotSave").MakeGenericMethod(t).Invoke(null, new object[] { });
+                            typeof(ServiceScope).GetMethod("RegisterDoNotSave").MakeGenericMethod(t).Invoke(null, Array.Empty<object>());
                         }
                     }
                     catch

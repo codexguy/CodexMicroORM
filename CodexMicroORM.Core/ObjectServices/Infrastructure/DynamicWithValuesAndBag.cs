@@ -36,7 +36,7 @@ namespace CodexMicroORM.Core.Services
     {
         protected Dictionary<string, object?> _originalValues = new(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
         protected ObjectState _rowState;
-        private static bool _debugStopEnabled = true;
+        private static readonly bool _debugStopEnabled = true;
 
         public event EventHandler<DirtyStateChangeEventArgs>? DirtyStateChange;
 
@@ -381,9 +381,9 @@ namespace CodexMicroORM.Core.Services
             {
                 if (disposing)
                 {
-                    if (_source is INotifyPropertyChanged)
+                    if (_source is INotifyPropertyChanged changed)
                     {
-                        ((INotifyPropertyChanged)_source).PropertyChanged -= CEFValueTrackingWrapper_PropertyChanged;
+                        changed.PropertyChanged -= CEFValueTrackingWrapper_PropertyChanged;
                     }
                 }
 

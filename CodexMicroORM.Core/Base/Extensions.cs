@@ -473,7 +473,7 @@ namespace CodexMicroORM.Core
                 return str;
             }
 
-            if (str.Length <= count - 4)
+            if (str!.Length <= count - 4)
             {
                 return str;
             }
@@ -494,7 +494,7 @@ namespace CodexMicroORM.Core
                 return str;
             }
 
-            if (str.Length <= count)
+            if (str!.Length <= count)
             {
                 return str;
             }
@@ -515,7 +515,7 @@ namespace CodexMicroORM.Core
                 return str;
             }
 
-            if (str.Length <= count)
+            if (str!.Length <= count)
             {
                 return str;
             }
