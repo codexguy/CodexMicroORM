@@ -122,6 +122,14 @@ namespace CodexMicroORM.Core
     }
 
     [AttributeUsage(AttributeTargets.Property)]
+    public sealed class PropertyTreatAsIfReadOnlyAttribute : Attribute
+    {
+        public PropertyTreatAsIfReadOnlyAttribute()
+        {
+        }
+    }
+
+    [AttributeUsage(AttributeTargets.Property)]
     public sealed class EntityRequiredAttribute : Attribute
     {
         public EntityRequiredAttribute()

@@ -158,6 +158,11 @@ namespace CodexMicroORM.Core
         /// <param name="earlystop"></param>
         public static void Sequential<T>(this IEnumerable<T> items, Action<T> work, bool earlystop = true)
         {
+            if (items == null || !items.Any())
+            {
+                return;
+            }
+
             List<Exception> faults = new();
 
             foreach (var i in items)
@@ -193,6 +198,11 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static async Task SequentialAsync<T>(this IEnumerable<T> items, Action<T> work, bool earlystop = true)
         {
+            if (items == null || !items.Any())
+            {
+                return;
+            }
+
             List<Exception> faults = new();
 
             foreach (var i in items)
@@ -231,24 +241,35 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static async Task SequentialAsync<T>(this IEnumerable<T> items, Func<T, Task> work, bool earlystop = true)
         {
+            if (items == null || !items.Any())
+            {
+                return;
+            }
+
             List<Exception> faults = new();
 
-            foreach (var i in items)
+            // Why include Task.Run here? Without it, observe that work can end up carried out NOT in background where wish to use this to, for example, avoid work on UI thread, etc.
+            await Task.Run<int>(async () =>
             {
-                try
+                foreach (var i in items)
                 {
-                    await work.Invoke(i);
-                }
-                catch (Exception ex)
-                {
-                    if (earlystop)
+                    try
                     {
-                        throw;
+                        await work.Invoke(i);
                     }
+                    catch (Exception ex)
+                    {
+                        if (earlystop)
+                        {
+                            throw;
+                        }
 
-                    faults.Add(ex);
+                        faults.Add(ex);
+                    }
                 }
-            }
+
+                return items.Count();
+            });
 
             if (faults.Any())
             {
@@ -267,7 +288,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static async Task ParallelAsync<TSource>(this IEnumerable<TSource> source, Action<TSource> work, int? dop = null, bool earlystop = false)
         {
-            if (!source.Any())
+            if (source == null || !source.Any())
             {
                 return;
             }
@@ -354,7 +375,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static async Task ParallelAsync<TSource>(this IEnumerable<TSource> source, Func<TSource, Task> work, int? dop = null, bool earlystop = false)
         {
-            if (!source.Any())
+            if (source == null || !source.Any())
             {
                 return;
             }
@@ -635,9 +656,9 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            if (prefType == typeof(DateOnly))
+            if (prefType == typeof(OnlyDate))
             {
-                if (DateOnly.TryParse(source, out DateOnly dov))
+                if (OnlyDate.TryParse(source, out OnlyDate dov))
                 {
                     return dov;
                 }
@@ -741,9 +762,9 @@ namespace CodexMicroORM.Core
                 return source.ToString();
             }
 
-            if (st == typeof(DateOnly) || bt == typeof(DateOnly))
+            if (st == typeof(OnlyDate) || bt == typeof(OnlyDate))
             {
-                return ((DateOnly)source).ToDateTime().ToString("O").CoerceType(prefType);
+                return ((OnlyDate)source).ToDateTime().ToString("O").CoerceType(prefType);
             }
 
             if (st == typeof(DateTime) || bt == typeof(DateTime))
@@ -911,11 +932,11 @@ namespace CodexMicroORM.Core
                 return null;
             }
 
-            if (tt == typeof(DateOnly?) || tt == typeof(DateOnly))
+            if (tt == typeof(OnlyDate?) || tt == typeof(OnlyDate))
             {
                 if (v.GetType() == typeof(DateTime))
                 {
-                    return new DateOnly((DateTime)v);
+                    return new OnlyDate((DateTime)v);
                 }
             }
 
@@ -1076,7 +1097,10 @@ namespace CodexMicroORM.Core
                     {
                         if (iw.BagValuesOnly().TryGetValue(name, out var sv))
                         {
-                            target.FastSetValue(name, sv);
+                            if (!CEF.RegisteredPropertyNameTreatReadOnly.Contains(name))
+                            {
+                                target.FastSetValue(name, sv);
+                            }
                         }
                     }
                 }
@@ -1476,7 +1500,10 @@ namespace CodexMicroORM.Core
             {
                 foreach (var (name, _, _, _) in typeof(T).FastGetAllProperties(true, true))
                 {
-                    n.FastSetValue(name, src.FastGetValue(name));
+                    if (!CEF.RegisteredPropertyNameTreatReadOnly.Contains(name))
+                    {
+                        n.FastSetValue(name, src.FastGetValue(name));
+                    }
                 }
             }
 
@@ -1500,7 +1527,8 @@ namespace CodexMicroORM.Core
             // We can copy from non-nullable to nullable (always)
             foreach (var name in (from a in src.FastGetAllProperties(true, true)
                                   join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
-                                  where a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type
+                                  where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type)
+                                  && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                   select a.name))
             {
                 dest.FastSetValue(name, src.FastGetValue(name));
@@ -1508,11 +1536,12 @@ namespace CodexMicroORM.Core
 
             // We can additionally copy from nullable to non-nullable, but only if the nullable actually holds a non-null value
             foreach (var fi in (from a in src.FastGetAllProperties(true, true)
-                                  join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
-                                  where a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type
-                                  let v = src.FastGetValue(a.name)
-                                  where v != null
-                                  select new { a.name, value = v }))
+                                join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                where a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type
+                                    && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
+                                let v = src.FastGetValue(a.name)
+                                where v != null
+                                select new { a.name, value = v }))
             {
                 dest.FastSetValue(fi.name, fi.value);
             }
@@ -1535,6 +1564,7 @@ namespace CodexMicroORM.Core
             foreach (var name in (from a in src.FastGetAllProperties(true, true) join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                   where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type) &&
                                     (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                    && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                   select a.name))
             {
                 dest.FastSetValue(name, src.FastGetValue(name));
@@ -1544,6 +1574,7 @@ namespace CodexMicroORM.Core
                                 join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                 where (a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type) &&
                                     (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                    && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                 let v = src.FastGetValue(a.name)
                                 where v != null
                                 select new { a.name, value = v }))
@@ -1571,6 +1602,7 @@ namespace CodexMicroORM.Core
                                   join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                   where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type) &&
                                     (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                    && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                   select new { a.name, a.type }))
             {
                 var v = src.FastGetValue(info.name);
@@ -1594,6 +1626,7 @@ namespace CodexMicroORM.Core
                                 join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                 where (a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type) &&
                                     (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                    && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                 let v = src.FastGetValue(a.name)
                                 where v != null
                                 select new { a.name, value = v }))
@@ -1620,7 +1653,8 @@ namespace CodexMicroORM.Core
 
             foreach (var name in (from a in src.FastGetAllProperties(true, true)
                                   join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
-                                  where a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type
+                                  where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type)
+                                    && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                   select a.name))
             {
                 if (!dest.FastGetValue(name).IsSame(src.FastGetValue(name)))
@@ -1632,6 +1666,7 @@ namespace CodexMicroORM.Core
             foreach (var fi in (from a in src.FastGetAllProperties(true, true)
                                 join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                 where a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type
+                                    && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                 let v = src.FastGetValue(a.name)
                                 where v != null
                                 select new { a.name, value = v }))
@@ -1658,7 +1693,8 @@ namespace CodexMicroORM.Core
 
             foreach (var name in (from a in src.FastGetAllProperties(true, true)
                                   join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
-                                  where a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type
+                                  where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type)
+                                    && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                   select a.name))
             {
                 var sv = src.FastGetValue(name);
@@ -1699,7 +1735,10 @@ namespace CodexMicroORM.Core
 
             foreach (var (name, _, _, _) in typeof(T).FastGetAllProperties(true, true))
             {
-                dest.FastSetValue(name, src.FastGetValue(name));
+                if (!CEF.RegisteredPropertyNameTreatReadOnly.Contains(name))
+                {
+                    dest.FastSetValue(name, src.FastGetValue(name));
+                }
             }
         }
 

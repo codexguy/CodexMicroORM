@@ -101,6 +101,13 @@ namespace CodexMicroORM.Core
                                 {
                                     PreviewHandler?.Invoke((t, prop.Name, typeof(EntityIgnoreBindingAttribute)));
                                 }
+
+                                var treatROAttr = prop.GetCustomAttribute<PropertyTreatAsIfReadOnlyAttribute>();
+
+                                if (treatROAttr != null)
+                                {
+                                    CEF.RegisterPropertyNameTreatReadOnly(prop.Name);
+                                }
                             }
                         }
 

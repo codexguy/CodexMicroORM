@@ -43,6 +43,7 @@ namespace CodexMicroORM.Providers
         private const string OPEN_RETRY_MESSAGE_REGEX = @"timeout\sexpired|\spool\s|successfully\sestablished|was\snot\sfound|was\snot\saccessible|not\scurrently\savailable|is\snot\susable|please\sretry";
 
         public delegate void RowActionPreviewCallback(CommandType action, string objname, ICEFInfraWrapper row);
+        public delegate void SetActionPreviewCallback(DBSaveSettings saveSettings, IEnumerable<ICEFInfraWrapper> rows, bool? success);
 
         private static long _dbSaveTime = 0;
         private static long _delayedTime = 0;
@@ -82,6 +83,12 @@ namespace CodexMicroORM.Providers
 #if DEBUG
         public string ID = Guid.NewGuid().ToString();
 #endif
+
+        public static SetActionPreviewCallback? GlobalSetActionPreview
+        {
+            get;
+            set;
+        } = null;
 
         public static RowActionPreviewCallback? GlobalRowActionPreview
         {
@@ -587,6 +594,12 @@ namespace CodexMicroORM.Providers
             var materialized = (from a in rows select new { Schema = a.schema ?? DefaultSchema ?? DEFAULT_DB_SCHEMA, Name = a.name, Row = a.row }).ToList();
             long trydelay = 0;
 
+            if (GlobalSetActionPreview != null)
+            {
+                // Neither success nor failure (yet) - invoke as a true preview
+                GlobalSetActionPreview.Invoke(settings, from a in materialized select a.Row, null);
+            }
+
             Parallel.ForEach(materialized, new ParallelOptions() { MaxDegreeOfParallelism = settings.MaxDegreeOfParallelism }, (r, pls) =>
             {
                 using (CEF.UseServiceScope(ss))
@@ -732,6 +745,12 @@ namespace CodexMicroORM.Providers
                     }
                 }
             });
+
+            if (GlobalSetActionPreview != null)
+            {
+                // Invoke to advise success or failure
+                GlobalSetActionPreview.Invoke(settings, from a in materialized select a.Row, stopEx == null);
+            }
 
             if (stopEx != null)
             {

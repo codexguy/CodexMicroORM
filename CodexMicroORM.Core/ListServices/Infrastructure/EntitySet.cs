@@ -34,6 +34,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using CodexMicroORM.Core.Collections;
 using CodexMicroORM.Core.Helper;
+using System.Runtime.Serialization;
 
 namespace CodexMicroORM.Core.Services
 {
@@ -46,13 +47,16 @@ namespace CodexMicroORM.Core.Services
     /// </summary>
     /// <typeparam name="T"></typeparam>
     [Serializable]
-    public class EntitySet<T> : ConcurrentObservableCollection<T>, ICEFList, ICEFSerializable, ISupportInitializeNotification where T : class, new()
+    public class EntitySet<T> : ConcurrentObservableCollection<T>, ICEFList, ICEFSerializable, ISupportInitializeNotification, ISerializable where T : class, new()
     {
         #region "Private state"
+        [NonSerialized]
         private SlimConcurrentDictionary<T, bool> _contains;
 
+        [NonSerialized]
         private long _init = 1;
 
+        [NonSerialized]
         private readonly List<T> _toWire = new();
 
         #endregion
@@ -86,9 +90,37 @@ namespace CodexMicroORM.Core.Services
             EndInit();
         }
 
+        private EntitySet(SerializationInfo info, StreamingContext context)
+        {
+            // We do not know about CEF service scope at this point, so leave it null
+            _contains = new(Globals.DefaultLargerDictionaryCapacity);
+
+            string? json = info.GetValue("jsonrep", typeof(string))?.ToString();
+
+            if (!string.IsNullOrEmpty(json))
+            {
+                // We do, however, need to deserialize content into our base collection
+                List<T> aslist = (List<T>)System.Text.Json.JsonSerializer.Deserialize(json, typeof(List<T>));
+
+                foreach (var i in aslist)
+                {
+                    this.Add(i);
+                }
+            }
+        }
+
         #endregion
 
         #region "Public methods"
+
+        public void GetObjectData(SerializationInfo info, StreamingContext context)
+        {
+            // We do not rely on CEF json serialization since that ties back to service scope context which we may not have (e.g. visualizer)
+            // We create json that is much more lean and a direct representation of the underlying collection
+            // We also use System.Text.Json to avoid assumption that caller is using Newtonsoft
+            var json = System.Text.Json.JsonSerializer.Serialize(this.ToList());
+            info.AddValue("jsonrep", json);
+        }
 
         public RWLockInfo LockInfo { get; } = new();
 
@@ -729,6 +761,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
+        [NonSerialized]
         private readonly ConcurrentQueue<T> _toAdd = new();
         private long _toAddWorkers = 0;
 
@@ -852,7 +885,7 @@ namespace CodexMicroORM.Core.Services
 
         #region "Internals"
 
-        public ServiceScope BoundScope
+        public ServiceScope? BoundScope
         {
             get;
             internal set;
@@ -890,13 +923,16 @@ namespace CodexMicroORM.Core.Services
 
         private void WireDependencies()
         {
-            foreach (var item in _toWire.ToList())
+            if (BoundScope != null)
             {
-                var iw = item.AsUnwrapped() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
-                CEF.CurrentKeyService()?.WireDependents(iw, item, BoundScope, this, null);
-            }
+                foreach (var item in _toWire.ToList())
+                {
+                    var iw = item.AsUnwrapped() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
+                    CEF.CurrentKeyService()?.WireDependents(iw, item, BoundScope, this, null);
+                }
 
-            _toWire.Clear();
+                _toWire.Clear();
+            }
         }
 
         protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
@@ -952,7 +988,7 @@ namespace CodexMicroORM.Core.Services
                 return;
             }
 
-            if (ParentContainer != null)
+            if (ParentContainer != null && BoundScope != null)
             {
                 var oiCopy = (from a in oldItems.Cast<Object>() select a).ToList();
 

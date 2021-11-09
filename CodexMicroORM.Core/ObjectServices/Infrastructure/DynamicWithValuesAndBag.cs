@@ -293,7 +293,10 @@ namespace CodexMicroORM.Core.Services
                     // Handle CLR properties that are R/W
                     foreach (var (name, type, readable, writeable) in _source.FastGetAllProperties(true, true))
                     {
-                        _originalValues[name] = _source.FastGetValue(name);
+                        if (!CEF.RegisteredPropertyNameTreatReadOnly.Contains(name))
+                        {
+                            _originalValues[name] = _source.FastGetValue(name);
+                        }
                     }
                 }
 

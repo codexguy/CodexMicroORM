@@ -36,6 +36,7 @@ using CodexMicroORM.Core.Helper;
 using System.Threading;
 using System.Collections;
 using System.Collections.Immutable;
+using System.Runtime.Serialization;
 
 namespace CodexMicroORM.Core
 {
@@ -59,15 +60,24 @@ namespace CodexMicroORM.Core
         private static long _currentSaveNestLevel = 0;
 
         // Optional state maintained at scope level, per service type
+        [NonSerialized]
         private readonly ConcurrentDictionary<Type, ICEFServiceObjState> _serviceState = new();
 
         // Known/resolved services available in this scope - when asking for non-object-specific services, this offers a fast(er) way to determine
+        [NonSerialized]
         private readonly HashSet<ICEFService> _scopeServices = new();
+
+        [NonSerialized]
         private readonly HashSet<ICEFService> _localServices = new();
 
         // For cases we have connection scopes by service scope...
+        [NonSerialized]
         internal AsyncLocal<ImmutableStack<ConnectionScope>> _allConnScopes = new();
+
+        [NonSerialized]
         internal AsyncLocal<ConnectionScope> _currentConnScope = new();
+
+        internal ConcurrentIndexedList<TrackedObject> Objects { get; }
 
         #endregion
 
@@ -388,6 +398,8 @@ namespace CodexMicroORM.Core
         public IList<(object item, string? message, int status)> DBSave(DBSaveSettings? settings = null)
         {
             var ss = CEF.CurrentServiceScope;
+
+            CEF.DataAccessCallout?.Invoke("DBSave", string.Concat("Save", ss.FriendlyName));
 
             if (settings == null)
             {
@@ -1108,8 +1120,6 @@ namespace CodexMicroORM.Core
             };
         }
 
-        internal ConcurrentIndexedList<TrackedObject> Objects { get; }
-
         internal object? GetWrapperOrTarget(object o)
         {
             if (o == null)
@@ -1220,7 +1230,7 @@ namespace CodexMicroORM.Core
         {
             var target = GetInfraOrWrapperOrTarget(o);
 
-            if (target != null)
+            if (target != null && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(propName))
             {
                 if (target is DynamicWithBag dyn)
                 {
@@ -2008,6 +2018,7 @@ namespace CodexMicroORM.Core
         {
             Dispose(true);
         }
+
         #endregion
 
         public Action? Disposed

@@ -189,7 +189,10 @@ namespace CodexMicroORM.Core.Services
 
             if (dic == null)
             {
-                dic = (from a in target.FastGetAllProperties(true, true) select new { Name = a.name, PropertyType = a.type }).ToDictionary((p) => p.Name, (p) => p.PropertyType);
+                dic = (from a in target.FastGetAllProperties(true, true)
+                       where !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
+                       select new { Name = a.name, PropertyType = a.type }).ToDictionary((p) => p.Name, (p) => p.PropertyType);
+
                 _propCache[target.GetType()] = dic;
             }
 
@@ -345,7 +348,7 @@ namespace CodexMicroORM.Core.Services
             foreach (var (name, _, _, _) in source.FastGetAllProperties(true, true))
             {
                 // For new rows, ignore the PK since it should be assigned by key service
-                if ((!isNew || !pkFields.Contains(name)))
+                if ((!isNew || !pkFields.Contains(name)) && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(name))
                 {
                     props[name] = source.FastGetValue(name);
 

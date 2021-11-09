@@ -190,7 +190,7 @@ namespace CodexMicroORM.Providers
         public static SerializationFileEncryptionType CurrentEncryptionType
         {
             get;
-            set;
+            private set;
         } = SerializationFileEncryptionType.None;
 
         private static ICryptoTransform? _globalEncryptor;

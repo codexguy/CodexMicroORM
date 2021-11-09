@@ -1215,7 +1215,7 @@ namespace CodexMicroORM.Core.Services
                                                 }
                                                 else
                                                 {
-                                                    if (val is DateOnly dov)
+                                                    if (val is OnlyDate dov)
                                                     {
                                                         AsWhole = dov.GetAsInt();
                                                     }

@@ -29,7 +29,6 @@ using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using System.Collections;
 using static CodexMicroORM.Core.Services.KeyService;
-using CodexMicroORM.Core.Helper;
 using System.Runtime.CompilerServices;
 
 namespace CodexMicroORM.Core
@@ -44,6 +43,8 @@ namespace CodexMicroORM.Core
         private static readonly SlimConcurrentDictionary<Type, IList<ICEFService>> _resolvedServicesByType = new();
         private static readonly ConcurrentDictionary<Type, IList<ICEFService>> _regServicesByType = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static ImmutableArray<ICEFService> _globalServices = ImmutableArray<ICEFService>.Empty;
+        private static readonly HashSet<string> _treatPropertyAsReadOnly = new();
+        private static readonly HashSet<Action<bool>> _appEventList = new();
 
         internal static ServiceScope? InternalGlobalServiceScope = null;
         internal static ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?>> SaveTriggers = new();
@@ -60,6 +61,7 @@ namespace CodexMicroORM.Core
 
         internal static SlimConcurrentDictionary<Type, IList<ICEFService>> ResolvedServicesByType => _resolvedServicesByType;
         internal static ConcurrentDictionary<Type, IList<ICEFService>> RegisteredServicesByType => _regServicesByType;
+        public static HashSet<string> RegisteredPropertyNameTreatReadOnly => _treatPropertyAsReadOnly;
 
         private static Action<string, long>? _queryPerfInfo = null;
 
@@ -75,6 +77,49 @@ namespace CodexMicroORM.Core
         public delegate void ColumnDefinitionCallback(string name, Type dataType);
 
         public static ServiceScope? GlobalServiceScope => InternalGlobalServiceScope;
+
+        public static Action<string, string>? DataAccessCallout
+        {
+            get;
+            set;
+        }
+
+        /// <summary>
+        /// Can be used to advise the framework that a running app is being suspended.
+        /// This can in turn reduce database timeouts, where a long gap of time might exist during suspension (in reality, the amount of "runnable time" should only be considered).
+        /// </summary>
+        public static void SignalAppSleep()
+        {
+            List<Action<bool>> l;
+
+            lock (_appEventList)
+            {
+                l = _appEventList.ToList();
+            }
+
+            foreach (var sub in _appEventList)
+            {
+                sub.Invoke(true);
+            }
+        }
+
+        /// <summary>
+        /// If SignalAppSleep() gets called, it would be expected to call SignalAppResume() when the app is resumed.
+        /// </summary>
+        public static void SignalAppResume()
+        {
+            List<Action<bool>> l;
+
+            lock (_appEventList)
+            {
+                l = _appEventList.ToList();
+            }
+
+            foreach (var sub in _appEventList)
+            {
+                sub.Invoke(false);
+            }
+        }
 
         public static void RegisterQueryPerformanceTracking(Action<string, long> perfHandler)
         {
@@ -1067,6 +1112,24 @@ namespace CodexMicroORM.Core
 
         #region "Internals"
 
+        private static Action<bool> InternalSubscribeAppEvents(Action<bool> subscriber)
+        {
+            lock (_appEventList)
+            {
+                _appEventList.Add(subscriber);
+            }
+
+            return subscriber;
+        }
+
+        private static void InternalUnsubscribeAppEvents(Action<bool> subscriber)
+        {
+            lock (_appEventList)
+            {
+                _appEventList.Remove(subscriber);
+            }
+        }
+
         /// <summary>
         /// Returns the service implementation for a specific type of service, either per object or globally, as available in the ambient service scope.
         /// </summary>
@@ -1106,6 +1169,11 @@ namespace CodexMicroORM.Core
             }
 
             return null;
+        }
+
+        public static void RegisterPropertyNameTreatReadOnly(string propName)
+        {
+            _treatPropertyAsReadOnly.Add(propName);
         }
 
         internal static void RegisterForType<T>(ICEFService service)
@@ -1238,11 +1306,15 @@ namespace CodexMicroORM.Core
 
         private static void InternalDBAppendAll<T>(EntitySet<T> pop) where T : class, new()
         {
+            DataAccessCallout?.Invoke("InternalDBAppendAll", pop.GetType().Name + "All");
+
             Exception? tex = null;
-            var ss = CEF.CurrentServiceScope;
+            var ss = CurrentServiceScope;
 
             void a(CancellationToken ct, DateTime? start)
             {
+                using var aesw = new AppEventSubscriberWrapper();
+
                 foreach (var row in CurrentDBService().RetrieveAll<T>())
                 {
                     if (Globals.GlobalQueryTimeout.HasValue)
@@ -1251,7 +1323,7 @@ namespace CodexMicroORM.Core
 
                         if (start.HasValue)
                         {
-                            if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                            if (DateTime.UtcNow.Subtract(start.Value).TotalMilliseconds - aesw.GetSleptMs() >= Globals.GlobalQueryTimeout.Value)
                             {
                                 throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
                             }
@@ -1272,7 +1344,7 @@ namespace CodexMicroORM.Core
             if (Globals.GlobalQueryTimeout.HasValue)
             {
                 CancellationTokenSource cts = new();
-                DateTime start = DateTime.Now;
+                DateTime start = DateTime.UtcNow;
 
                 void b()
                 {
@@ -1334,6 +1406,8 @@ namespace CodexMicroORM.Core
 
             try
             {
+                DataAccessCallout?.Invoke("InternalDBAppendByKey", pop.GetType().Name + "Key");
+
                 pop.AddedIsNew = false;
 
                 Exception? tex = null;
@@ -1341,6 +1415,8 @@ namespace CodexMicroORM.Core
 
                 void a(CancellationToken ct, DateTime? start)
                 {
+                    using var aesw = new AppEventSubscriberWrapper();
+
                     foreach (var row in CurrentDBService().RetrieveByKey<T>(key))
                     {
                         if (Globals.GlobalQueryTimeout.HasValue)
@@ -1349,7 +1425,7 @@ namespace CodexMicroORM.Core
 
                             if (start.HasValue)
                             {
-                                if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                                if (DateTime.UtcNow.Subtract(start.Value).TotalMilliseconds - aesw.GetSleptMs() >= Globals.GlobalQueryTimeout.Value)
                                 {
                                     throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
                                 }
@@ -1374,6 +1450,8 @@ namespace CodexMicroORM.Core
 
             try
             {
+                DataAccessCallout?.Invoke("InternalDBAppendByQuery", cmdText);
+
                 pop.AddedIsNew = false;
 
                 Exception? tex = null;
@@ -1409,7 +1487,9 @@ namespace CodexMicroORM.Core
 
                 void a(CancellationToken ct, DateTime? start)
                 {
-                    long tickstart = DateTime.Now.Ticks;
+                    long tickstart = DateTime.UtcNow.Ticks;
+
+                    using var aesw = new AppEventSubscriberWrapper();
 
                     foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, cc, parms))
                     {
@@ -1419,7 +1499,7 @@ namespace CodexMicroORM.Core
 
                             if (start.HasValue)
                             {
-                                if (DateTime.Now.Subtract(start.Value).TotalMilliseconds >= Globals.GlobalQueryTimeout.Value)
+                                if (DateTime.UtcNow.Subtract(start.Value).TotalMilliseconds - aesw.GetSleptMs() >= Globals.GlobalQueryTimeout.Value)
                                 {
                                     throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value) / 1000)} sec).");
                                 }
@@ -1455,7 +1535,7 @@ namespace CodexMicroORM.Core
                         }
                     }
 
-                    _queryPerfInfo?.Invoke(cmdText, DateTime.Now.Ticks - tickstart);
+                    _queryPerfInfo?.Invoke(cmdText, DateTime.UtcNow.Ticks - tickstart);
                 }
 
                 tex = InternalRunQuery(ss, a);
@@ -1463,6 +1543,54 @@ namespace CodexMicroORM.Core
             finally
             {
                 pop.AddedIsNew = prevAddedIsNew;
+            }
+        }
+
+        #endregion
+
+        #region "Internal classes"
+
+        private class AppEventSubscriberWrapper : IDisposable
+        {
+            private Action<bool> _handler;
+            private DateTime? _lastSleep;
+            private double _sleptTime = 0;
+
+            public double GetSleptMs()
+            {
+                if (_lastSleep.HasValue)
+                {
+                    return DateTime.UtcNow.Subtract(_lastSleep.Value).TotalMilliseconds;
+                }
+
+                return _sleptTime;
+            }
+
+            public AppEventSubscriberWrapper()
+            {
+                _handler = InternalSubscribeAppEvents((s) =>
+                {
+                    if (s)
+                    {
+                        if (!_lastSleep.HasValue)
+                        {
+                            _lastSleep = DateTime.UtcNow;
+                        }
+                    }
+                    else
+                    {
+                        if (_lastSleep.HasValue)
+                        {
+                            _sleptTime += DateTime.UtcNow.Subtract(_lastSleep.Value).TotalMilliseconds;
+                            _lastSleep = null;
+                        }
+                    }
+                });
+            }
+
+            public void Dispose()
+            {
+                InternalUnsubscribeAppEvents(_handler);
             }
         }
 

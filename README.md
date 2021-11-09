@@ -456,6 +456,17 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Change/Add: MemoryFileSystemBacked caching - removed use of BinaryFormatter in favor of System.Text.Json (security *and* performance *and* fact BinaryFormatter appears to be heading out the door eventually)
 	* Add: MemoryFileSystemBacked caching - add optional encryption for file-backed data (AES) (see: SetEncryptionKeySource)
 	* Fix: warnings and other minor cleanup
+* 0.9.13 - November 2021
+    * Change (breaking): Rename of DateOnly type to OnlyDate. Why? .Net 6.0 introduces System.DateOnly. To help disambiguate, changing it here. All templates updated to new name. (Keeping CEF version since has certain advantages over System.DateOnly although may consider changing this in the future.)
+	* Add: GlobalSetActionPreview - similar to GlobalRowActionPreview but applies to entire set of rows being saved (both pre and post look)
+	* Add: DBSaveSettings.UserProperties - use of dictionary versus UserPayload (object) which is deprecated
+	* Add: RegisterPropertyNameTreatReadOnly / PropertyTreatAsIfReadOnlyAttribute - can be used with properties such as settable calculated values, mainly for the persistence layer to avoid (since could be computed) - use case: plain-text version of an encrypted field
+	* Add: CEF.SignalAppSleep/Resume - use case for mobile apps where when suspended, do not count against timeout intervals
+	* Add: CEF.DataAccessCallout - use case is checking MainThread.IsMainThread to do a hard stop during debugging to identify places inadvertently doing data access on a UI thread
+	* Add: Implement ISerializable on EntitySet and other serialization cleanup - important for debugging visualizer tooling
+	* Improvement: Null checking on Parallel/Sequential extension methods and other internal enhancements
+	* Change: Internal use of DateTime.Now changed to DateTime.UtcNow (should not have effects outside of framework)
+	* Change: small tweaks such as SequentialAsync ensuring work done on background thread, etc.
 
 ## Roadmap / Plans
 Look for in coming releases:
@@ -463,8 +474,6 @@ Look for in coming releases:
 * Support for more complex types of object mapping (as needed)
 * ZableDB as an optional storage provider (OODBMS with high performance Linq to Objects queries)
 * Real-world usage in the context of a published app (will be discussing at length in blog - [coming soon](https://www.wizerfood.com))
-
-Expect a 1.0 release in Fall 2021. This will be the transition point at which I've been testing it "live" for a while. ZableDB is something that I have working (quite nicely I might add) but am still deciding on the licensing approach.
 
 Come and subscribe to [blog updates](https://www.xskrape.com/Home/Articles).
 

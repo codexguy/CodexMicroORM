@@ -23,29 +23,29 @@ using System.Runtime.Serialization;
 
 namespace CodexMicroORM.Core
 {
-    internal class DateOnlyJsonConverter : JsonConverter<DateOnly>
+    internal class OnlyDateJsonConverter : JsonConverter<OnlyDate>
     {
-        public override DateOnly ReadJson(JsonReader reader, Type objectType, DateOnly existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override OnlyDate ReadJson(JsonReader reader, Type objectType, OnlyDate existingValue, bool hasExistingValue, JsonSerializer serializer)
         {
             var asint = reader.ReadAsInt32();
 
             if (!asint.HasValue)
             {
-                throw new InvalidOperationException("Invalid Json format for DateOnly (should be an integer).");
+                throw new InvalidOperationException("Invalid Json format for OnlyDate (should be an integer).");
             }
 
-            return new DateOnly(asint.Value);
+            return new OnlyDate(asint.Value);
         }
 
-        public override void WriteJson(JsonWriter writer, DateOnly value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, OnlyDate value, JsonSerializer serializer)
         {
             writer.WriteRawValue(value.GetAsInt().ToString());
         }
     }
 
     [Serializable]
-    [JsonConverter(typeof(DateOnlyJsonConverter))]
-    public readonly struct DateOnly : IComparable, IComparable<DateOnly>, IComparable<DateTime>, IConvertible, IEquatable<DateOnly>, IEquatable<DateTime>, IFormattable, ISerializable
+    [JsonConverter(typeof(OnlyDateJsonConverter))]
+    public readonly struct OnlyDate : IComparable, IComparable<OnlyDate>, IComparable<DateTime>, IConvertible, IEquatable<OnlyDate>, IEquatable<DateTime>, IFormattable, ISerializable
     {
         private readonly short Year;
         private readonly byte Month;
@@ -57,7 +57,7 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
-        private DateOnly(SerializationInfo info, StreamingContext context)
+        private OnlyDate(SerializationInfo info, StreamingContext context)
         {
             var i = info.GetInt32("v");
             Year = Convert.ToInt16(i / 10000);
@@ -65,14 +65,14 @@ namespace CodexMicroORM.Core
             Day = Convert.ToByte(i % 100);
         }
 
-        public DateOnly(DateTime from)
+        public OnlyDate(DateTime from)
         {
             Year = Convert.ToInt16(from.Year);
             Month = Convert.ToByte(from.Month);
             Day = Convert.ToByte(from.Day);
         }
 
-        public DateOnly(int year, int month, int day)
+        public OnlyDate(int year, int month, int day)
         {
             try
             {
@@ -91,11 +91,11 @@ namespace CodexMicroORM.Core
             }
         }
 
-        public DateOnly(byte[] from)
+        public OnlyDate(byte[] from)
         {
             if (from?.Length != 4)
             {
-                throw new ArgumentException("DateOnly invalid format.");
+                throw new ArgumentException("OnlyDate invalid format.");
             }
 
             int ai = -1;
@@ -123,16 +123,16 @@ namespace CodexMicroORM.Core
             return new(Year, Month, Day, 0, 0, 0, UseUtc ? DateTimeKind.Utc : DateTimeKind.Local);
         }
 
-        public static implicit operator DateTime(DateOnly from) => from.GetDateTime();
-        public static implicit operator DateTime?(DateOnly? from) => from.HasValue ? from.Value.GetDateTime() : null;
-        public static implicit operator DateTime?(DateOnly from) => from.GetDateTime();
-        public static implicit operator DateOnly(DateTime dt) => new(dt.Year, dt.Month, dt.Day);
-        public static implicit operator DateOnly?(DateTime? dt) => dt.HasValue ? new(dt.Value.Year, dt.Value.Month, dt.Value.Day) : null;
-        public static implicit operator DateOnly?(DateTime dt) => new(dt.Year, dt.Month, dt.Day);
+        public static implicit operator DateTime(OnlyDate from) => from.GetDateTime();
+        public static implicit operator DateTime?(OnlyDate? from) => from.HasValue ? from.Value.GetDateTime() : null;
+        public static implicit operator DateTime?(OnlyDate from) => from.GetDateTime();
+        public static implicit operator OnlyDate(DateTime dt) => new(dt.Year, dt.Month, dt.Day);
+        public static implicit operator OnlyDate?(DateTime? dt) => dt.HasValue ? new(dt.Value.Year, dt.Value.Month, dt.Value.Day) : null;
+        public static implicit operator OnlyDate?(DateTime dt) => new(dt.Year, dt.Month, dt.Day);
 
-        public static bool TryParse(string? src, out DateOnly parsed)
+        public static bool TryParse(string? src, out OnlyDate parsed)
         {
-            parsed = new DateOnly();
+            parsed = new OnlyDate();
 
             if (string.IsNullOrWhiteSpace(src))
             {
@@ -141,13 +141,13 @@ namespace CodexMicroORM.Core
 
             if (DateTime.TryParse(src, out var dt))
             {
-                parsed = new DateOnly(dt);
+                parsed = new OnlyDate(dt);
                 return true;
             }
 
             if (int.TryParse(src, out var dai))
             {
-                parsed = new DateOnly(dai);
+                parsed = new OnlyDate(dai);
                 return parsed.InternalValidate(null);
             }
 
@@ -164,7 +164,7 @@ namespace CodexMicroORM.Core
             return year >= 1 && year <= 9999 && month >= 1 && month <= 12 && day >= 1 && day <= 31;
         }
 
-        public DateOnly(int asint)
+        public OnlyDate(int asint)
         {
             Year = Convert.ToInt16(asint / 10000);
             Month = Convert.ToByte(asint / 100 % 100);
@@ -172,11 +172,11 @@ namespace CodexMicroORM.Core
 
             if (!InternalValidate(null))
             {
-                throw new ArgumentException($"Invalid DateOnly value ({asint}).");
+                throw new ArgumentException($"Invalid OnlyDate value ({asint}).");
             }
         }
 
-        public DateOnly(long aslong)
+        public OnlyDate(long aslong)
         {
             Year = Convert.ToInt16(aslong / 10000);
             Month = Convert.ToByte(aslong / 100 % 100);
@@ -184,7 +184,7 @@ namespace CodexMicroORM.Core
 
             if (!InternalValidate(null))
             {
-                throw new ArgumentException($"Invalid DateOnly value ({aslong}).");
+                throw new ArgumentException($"Invalid OnlyDate value ({aslong}).");
             }
         }
 
@@ -220,14 +220,14 @@ namespace CodexMicroORM.Core
 
         public override bool Equals(object obj)
         {
-            if (obj is DateOnly d)
+            if (obj is OnlyDate d)
             {
                 return (Year == d.Year && Month == d.Month && Day == d.Day);
             }
 
-            if (obj is DateOnly?)
+            if (obj is OnlyDate?)
             {
-                var d2 = (DateOnly?)obj;
+                var d2 = (OnlyDate?)obj;
 
                 if (d2.HasValue)
                 {
@@ -278,9 +278,9 @@ namespace CodexMicroORM.Core
                 return 1;
             }
 
-            if (obj.GetType() == typeof(DateOnly))
+            if (obj.GetType() == typeof(OnlyDate))
             {
-                return CompareTo((DateOnly)obj);
+                return CompareTo((OnlyDate)obj);
             }
 
             if (obj.GetType() == typeof(DateTime))
@@ -358,7 +358,7 @@ namespace CodexMicroORM.Core
 
         public object ToType(Type conversionType, IFormatProvider provider)
         {
-            if (conversionType == typeof(DateOnly) || conversionType == typeof(DateOnly?))
+            if (conversionType == typeof(OnlyDate) || conversionType == typeof(OnlyDate?))
             {
                 return this;
             }
@@ -386,13 +386,13 @@ namespace CodexMicroORM.Core
             throw new InvalidCastException();
         }
 
-        public int CompareTo(DateOnly other)
+        public int CompareTo(OnlyDate other)
         {
             var od = other.GetDateTime();
             return GetDateTime().CompareTo(od);
         }
 
-        public bool Equals(DateOnly other)
+        public bool Equals(OnlyDate other)
         {
             var od = other.GetDateTime();
             return GetDateTime() == od;
@@ -415,156 +415,156 @@ namespace CodexMicroORM.Core
         }
 
         //
-        public static bool operator ==(DateOnly left, DateOnly right)
+        public static bool operator ==(OnlyDate left, OnlyDate right)
         {
             return left.Year == right.Year && left.Month == right.Month && left.Day == right.Day;
         }
 
-        public static bool operator !=(DateOnly left, DateOnly right)
+        public static bool operator !=(OnlyDate left, OnlyDate right)
         {
             return left.Year != right.Year || left.Month != right.Month || left.Day != right.Day;
         }
 
-        public static bool operator >(DateOnly left, DateOnly right)
+        public static bool operator >(OnlyDate left, OnlyDate right)
         {
             return left.GetAsInt() > right.GetAsInt();
         }
 
-        public static bool operator <(DateOnly left, DateOnly right)
+        public static bool operator <(OnlyDate left, OnlyDate right)
         {
             return left.GetAsInt() < right.GetAsInt();
         }
 
-        public static bool operator >=(DateOnly left, DateOnly right)
+        public static bool operator >=(OnlyDate left, OnlyDate right)
         {
             return left.GetAsInt() >= right.GetAsInt();
         }
 
-        public static bool operator <=(DateOnly left, DateOnly right)
+        public static bool operator <=(OnlyDate left, OnlyDate right)
         {
             return left.GetAsInt() <= right.GetAsInt();
         }
 
         //
-        public static bool operator ==(DateOnly left, DateTime right)
+        public static bool operator ==(OnlyDate left, DateTime right)
         {
             return left.GetDateTime() == right;
         }
 
-        public static bool operator !=(DateOnly left, DateTime right)
+        public static bool operator !=(OnlyDate left, DateTime right)
         {
             return !(left.GetDateTime() == right);
         }
 
-        public static bool operator >(DateOnly left, DateTime right)
+        public static bool operator >(OnlyDate left, DateTime right)
         {
             return left.GetDateTime() > right;
         }
 
-        public static bool operator <(DateOnly left, DateTime right)
+        public static bool operator <(OnlyDate left, DateTime right)
         {
             return left.GetDateTime() < right;
         }
 
-        public static bool operator >=(DateOnly left, DateTime right)
+        public static bool operator >=(OnlyDate left, DateTime right)
         {
             return left.GetDateTime() >= right;
         }
 
-        public static bool operator <=(DateOnly left, DateTime right)
+        public static bool operator <=(OnlyDate left, DateTime right)
         {
             return left.GetDateTime() <= right;
         }
 
         //
-        public static bool operator ==(DateTime left, DateOnly right)
+        public static bool operator ==(DateTime left, OnlyDate right)
         {
             return left == right.GetDateTime();
         }
 
-        public static bool operator !=(DateTime left, DateOnly right)
+        public static bool operator !=(DateTime left, OnlyDate right)
         {
             return !(left == right.GetDateTime());
         }
 
-        public static bool operator >(DateTime left, DateOnly right)
+        public static bool operator >(DateTime left, OnlyDate right)
         {
             return left > right.GetDateTime();
         }
 
-        public static bool operator <(DateTime left, DateOnly right)
+        public static bool operator <(DateTime left, OnlyDate right)
         {
             return left < right.GetDateTime();
         }
 
-        public static bool operator >=(DateTime left, DateOnly right)
+        public static bool operator >=(DateTime left, OnlyDate right)
         {
             return left >= right.GetDateTime();
         }
 
-        public static bool operator <=(DateTime left, DateOnly right)
+        public static bool operator <=(DateTime left, OnlyDate right)
         {
             return left <= right.GetDateTime();
         }
 
         //
-        public static bool operator ==(DateOnly left, DateTime? right)
+        public static bool operator ==(OnlyDate left, DateTime? right)
         {
             return right.HasValue && left.GetDateTime() == right;
         }
 
-        public static bool operator !=(DateOnly left, DateTime? right)
+        public static bool operator !=(OnlyDate left, DateTime? right)
         {
             return right.HasValue && !(left.GetDateTime() == right);
         }
 
-        public static bool operator >(DateOnly left, DateTime? right)
+        public static bool operator >(OnlyDate left, DateTime? right)
         {
             return !right.HasValue || left.GetDateTime() > right;
         }
 
-        public static bool operator <(DateOnly left, DateTime? right)
+        public static bool operator <(OnlyDate left, DateTime? right)
         {
             return right.HasValue && left.GetDateTime() < right;
         }
 
-        public static bool operator >=(DateOnly left, DateTime? right)
+        public static bool operator >=(OnlyDate left, DateTime? right)
         {
             return !right.HasValue || left.GetDateTime() >= right;
         }
 
-        public static bool operator <=(DateOnly left, DateTime? right)
+        public static bool operator <=(OnlyDate left, DateTime? right)
         {
             return right.HasValue && left.GetDateTime() <= right;
         }
 
         //
-        public static bool operator ==(DateTime? left, DateOnly right)
+        public static bool operator ==(DateTime? left, OnlyDate right)
         {
             return left.HasValue && left == right.GetDateTime();
         }
 
-        public static bool operator !=(DateTime? left, DateOnly right)
+        public static bool operator !=(DateTime? left, OnlyDate right)
         {
             return left.HasValue && !(left == right.GetDateTime());
         }
 
-        public static bool operator >(DateTime? left, DateOnly right)
+        public static bool operator >(DateTime? left, OnlyDate right)
         {
             return left.HasValue && left > right.GetDateTime();
         }
 
-        public static bool operator <(DateTime? left, DateOnly right)
+        public static bool operator <(DateTime? left, OnlyDate right)
         {
             return !left.HasValue || left < right.GetDateTime();
         }
 
-        public static bool operator >=(DateTime? left, DateOnly right)
+        public static bool operator >=(DateTime? left, OnlyDate right)
         {
             return left.HasValue && left >= right.GetDateTime();
         }
 
-        public static bool operator <=(DateTime? left, DateOnly right)
+        public static bool operator <=(DateTime? left, OnlyDate right)
         {
             return !left.HasValue || left <= right.GetDateTime();
         }

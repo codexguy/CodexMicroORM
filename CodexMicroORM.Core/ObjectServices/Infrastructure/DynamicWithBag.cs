@@ -288,14 +288,14 @@ namespace CodexMicroORM.Core.Services
                         }
                     }
 
-                    if (ntt == typeof(DateOnly))
+                    if (ntt == typeof(OnlyDate))
                     {
                         if (valtype == typeof(DateTime))
                         {
-                            return new DateOnly((DateTime)source);
+                            return new OnlyDate((DateTime)source);
                         }
 
-                        if (DateOnly.TryParse(asstr, out DateOnly dov))
+                        if (OnlyDate.TryParse(asstr, out OnlyDate dov))
                         {
                             return dov;
                         }
@@ -305,7 +305,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         if (valtype == typeof(int) || valtype == typeof(long))
                         {
-                            if (DateOnly.TryParse(asstr, out DateOnly dov))
+                            if (OnlyDate.TryParse(asstr, out OnlyDate dov))
                             {
                                 return dov.ToDateTime();
                             }
@@ -341,14 +341,14 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                if (targetType == typeof(DateOnly))
+                if (targetType == typeof(OnlyDate))
                 {
                     if (valtype == typeof(DateTime))
                     {
-                        return new DateOnly((DateTime)source);
+                        return new OnlyDate((DateTime)source);
                     }
 
-                    if (DateOnly.TryParse(asstr, out DateOnly dov))
+                    if (OnlyDate.TryParse(asstr, out OnlyDate dov))
                     {
                         return dov;
                     }
@@ -358,7 +358,7 @@ namespace CodexMicroORM.Core.Services
                 {
                     if (valtype == typeof(int) || valtype == typeof(long))
                     {
-                        if (DateOnly.TryParse(asstr, out DateOnly dov))
+                        if (OnlyDate.TryParse(asstr, out OnlyDate dov))
                         {
                             return dov.ToDateTime();
                         }
@@ -468,7 +468,7 @@ namespace CodexMicroORM.Core.Services
 
             wl.Release();
 
-            if (_source != null)
+            if (_source != null && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(propName))
             {
                 var info = _source.FastGetAllProperties(true, true, propName);
 

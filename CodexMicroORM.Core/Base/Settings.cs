@@ -211,6 +211,7 @@ namespace CodexMicroORM.Core
             All = 7
         }
 
+        [Obsolete("Use UserProperties instead.")]
         public object? UserPayload
         {
             get;
@@ -234,6 +235,12 @@ namespace CodexMicroORM.Core
             get;
             set;
         } = Globals.ValidationFailureIsException;
+
+        public Dictionary<string, object> UserProperties
+        {
+            get;
+            set;
+        } = new();
 
         public bool? UseAsyncSave
         {
