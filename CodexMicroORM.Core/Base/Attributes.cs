@@ -208,12 +208,6 @@ namespace CodexMicroORM.Core
 
             foreach (var rel in relations)
             {
-                // bugbug todo
-                if (rel == "WizerFood.ObjectModel.ScheduledItem\\UserDayID\\\\")
-                {
-                    Console.Write("");
-                }
-
                 var typeAndFields = rel.Split('\\');
 
                 if (typeAndFields.Length != 4)

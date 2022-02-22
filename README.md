@@ -467,7 +467,7 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Improvement: Null checking on Parallel/Sequential extension methods and other internal enhancements
 	* Change: Internal use of DateTime.Now changed to DateTime.UtcNow (should not have effects outside of framework)
 	* Change: small tweaks such as SequentialAsync ensuring work done on background thread, etc.
-* 1.0.1 - March 2022
+* 1.0.1 - February 2022
 	* Add: MSSQLCommand.DiscoverRetryCount - joins MSSQLProcBasedProvider.OpenRetryCount to support more resilient DB ops
 	* Change: Split all SQL Server specific dependencies out of the Core project, adding a new CodexMicroORM.SQLServer package which can be referenced, if you're using SQL Server (if you aren't, then no need to carry SQLClient baggage!). Namespaces are all preserved as they were, meaning code should not break, just need to include the additional package reference in your projects. Also had to change protection levels in certain cases to allow this refactoring to work. Depends on Microsoft.Data.SqlClient (4+).
 	* Change: default degree of parallelism for ParallelAsync changed to an algorithm that adapts based on workload (eg. using in multiple places makes "aware" of load over entire process)
