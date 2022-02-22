@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -89,13 +89,13 @@ namespace CodexMicroORM.Core.Services
             set;
         }
 
-        internal HashSet<ICEFInfraWrapper> ToAcceptList
+        public HashSet<ICEFInfraWrapper> ToAcceptList
         {
             get;
             set;
         } = new HashSet<ICEFInfraWrapper>();
 
-        internal ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object? value)> data)> ToRollbackList
+        public ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object? value)> data)> ToRollbackList
         {
             get;
             set;

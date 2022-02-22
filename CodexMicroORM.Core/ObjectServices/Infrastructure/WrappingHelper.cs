@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -177,7 +177,7 @@ namespace CodexMicroORM.Core.Services
         /// <param name="ss"></param>
         /// <param name="visits"></param>
         /// <param name="justTraverse"></param>
-        internal static void CopyParsePropertyValues(IDictionary<string, object?>? sourceProps, object target, bool isNew, ServiceScope? ss, IDictionary<object, object> visits, bool justTraverse)
+        public static void CopyParsePropertyValues(IDictionary<string, object?>? sourceProps, object target, bool isNew, ServiceScope? ss, IDictionary<object, object> visits, bool justTraverse)
         {
             // Can disable this to improve performance - default is enabled
             if (!Globals.DoCopyParseProperties)

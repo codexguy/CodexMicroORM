@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 16
-VisualStudioVersion = 16.0.30011.22
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31912.275
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CodexMicroORM.Core", "CodexMicroORM.Core\CodexMicroORM.Core.csproj", "{0BE418F4-B416-4945-B664-B052B9BF4947}"
 EndProject
@@ -14,6 +14,8 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CodexMicroORM.CodexV1CompatLayer", "CodexMicroORM.CodexV1CompatLayer\CodexMicroORM.CodexV1CompatLayer\CodexMicroORM.CodexV1CompatLayer.csproj", "{070C267E-E5C0-4570-A65F-F40E772C13F9}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CodexMicroORM.BaseTests", "BaseTests\CodexMicroORM.BaseTests.csproj", "{B79D3ADD-D81F-48C9-8873-85CED03A9E8A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexMicroORM.SQLServer", "CodexMicroORM.SQLServer\CodexMicroORM.SQLServer.csproj", "{8B2BBBDF-5065-4A0E-BD1E-290D549E234C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -33,6 +35,10 @@ Global
 		{B79D3ADD-D81F-48C9-8873-85CED03A9E8A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B79D3ADD-D81F-48C9-8873-85CED03A9E8A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B79D3ADD-D81F-48C9-8873-85CED03A9E8A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8B2BBBDF-5065-4A0E-BD1E-290D549E234C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8B2BBBDF-5065-4A0E-BD1E-290D549E234C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8B2BBBDF-5065-4A0E-BD1E-290D549E234C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8B2BBBDF-5065-4A0E-BD1E-290D549E234C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

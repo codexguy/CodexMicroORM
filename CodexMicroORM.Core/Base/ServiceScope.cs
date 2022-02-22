@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -1466,7 +1466,7 @@ namespace CodexMicroORM.Core
                     // If type includes property groups, copy values here (as well as on notifications - which may or may not have done it already)
                     db?.CopyPropertyGroupValues(to.GetWrapperTarget());
 
-                    if (!(to.GetTarget() is INotifyPropertyChanged) || Globals.CheckDirtyItemsForRealChanges)
+                    if (to.GetTarget() is not INotifyPropertyChanged || Globals.CheckDirtyItemsForRealChanges)
                     {
                         if (to.GetInfra() is DynamicWithValuesAndBag dyn)
                         {
@@ -1553,8 +1553,16 @@ namespace CodexMicroORM.Core
                                 {
                                     if (v.GetCreateInfra() is DynamicWithValuesAndBag db)
                                     {
-                                        if (db.GetRowState(settings.ConsiderBagPropertiesOnSave) is not ObjectState.Unlinked and not ObjectState.Unchanged)
+                                        var rs = db.GetRowState(settings.ConsiderBagPropertiesOnSave);
+
+                                        if (rs is not ObjectState.Unlinked and not ObjectState.Unchanged)
                                         {
+                                            // Special case - for modified rows, try to detect if a parent link (by value) has changed, if so need to establish relationship
+                                            if (rs is ObjectState.Modified or ObjectState.ModifiedPriority)
+                                            {
+                                                LinkByValuesInScope(v);
+                                            }
+
                                             lock (tosave)
                                             {
                                                 tosave.Add(db);
@@ -1615,6 +1623,36 @@ namespace CodexMicroORM.Core
                     else
                     {
                         throw;
+                    }
+                }
+            }
+        }
+
+
+        internal void LinkByValuesInScope(TrackedObject to)
+        {
+            var o = to.GetWrapperTarget();
+
+            if (o != null)
+            {
+                foreach (var svc in ResolveTypeServices(o))
+                {
+                    if (svc is KeyService ks)
+                    {
+                        Type? svcStateType = svc.IdentifyStateType(o, this, false);
+
+                        if (svcStateType != null)
+                        {
+                            if (_serviceState.TryGetValue(svcStateType, out var state))
+                            {
+                                if (state is KeyService.KeyServiceState kss)
+                                {
+                                    ks.LinkByValuesInScope(to, this, kss);
+                                }
+                            }
+                        }
+
+                        return;
                     }
                 }
             }

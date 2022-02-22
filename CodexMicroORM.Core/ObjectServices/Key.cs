@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -573,7 +573,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private void LinkByValuesInScope(ServiceScope.TrackedObject to, ServiceScope ss, KeyServiceState objstate)
+        internal void LinkByValuesInScope(ServiceScope.TrackedObject to, ServiceScope ss, KeyServiceState objstate)
         {
             var iw = to.GetCreateInfra();
 
@@ -1111,7 +1111,7 @@ namespace CodexMicroORM.Core.Services
 
                 public override bool Equals(object obj)
                 {
-                    if (!(obj is CompositeItemWrapper))
+                    if (obj is not CompositeItemWrapper)
                     {
                         return false;
                     }
@@ -1254,7 +1254,7 @@ namespace CodexMicroORM.Core.Services
 
                 public override bool Equals(object obj)
                 {
-                    if (!(obj is CompositeWrapper))
+                    if (obj is not CompositeWrapper)
                     {
                         return false;
                     }

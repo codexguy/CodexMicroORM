@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -536,7 +536,7 @@ namespace CodexMicroORM.Providers
 
         IEnumerable<(string name, object? value)>? IDBProvider.ExecuteNoResultSet(ConnectionScope conn, System.Data.CommandType cmdType, string cmdText, params object?[] parms)
         {
-            var sn = MSSQLCommand.SplitIntoSchemaAndName(cmdText);
+            var sn = cmdText.SplitIntoSchemaAndName();
 
             var schema = DefaultSchema ?? DEFAULT_DB_SCHEMA;
 
@@ -839,7 +839,7 @@ namespace CodexMicroORM.Providers
                         throw new CEFInvalidStateException(InvalidStateType.SQLLayer, "Missing command text");
                     }
 
-                    var sn = MSSQLCommand.SplitIntoSchemaAndName(cmdText!);
+                    var sn = cmdText.SplitIntoSchemaAndName();
                     
                     if (!string.IsNullOrEmpty(sn.schema))
                     {

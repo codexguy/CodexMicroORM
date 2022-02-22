@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -57,6 +57,8 @@ namespace CodexMicroORM.Core
             set;
         } = true;
 
+        public static OnlyDate MaxValue => new(9999, 12, 31);
+
         private OnlyDate(SerializationInfo info, StreamingContext context)
         {
             var i = info.GetInt32("v");
@@ -70,6 +72,16 @@ namespace CodexMicroORM.Core
             Year = Convert.ToInt16(from.Year);
             Month = Convert.ToByte(from.Month);
             Day = Convert.ToByte(from.Day);
+        }
+
+        public static OnlyDate? CreateFrom(DateTime? from)
+        {
+            if (from.HasValue)
+            {
+                return new OnlyDate(from.Value);
+            }
+
+            return null;
         }
 
         public OnlyDate(int year, int month, int day)

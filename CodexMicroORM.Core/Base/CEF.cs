@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -1552,7 +1552,7 @@ namespace CodexMicroORM.Core
 
         private class AppEventSubscriberWrapper : IDisposable
         {
-            private Action<bool> _handler;
+            private readonly Action<bool> _handler;
             private DateTime? _lastSleep;
             private double _sleptTime = 0;
 

@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Collections.ObjectModel;
+using System.Threading;
 #if CGEH
 namespace CodexMicroORM.Core.CG
 #else
@@ -83,6 +84,21 @@ namespace CodexMicroORM.Core
     public static class PublicExtensions
     {
         private static readonly ConcurrentDictionary<Type, Type> _typeMap = new();
+
+        private static readonly Regex _splitter = new(@"^(?:\[?(?<s>.+?)\]?\.)?\[?(?<n>.+?)\]?$", RegexOptions.Compiled);
+
+        private static long _parallelCount = 0;
+
+        public static (string schema, string name) SplitIntoSchemaAndName(this string? fullname)
+        {
+            if (string.IsNullOrWhiteSpace(fullname))
+            {
+                return ("", "");
+            }
+
+            var matObj = _splitter.Match(fullname);
+            return (matObj.Groups["s"].Value, matObj.Groups["n"].Value);
+        }
 
         public static int MinOf(this int i1, int i2)
         {
@@ -277,6 +293,15 @@ namespace CodexMicroORM.Core
             }
         }
 
+        private static int ParallelToRun()
+        {
+            var pc = Environment.ProcessorCount;
+            var cc = Interlocked.Read(ref _parallelCount);
+            var torun = 2.0 * (pc * pc) / (cc == 0 ? 1 : cc);
+            var res = Convert.ToInt32(torun < 2 ? 2 : torun > pc * 2 ? pc * 2 : torun);
+            return res;
+        }
+
         /// <summary>
         /// Processes elements of source enumerable, in parallel using async. Any exceptions are collected and thrown in an AggregateException at end. Supports gauranteed exec over all elements or stop on error.
         /// </summary>
@@ -295,7 +320,7 @@ namespace CodexMicroORM.Core
 
             if (dop.GetValueOrDefault() <= 0)
             {
-                dop = Environment.ProcessorCount;
+                dop = ParallelToRun();
             }
 
             List<Exception> faults = new();
@@ -309,7 +334,8 @@ namespace CodexMicroORM.Core
 
                 if (morework)
                 {
-                    worklist.Add(ProcessAsync(senum.Current, work));
+                    var wi = senum.Current;
+                    worklist.Add(Task.Run(async () => { return await ProcessAsync(wi, work).ConfigureAwait(false); }));
                 }
             }
 
@@ -336,9 +362,13 @@ namespace CodexMicroORM.Core
                             }
                         }
 
-                        worklist[i] = ProcessAsync(senum.Current, work);
-
                         morework = senum.MoveNext();
+
+                        if (morework)
+                        {
+                            var wi = senum.Current;
+                            worklist[i] = Task.Run(async () => { return await ProcessAsync(wi, work).ConfigureAwait(false); });
+                        }
                     }
                 }
             }
@@ -382,7 +412,7 @@ namespace CodexMicroORM.Core
 
             if (dop.GetValueOrDefault() <= 0)
             {
-                dop = Environment.ProcessorCount;
+                dop = ParallelToRun();
             }
 
             List<Exception> faults = new();
@@ -396,7 +426,8 @@ namespace CodexMicroORM.Core
 
                 if (morework)
                 {
-                    worklist.Add(ProcessAsync(senum.Current, work));
+                    var wi = senum.Current;
+                    worklist.Add(Task.Run(async () => { return await ProcessAsync(wi, work).ConfigureAwait(false); }));
                 }
             }
 
@@ -423,9 +454,13 @@ namespace CodexMicroORM.Core
                             }
                         }
 
-                        worklist[i] = ProcessAsync(senum.Current, work);
-
                         morework = senum.MoveNext();
+
+                        if (morework)
+                        {
+                            var wi = senum.Current;
+                            worklist[i] = Task.Run(async () => { return await ProcessAsync(wi, work).ConfigureAwait(false); });
+                        }
                     }
                 }
             }
@@ -472,12 +507,17 @@ namespace CodexMicroORM.Core
         {
             try
             {
+                Interlocked.Increment(ref _parallelCount);
                 await taskSelector(item);
                 return null;
             }
             catch (Exception ex)
             {
                 return ex;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _parallelCount);
             }
         }
 
@@ -1508,6 +1548,55 @@ namespace CodexMicroORM.Core
             }
 
             return n;
+        }
+
+        /// <summary>
+        /// Copies all shared properties from one instance to another instance of any arbitrary type. This overload supports preview of before/after values, allows selective overwrite.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="src"></param>
+        /// <param name="dest"></param>
+        public static void CopySharedTo(this object src, object dest, Func<string, object?, object?, bool> previewHandler)
+        {
+            if (src == null)
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(src));
+
+            if (dest == null)
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(dest));
+
+            // We can copy from non-nullable to nullable (always)
+            foreach (var name in (from a in src.FastGetAllProperties(true, true)
+                                  join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                  where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type)
+                                  && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
+                                  select a.name))
+            {
+                var sv = src.FastGetValue(name);
+                var dv = dest.FastGetValue(name);
+
+                if (previewHandler(name, sv, dv))
+                {
+                    dest.FastSetValue(name, sv);
+                }
+            }
+
+            // We can additionally copy from nullable to non-nullable, but only if the nullable actually holds a non-null value
+            foreach (var fi in (from a in src.FastGetAllProperties(true, true)
+                                join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                where a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type
+                                    && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
+                                let v = src.FastGetValue(a.name)
+                                where v != null
+                                select new { a.name, value = v }))
+            {
+                var sv = fi.value;
+                var dv = dest.FastGetValue(fi.name);
+
+                if (previewHandler(fi.name, sv, dv))
+                {
+                    dest.FastSetValue(fi.name, sv);
+                }
+            }
         }
 
         /// <summary>

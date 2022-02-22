@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -159,7 +159,7 @@ namespace CodexMicroORM.Providers
                         CommandType = CommandType.StoredProcedure
                     };
 
-                    var (schema, name) = SplitIntoSchemaAndName(_cmd.CommandText);
+                    var (schema, name) = _cmd.CommandText.SplitIntoSchemaAndName();
 
                     if (string.IsNullOrEmpty(name))
                     {

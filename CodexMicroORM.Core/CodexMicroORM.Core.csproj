@@ -3,11 +3,11 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net461</TargetFrameworks>
 	<PackageId>CodexMicroORM.Core</PackageId>
-	<Version>0.9.13</Version>
+	<Version>1.0.1</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Product>CodexMicroORM.Core</Product>
-	<Copyright>Copyright (c) 2021, All Rights Reserved</Copyright>
+	<Copyright>Copyright (c) 2022, All Rights Reserved</Copyright>
 	<PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
 	<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 	<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
@@ -17,11 +17,11 @@
 	<PackageIconUrl></PackageIconUrl>
 	<ApplicationIcon>xSkrape.ico</ApplicationIcon>
 	<PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
-	<AssemblyVersion>0.9.13.0</AssemblyVersion>
-	<FileVersion>0.9.13.0</FileVersion>
+	<AssemblyVersion>1.0.1.0</AssemblyVersion>
+	<FileVersion>1.0.1.0</FileVersion>
 	<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
 	<PackageIcon>xSkrapeIcon.jpg</PackageIcon>
-    <LangVersion>9.0</LangVersion>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -29,14 +29,20 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="DatabaseProviders\**" />
+    <EmbeddedResource Remove="DatabaseProviders\**" />
+    <None Remove="DatabaseProviders\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="ObjectServices\Infrastructure\ValueTrackingWrapper.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="3.0.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="System.Collections.Immutable" Version="6.0.0" />
+    <PackageReference Include="System.Text.Json" Version="6.0.2" />
   </ItemGroup>
 
   <ItemGroup>

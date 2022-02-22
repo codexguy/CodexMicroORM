@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,8 +35,8 @@ namespace CodeXFramework.BaseEntity
 #pragma warning restore IDE0060 // Remove unused parameter
         {
             int idx = 0;
-            List<Exception> errors = new List<Exception>();
-            List<object> data = new List<object>();
+            List<Exception> errors = new();
+            List<object> data = new();
 
             if (src.Count <= smalllist)
             {

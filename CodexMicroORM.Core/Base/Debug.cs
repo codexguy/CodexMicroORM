@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ using System.Text;
 using CodexMicroORM.Core.Services;
 using System.Diagnostics;
 using System.Linq;
-using Microsoft.Data.SqlClient;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -409,8 +408,10 @@ namespace CodexMicroORM.Core
 
         public static string ReturnServiceScope(string? typename = null)
         {
-#if !DEBUG
-            throw new InvalidOperationException("Not intended for release builds.");
+#if DEBUG
+#else
+            return string.Empty;
+            //throw new InvalidOperationException("Not intended for release builds.");
 #endif
             StringBuilder sb2 = new();
 

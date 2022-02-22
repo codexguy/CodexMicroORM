@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -438,7 +438,7 @@ namespace CodexMicroORM.Core.Services
 
             if (!string.IsNullOrEmpty(settings.EntityPersistName))
             {
-                var (schema, name) = MSSQLCommand.SplitIntoSchemaAndName(settings.EntityPersistName!);
+                var (schema, name) = settings.EntityPersistName!.SplitIntoSchemaAndName();
                 schemaOverride = schema;
                 nameOverride = name;
             }

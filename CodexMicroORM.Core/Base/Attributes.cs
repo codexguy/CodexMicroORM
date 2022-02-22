@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2021 CodeX Enterprises LLC
+Copyright 2022 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -208,6 +208,12 @@ namespace CodexMicroORM.Core
 
             foreach (var rel in relations)
             {
+                // bugbug todo
+                if (rel == "WizerFood.ObjectModel.ScheduledItem\\UserDayID\\\\")
+                {
+                    Console.Write("");
+                }
+
                 var typeAndFields = rel.Split('\\');
 
                 if (typeAndFields.Length != 4)

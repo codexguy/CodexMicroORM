@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net461</TargetFrameworks>
+	<LangVersion>latest</LangVersion>
+	<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+	<Version>1.0.1</Version>
+	<Authors>CodeX Enterprises LLC</Authors>
+	<Company>CodeX Enterprises LLC</Company>
+	<Description>The database provider code to implement support for Microsoft SQL Server using the CodexMicroORM application framework.</Description>
+	<Copyright>Copyright (c) 2022, All Rights Reserved</Copyright>
+	<PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
+	<PackageIcon>xSkrapeIcon.jpg</PackageIcon>
+	<PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
+	<PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
+	<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+	<PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\CodexMicroORM.Core\xSkrapeIcon.jpg">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="4.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CodexMicroORM.Core\CodexMicroORM.Core.csproj" />
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="xcopy $(TargetDir)*.* C:\Source\WizerFood\WizerFoodWeb\SharedBin\ /y /c" />
+  </Target>
+
+</Project>
