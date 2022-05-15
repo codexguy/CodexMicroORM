@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.0;net461</TargetFrameworks>
 	<LangVersion>latest</LangVersion>
 	<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-	<Version>1.0.1</Version>
+	<Version>1.0.2</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Description>The database provider code to implement support for Microsoft SQL Server using the CodexMicroORM application framework.</Description>

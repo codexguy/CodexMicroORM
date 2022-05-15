@@ -934,7 +934,7 @@ namespace CodexMicroORM.Providers
                         }
 
                         no = new T();
-                        WrappingHelper.CopyParsePropertyValues(propVals, no, false, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), false);
+                        WrappingHelper.CopyParsePropertyValues(propVals, no, false, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), false, false);
                     }
 
                     // Handle property groups if they exist for this type

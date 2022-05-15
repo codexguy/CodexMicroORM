@@ -168,6 +168,32 @@ namespace CodexMicroORM.Core.Services
             return wrappedCol;
         }
 
+        public static HashSet<string> PopulateNestedPropertiesFromValues(object o, IDictionary<string, object?> props)
+        {
+            HashSet<string> wasSet = new();
+
+            foreach (var extprop in ServiceScope.ResolvedAdditionalPropertyHosts(o.GetType()))
+            {
+                var nestprop = o.FastGetValue(extprop);
+
+                if (nestprop != null)
+                {
+                    var tprops = nestprop.FastGetAllProperties(true, true);
+
+                    foreach (var (name, _, _, _) in tprops)
+                    {
+                        if (props.TryGetValue(name, out var nv))
+                        {
+                            nestprop.FastSetValue(name, nv);
+                            wasSet.Add(name);
+                        }
+                    }
+                }
+            }
+
+            return wasSet;
+        }
+
         /// <summary>
         /// Recursively parse property values for an object graph. This not only adjusts collection types to be trackable concrete types, but registers child objects into the current service scope.
         /// </summary>
@@ -177,10 +203,10 @@ namespace CodexMicroORM.Core.Services
         /// <param name="ss"></param>
         /// <param name="visits"></param>
         /// <param name="justTraverse"></param>
-        public static void CopyParsePropertyValues(IDictionary<string, object?>? sourceProps, object target, bool isNew, ServiceScope? ss, IDictionary<object, object> visits, bool justTraverse)
+        public static void CopyParsePropertyValues(IDictionary<string, object?>? sourceProps, object target, bool isNew, ServiceScope? ss, IDictionary<object, object> visits, bool justTraverse, bool simpleCopy)
         {
             // Can disable this to improve performance - default is enabled
-            if (!Globals.DoCopyParseProperties)
+            if (!Globals.DoCopyParseProperties && !simpleCopy)
             {
                 return;
             }
@@ -209,8 +235,9 @@ namespace CodexMicroORM.Core.Services
                 void a((string PropName, object SourceVal, Type TargPropType) info)
                 {
                     object? wrapped = null;
+                    bool setval = false;
 
-                    if (ss != null && IsWrappableListType(info.TargPropType, info.SourceVal))
+                    if (ss != null && !simpleCopy && IsWrappableListType(info.TargPropType, info.SourceVal))
                     {
                         ICEFList? wrappedCol = null;
 
@@ -261,43 +288,54 @@ namespace CodexMicroORM.Core.Services
                         if (ss != null && info.SourceVal != null)
                         {
                             var svt = info.SourceVal.GetType();
+                            bool svtok = false;
 
-                            if (!_sourceValTypeOk.TryGetValue(svt, out bool svtok))
+                            if (!simpleCopy && !_sourceValTypeOk.TryGetValue(svt, out svtok))
                             {
                                 svtok = !svt.IsValueType && svt != typeof(string) && KeyService.ResolveKeyDefinitionForType(svt).Any();
                                 _sourceValTypeOk[svt] = svtok;
                             }
 
-                            if (svtok)
+                            if (simpleCopy && !justTraverse)
                             {
-                                if (visits.ContainsKey(info.SourceVal))
-                                {
-                                    wrapped = visits[info.SourceVal] ?? info.SourceVal;
-                                }
-                                else
-                                {
-                                    var to = ss.GetTrackedByWrapperOrTarget(info.SourceVal);
-
-                                    if (to == null)
-                                    {
-                                        wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, null, visits, true, true);
-                                    }
-                                    else
-                                    {
-                                        wrapped = to.GetWrapperTarget();
-                                    }
-                                }
-
-                                if (wrapped != null)
-                                {
-                                    target.FastSetValue(info.PropName, wrapped);
-                                }
+                                target.FastSetValue(info.PropName, info.SourceVal);
+                                setval = true;
                             }
                             else
                             {
-                                if (!justTraverse)
+                                if (svtok)
                                 {
-                                    target.FastSetValue(info.PropName, info.SourceVal);
+                                    if (visits.ContainsKey(info.SourceVal))
+                                    {
+                                        wrapped = visits[info.SourceVal] ?? info.SourceVal;
+                                    }
+                                    else
+                                    {
+                                        var to = ss.GetTrackedByWrapperOrTarget(info.SourceVal);
+
+                                        if (to == null)
+                                        {
+                                            wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, null, visits, true, true);
+                                        }
+                                        else
+                                        {
+                                            wrapped = to.GetWrapperTarget();
+                                        }
+                                    }
+
+                                    if (wrapped != null)
+                                    {
+                                        target.FastSetValue(info.PropName, wrapped);
+                                        setval = true;
+                                    }
+                                }
+                                else
+                                {
+                                    if (!justTraverse)
+                                    {
+                                        target.FastSetValue(info.PropName, info.SourceVal);
+                                        setval = true;
+                                    }
                                 }
                             }
                         }
@@ -306,6 +344,7 @@ namespace CodexMicroORM.Core.Services
                             if (!justTraverse)
                             {
                                 target.FastSetValue(info.PropName, info.SourceVal);
+                                setval = true;
                             }
                         }
                     }
@@ -359,7 +398,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            CopyParsePropertyValues(props, target, isNew, ss, visits, false);
+            CopyParsePropertyValues(props, target, isNew, ss, visits, false, false);
         }
 
         private static ICEFWrapper? InternalCreateWrapper(bool isNew, object o, bool missingAllowed, ServiceScope ss, IDictionary<object, ICEFWrapper> wrappers, IDictionary<object, object> visits)
@@ -408,7 +447,7 @@ namespace CodexMicroORM.Core.Services
                     throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue, $"Failed to create wrapper object of type {fqn} for object of type {o.GetType().Name}.");
                 }
 
-                if (!(wrapper is ICEFWrapper))
+                if (wrapper is not ICEFWrapper)
                 {
                     if (missingAllowed)
                     {
@@ -436,10 +475,16 @@ namespace CodexMicroORM.Core.Services
             return InternalCreateWrapper(isNew, o, Globals.MissingWrapperAllowed, ss, new Dictionary<object, ICEFWrapper>(Globals.DefaultDictionaryCapacity), visits ?? new Dictionary<object, object>(Globals.DefaultDictionaryCapacity));
         }
 
-        public static ICEFInfraWrapper? CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ObjectState? initState, IDictionary<string, object?>? props, IDictionary<string, Type>? types)
+        public static ICEFInfraWrapper? CreateInfraWrapper(WrappingSupport need, WrappingAction action, bool isNew, object o, ObjectState? initState, IDictionary<string, object?>? props, IDictionary<string, Type>? types, ServiceScope? ss)
         {
             // Goal is to provision the lowest overhead object based on need!
             ICEFInfraWrapper? infrawrap = null;
+
+            // New case supported: type has extended properties we need to explicitly set
+            if (props != null)
+            {
+                PopulateNestedPropertiesFromValues(o, props);
+            }
 
             if (action != WrappingAction.NoneOrProvisionedAlready)
             {

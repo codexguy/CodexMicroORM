@@ -107,6 +107,21 @@ namespace CodexMicroORM.Core
         }
     }
 
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+    public sealed class EntityAdditionalPropertiesAttribute : Attribute
+    {
+        public EntityAdditionalPropertiesAttribute(string propname)
+        {
+            PropertyName = propname;
+        }
+
+        public string PropertyName
+        {
+            get;
+            private set;
+        }
+    }
+
     public sealed class EntityDateHandlingAttribute : Attribute
     {
         public EntityDateHandlingAttribute(PropertyDateStorage mode)

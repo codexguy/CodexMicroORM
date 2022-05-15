@@ -76,7 +76,7 @@ namespace CodexMicroORM.Core
                 return GetInfra() as INotifyPropertyChanged;
             }
 
-            public ICEFInfraWrapper? GetCreateInfra()
+            public ICEFInfraWrapper? GetCreateInfra(ServiceScope? ss = null)
             {
                 var infra = GetInfra();
 
@@ -89,7 +89,7 @@ namespace CodexMicroORM.Core
                 if (wt == null)
                     throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
 
-                Infra = WrappingHelper.CreateInfraWrapper(WrappingSupport.All, WrappingAction.Dynamic, false, wt, null, null, null);
+                Infra = WrappingHelper.CreateInfraWrapper(WrappingSupport.All, WrappingAction.Dynamic, false, wt, null, null, null, ss ?? CEF.CurrentServiceScope);
                 return Infra;
             }
 

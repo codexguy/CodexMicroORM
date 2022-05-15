@@ -575,7 +575,7 @@ namespace CodexMicroORM.Core.Services
 
         internal void LinkByValuesInScope(ServiceScope.TrackedObject to, ServiceScope ss, KeyServiceState objstate)
         {
-            var iw = to.GetCreateInfra();
+            var iw = to.GetCreateInfra(ss);
 
             if (iw != null)
             {

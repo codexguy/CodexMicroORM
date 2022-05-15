@@ -14,10 +14,11 @@
     <Description>For users of CodexFramework V1.0, this package offers a way to change less code when migrating to use CodexMicroORM as a replacement framework.</Description>
     <PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
     <PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
-    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageIcon>xSkrapeIcon.jpg</PackageIcon>
     <LangVersion>latest</LangVersion>
+    <FileVersion>1.0.2.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>

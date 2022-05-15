@@ -474,6 +474,11 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Change: ParallelASync uses configureawait(false); achieve higher parallelism
 	* Fix: ParallelAsync could process specific item twice
 	* Fix: handle scenario of updating parent ID on child record to point at a new parent (previously could get FK error due to update-before-insert)
+* 1.0.2 - May 2022
+    * Fix: OnlyDate Json serialization fix
+	* Fix: link values fix (edge case noticed during additional properties work)
+	* Add: EntityAdditionalProperties attribute; supported in code gen where can use POCO "additional properties" nested classes for stored procs that extend an existing entity (and infrastructure to support this feature); this can result in a better experience dealing with these types of properties, where values are not dependent on the service scope (values can be passed outside of service scope, etc.)
+	* Add: FastGetAllPropertiesAsDictionary
 
 ## Roadmap / Plans
 Look for in coming releases:

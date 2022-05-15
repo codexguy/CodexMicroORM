@@ -118,6 +118,12 @@ namespace CodexMicroORM.Core
                             PreviewHandler?.Invoke((t, null, typeof(EntityDoNotSaveAttribute)));
                             typeof(ServiceScope).GetMethod("RegisterDoNotSave").MakeGenericMethod(t).Invoke(null, Array.Empty<object>());
                         }
+
+                        foreach (EntityAdditionalPropertiesAttribute addPropAttr in t.GetCustomAttributes<EntityAdditionalPropertiesAttribute>())
+                        {
+                            PreviewHandler?.Invoke((t, null, typeof(EntityAdditionalPropertiesAttribute)));
+                            typeof(ServiceScope).GetMethod("AddAdditionalPropertyHost").MakeGenericMethod(t).Invoke(null, new object[] { addPropAttr.PropertyName });
+                        }
                     }
                     catch
                     {

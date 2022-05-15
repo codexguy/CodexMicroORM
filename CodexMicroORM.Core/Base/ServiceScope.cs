@@ -56,6 +56,7 @@ namespace CodexMicroORM.Core
         private static readonly ConcurrentDictionary<Type, int> _cacheDurByType = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static readonly ConcurrentDictionary<Type, bool> _cacheOnlyMemByType = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static readonly ConcurrentDictionary<(Type, string), PropertyDateStorage> _dateConversionByTypeAndProp = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, IList<string>> _additionalPropByType = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private static readonly HashSet<Type> _doNotSave = new();
         private static long _currentSaveNestLevel = 0;
 
@@ -151,6 +152,17 @@ namespace CodexMicroORM.Core
         public static void SetCacheOnlyMemory<T>(bool onlyMem = true)
         {
             _cacheOnlyMemByType[typeof(T)] = onlyMem;
+        }
+
+        public static void AddAdditionalPropertyHost<T>(string propname)
+        {
+            if (!_additionalPropByType.TryGetValue(typeof(T), out var list))
+            {
+                list = new List<string>();
+                _additionalPropByType[typeof(T)] = list;
+            }
+
+            list.Add(propname);
         }
 
         public static void SetDateStorageMode<T>(string prop, PropertyDateStorage mode)
@@ -360,6 +372,21 @@ namespace CodexMicroORM.Core
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Returns 0, 1 or many property names that represent classes that can hold additional "extended" properties to be set when data is being retrieved from a storage provider.
+        /// </summary>
+        /// <param name="t"></param>
+        /// <returns></returns>
+        public static IEnumerable<string> ResolvedAdditionalPropertyHosts(Type t)
+        {
+            if (_additionalPropByType.TryGetValue(t, out var list))
+            {
+                return list;
+            }
+
+            return Array.Empty<string>();
         }
 
         /// <summary>
@@ -583,7 +610,7 @@ namespace CodexMicroORM.Core
             {
                 if (canCreate)
                 {
-                    dwb = to.GetCreateInfra() as DynamicWithBag;
+                    dwb = to.GetCreateInfra(this) as DynamicWithBag;
                 }
                 else
                 {
@@ -593,7 +620,7 @@ namespace CodexMicroORM.Core
 
             if (dwb == null && canCreate)
             {
-                return WrappingHelper.CreateInfraWrapper(WrappingSupport.All, WrappingAction.Dynamic, false, o, null, null, null) as DynamicWithBag;
+                return WrappingHelper.CreateInfraWrapper(WrappingSupport.All, WrappingAction.Dynamic, false, o, null, null, null, this) as DynamicWithBag;
             }
 
             return dwb;
@@ -650,7 +677,7 @@ namespace CodexMicroORM.Core
             {
                 if (to.IsAlive)
                 {
-                    var iw = to.GetCreateInfra();
+                    var iw = to.GetCreateInfra(this);
 
                     if (iw != null)
                     {
@@ -1147,7 +1174,7 @@ namespace CodexMicroORM.Core
 
             if (canCreate)
             {
-                return to.GetCreateInfra();
+                return to.GetCreateInfra(this);
             }
             else
             {
@@ -1551,7 +1578,7 @@ namespace CodexMicroORM.Core
                             {
                                 if (!_doNotSave.Contains(target.GetType()) && (settings.IgnoreObjectType == null || target.GetType() != settings.IgnoreObjectType))
                                 {
-                                    if (v.GetCreateInfra() is DynamicWithValuesAndBag db)
+                                    if (v.GetCreateInfra(this) is DynamicWithValuesAndBag db)
                                     {
                                         var rs = db.GetRowState(settings.ConsiderBagPropertiesOnSave);
 
@@ -1730,8 +1757,18 @@ namespace CodexMicroORM.Core
 
                             if (pkto != null)
                             {
+                                var wt = pkto.GetWrapperTarget();
+
                                 if (props != null)
                                 {
+                                    HashSet<string> wasSet = new();
+
+                                    if (wt != null)
+                                    {
+                                        // If there are "extra" properties, see if this type enlists extended prop classes, if so, try to set these, too
+                                        wasSet = WrappingHelper.PopulateNestedPropertiesFromValues(wt, props);
+                                    }
+
                                     var iw = pkto.GetInfraWrapperTarget();
 
                                     // Since we have properties in hand, option to update the existing object (default is to do this, other option is to fail if any values differ)
@@ -1771,7 +1808,7 @@ namespace CodexMicroORM.Core
                                     Objects.Add(pkto);
                                 }
 
-                                return pkto.GetWrapperTarget();
+                                return wt;
                             }
                         }
                     }
@@ -1841,14 +1878,14 @@ namespace CodexMicroORM.Core
 
                 if (wrapneed != WrappingSupport.None)
                 {
-                    infra = WrappingHelper.CreateInfraWrapper(wrapneed, Globals.DefaultWrappingAction, isNew, repl ?? o, initState, props, types);
+                    infra = WrappingHelper.CreateInfraWrapper(wrapneed, Globals.DefaultWrappingAction, isNew, repl ?? o, initState, props, types, this);
                 }
             }
 
             if (repl == null)
             {
                 // With no wraper, we still need to recursively traverse object graph
-                WrappingHelper.CopyParsePropertyValues(null, o, isNew, this, visits, true);
+                WrappingHelper.CopyParsePropertyValues(null, o, isNew, this, visits, true, false);
             }
 
             // todo - identity service should allow renaming

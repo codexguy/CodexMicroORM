@@ -846,7 +846,7 @@ namespace CodexMicroORM.Core.Services
             if (cs.IsStandalone)
             {
                 // If it's a List, we know it's got to be a snapshot already, no need to do this again!
-                if (!(res is List<T>))
+                if (res is not List<T>)
                 {
                     res = res.ToArray();
                 }
@@ -860,7 +860,7 @@ namespace CodexMicroORM.Core.Services
                 if (!cs.IsStandalone)
                 {
                     // If it's a List, we know it's got to be a snapshot already, no need to do this again!
-                    if (!(res is List<T>))
+                    if (res is not List<T>)
                     {
                         res = res.ToArray();
                     }
@@ -900,7 +900,7 @@ namespace CodexMicroORM.Core.Services
             if (cs.IsStandalone)
             {
                 // If it's a List, we know it's got to be a snapshot already, no need to do this again!
-                if (!(res is List<T>))
+                if (res is not List<T>)
                 {
                     res = res.ToArray();
                 }
@@ -918,7 +918,7 @@ namespace CodexMicroORM.Core.Services
                 if (!cs.IsStandalone)
                 {
                     // If it's a List, we know it's got to be a snapshot already, no need to do this again!
-                    if (!(res is List<T>))
+                    if (res is not List<T>)
                     {
                         res = res.ToArray();
                     }
@@ -953,7 +953,7 @@ namespace CodexMicroORM.Core.Services
             if (cs.IsStandalone)
             {
                 // If it's a List, we know it's got to be a snapshot already, no need to do this again!
-                if (!(res is List<T>))
+                if (res is not List<T>)
                 {
                     res = res.ToArray();
                 }
@@ -966,7 +966,7 @@ namespace CodexMicroORM.Core.Services
                 if (!cs.IsStandalone)
                 {
                     // If it's a List, we know it's got to be a snapshot already, no need to do this again!
-                    if (!(res is List<T>))
+                    if (res is not List<T>)
                     {
                         res = res.ToArray();
                     }

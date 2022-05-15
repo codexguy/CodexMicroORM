@@ -38,8 +38,8 @@ namespace CodexMicroORM.Core.Services
     public class DynamicWithBag : DynamicObject, ICEFInfraWrapper, ICEFSerializable
     {
         protected RWLockInfo _lock = new() { AllowDirtyReads = false };
-        protected Dictionary<string, object?> _valueBag = new(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
-        protected Dictionary<string, Type> _preferredType = new(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
+        protected Dictionary<string, object?> _valueBag = new(Globals.DefaultDictionaryCapacity * 3, Globals.CurrentStringComparer);
+        protected Dictionary<string, Type> _preferredType = new(Globals.DefaultDictionaryCapacity * 3, Globals.CurrentStringComparer);
         protected object _source;
         protected bool _isBagChanged = false;
         protected int _shadowPropCount = 0;
@@ -74,12 +74,11 @@ namespace CodexMicroORM.Core.Services
 
             if (types != null)
             {
-                using (new WriterLock(_lock))
+                using var wl = new WriterLock(_lock);
+
+                foreach (var prop in types)
                 {
-                    foreach (var prop in types)
-                    {
-                        _preferredType[prop.Key] = prop.Value;
-                    }
+                    _preferredType[prop.Key] = prop.Value;
                 }
             }
         }
@@ -130,40 +129,39 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public override bool TryGetMember(GetMemberBinder binder, out object? result)
         {
-            using (new ReaderLock(_lock))
+            using var rl = new ReaderLock(_lock);
+
+            if (_shadowPropCount > 0 && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + binder.Name))
             {
-                if (_shadowPropCount > 0 && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + binder.Name))
-                {
-                    result = _valueBag[KeyService.SHADOW_PROP_PREFIX + binder.Name];
-                    return true;
-                }
+                result = _valueBag[KeyService.SHADOW_PROP_PREFIX + binder.Name];
+                return true;
+            }
 
-                if (_source != null)
-                {
-                    if (!_source.FastPropertyWriteable(binder.Name) && _valueBag.ContainsKey(binder.Name))
-                    {
-                        result = _valueBag[binder.Name];
-                        return true;
-                    }
-
-                    var (readable, value) = _source.FastPropertyReadableWithValue(binder.Name);
-
-                    if (readable)
-                    {
-                        result = value;
-                        return true;
-                    }
-                }
-
-                if (_valueBag.ContainsKey(binder.Name))
+            if (_source != null)
+            {
+                if (!_source.FastPropertyWriteable(binder.Name) && _valueBag.ContainsKey(binder.Name))
                 {
                     result = _valueBag[binder.Name];
                     return true;
                 }
 
-                result = null;
-                return false;
+                var (readable, value) = _source.FastPropertyReadableWithValue(binder.Name);
+
+                if (readable)
+                {
+                    result = value;
+                    return true;
+                }
             }
+
+            if (_valueBag.ContainsKey(binder.Name))
+            {
+                result = _valueBag[binder.Name];
+                return true;
+            }
+
+            result = null;
+            return false;
         }
 
         /// <summary>
@@ -179,63 +177,61 @@ namespace CodexMicroORM.Core.Services
 
         public Type? GetPropertyType(string propName)
         {
-            using (new ReaderLock(_lock))
+            using var rl = new ReaderLock(_lock);
+
+            if (_source != null)
             {
-                if (_source != null)
+                var pi = _source.FastGetAllProperties(null, null, propName);
+
+                if (pi.Any())
                 {
-                    var pi = _source.FastGetAllProperties(null, null, propName);
-
-                    if (pi.Any())
-                    {
-                        return pi.First().type;
-                    }
+                    return pi.First().type;
                 }
-
-                if (_preferredType.ContainsKey(propName))
-                {
-                    return _preferredType[propName];
-                }
-
-                if (_valueBag.ContainsKey(propName))
-                {
-                    if (_valueBag[propName] == null)
-                    {
-                        return typeof(object);
-                    }
-
-                    return _valueBag[propName]?.GetType();
-                }
-
-                return null;
             }
+
+            if (_preferredType.ContainsKey(propName))
+            {
+                return _preferredType[propName];
+            }
+
+            if (_valueBag.ContainsKey(propName))
+            {
+                if (_valueBag[propName] == null)
+                {
+                    return typeof(object);
+                }
+
+                return _valueBag[propName]?.GetType();
+            }
+
+            return null;
         }
 
         public virtual object? GetValue(string propName)
         {
-            using (new ReaderLock(_lock))
+            using var rl = new ReaderLock(_lock);
+
+            if (_shadowPropCount > 0 && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
             {
-                if (_shadowPropCount > 0 && _valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
-                {
-                    return _valueBag[KeyService.SHADOW_PROP_PREFIX + propName];
-                }
-
-                if (_valueBag.ContainsKey(propName))
-                {
-                    return _valueBag[propName];
-                }
-
-                if (_source != null)
-                {
-                    var (readable, value) = _source.FastPropertyReadableWithValue(propName);
-
-                    if (readable)
-                    {
-                        return value;
-                    }
-                }
-
-                return null;
+                return _valueBag[KeyService.SHADOW_PROP_PREFIX + propName];
             }
+
+            if (_valueBag.ContainsKey(propName))
+            {
+                return _valueBag[propName];
+            }
+
+            if (_source != null)
+            {
+                var (readable, value) = _source.FastPropertyReadableWithValue(propName);
+
+                if (readable)
+                {
+                    return value;
+                }
+            }
+
+            return null;
         }
 
         private object? InternalChangeType(object? source, Type targetType)
@@ -386,15 +382,14 @@ namespace CodexMicroORM.Core.Services
                 preferredType = typeof(Nullable<>).MakeGenericType(preferredType);
             }
 
-            using (new WriterLock(_lock))
-            {
-                _preferredType[propName] = preferredType;
-            }
+            using var wl = new WriterLock(_lock);
+            _preferredType[propName] = preferredType;
         }
 
         public virtual bool SetValue(string propName, object? value, Type? preferredType = null, bool isRequired = false, bool canUseBag = true)
         {
-            using var wl = new WriterLock(_lock);
+            Type? pt = null;
+
             if (preferredType != null)
             {
                 if (preferredType.IsValueType && !isRequired && !(preferredType.IsGenericType && preferredType.GetGenericTypeDefinition() == typeof(Nullable<>)))
@@ -402,10 +397,15 @@ namespace CodexMicroORM.Core.Services
                     preferredType = typeof(Nullable<>).MakeGenericType(preferredType);
                 }
 
+                using var wl2 = new WriterLock(_lock);
+
                 _preferredType[propName] = preferredType;
+                pt = preferredType;
             }
 
-            if (_preferredType.TryGetValue(propName, out Type pt))
+            using var rl = new ReaderLock(_lock);
+
+            if (pt != null || _preferredType.TryGetValue(propName, out pt))
             {
                 try
                 {
@@ -466,23 +466,22 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            wl.Release();
-
             if (_source != null && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(propName))
             {
                 var info = _source.FastGetAllProperties(true, true, propName);
 
                 if (info.Any())
                 {
-                    wl.Reacquire();
-
                     var oldVal = _source.FastGetValue(propName);
 
                     if (!oldVal.IsSame(value))
                     {
+                        rl.Release();
+                        using var wl2 = new WriterLock(_lock);
+
                         _source.FastSetValue(propName, InternalChangeType(value, info.First().type));
 
-                        wl.Release();
+                        wl2.Release();
 
                         if (_allowPropChanged)
                         {
@@ -501,8 +500,6 @@ namespace CodexMicroORM.Core.Services
                 return false;
             }
 
-            wl.Reacquire();
-
             var isSpecial = propName[0] == KeyService.SPECIAL_PROP_PREFIX;
 
             if (_valueBag.ContainsKey(propName))
@@ -518,9 +515,12 @@ namespace CodexMicroORM.Core.Services
                             _isBagChanged = true;
                         }
 
+                        rl.Release();
+                        using var wl2 = new WriterLock(_lock);
+
                         _valueBag[propName] = value;
 
-                        wl.Release();
+                        wl2.Release();
 
                         if (!isSpecial && _allowPropChanged)
                         {
@@ -533,6 +533,9 @@ namespace CodexMicroORM.Core.Services
 
                 return false;
             }
+
+            rl.Release();
+            using var wl = new WriterLock(_lock);
 
             _valueBag[propName] = value;
 
@@ -559,15 +562,14 @@ namespace CodexMicroORM.Core.Services
 
         public override IEnumerable<string> GetDynamicMemberNames()
         {
-            using (new ReaderLock(_lock))
-            {
-                if (_source != null)
-                {
-                    return _valueBag.Keys.Concat(from pi in _source.FastGetAllProperties() select pi.name).ToArray();
-                }
+            using var rl = new ReaderLock(_lock);
 
-                return Array.Empty<string>();
+            if (_source != null)
+            {
+                return _valueBag.Keys.Concat(from pi in _source.FastGetAllProperties() select pi.name).ToArray();
             }
+
+            return Array.Empty<string>();
         }
 
         public virtual WrappingSupport SupportsWrapping()
@@ -589,16 +591,15 @@ namespace CodexMicroORM.Core.Services
 
         public void RemoveProperty(string propName)
         {
-            using (new WriterLock(_lock))
-            {
-                if (_valueBag.ContainsKey(propName))
-                {
-                    _valueBag.Remove(propName);
+            using var wl = new WriterLock(_lock);
 
-                    if (propName[0] == KeyService.SHADOW_PROP_PREFIX)
-                    {
-                        _shadowPropCount--;
-                    }
+            if (_valueBag.ContainsKey(propName))
+            {
+                _valueBag.Remove(propName);
+
+                if (propName[0] == KeyService.SHADOW_PROP_PREFIX)
+                {
+                    _shadowPropCount--;
                 }
             }
         }
@@ -610,12 +611,11 @@ namespace CodexMicroORM.Core.Services
                 return false;
             }
 
-            using (new ReaderLock(_lock))
+            using var rl = new ReaderLock(_lock);
+
+            if (_valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
             {
-                if (_valueBag.ContainsKey(KeyService.SHADOW_PROP_PREFIX + propName))
-                {
-                    return true;
-                }
+                return true;
             }
 
             return false;
@@ -633,12 +633,11 @@ namespace CodexMicroORM.Core.Services
                 return true;
             }
 
-            using (new ReaderLock(_lock))
+            using var rl = new ReaderLock(_lock);
+
+            if (_valueBag.ContainsKey(propName))
             {
-                if (_valueBag.ContainsKey(propName))
-                {
-                    return true;
-                }
+                return true;
             }
 
             return false;
@@ -689,19 +688,18 @@ namespace CodexMicroORM.Core.Services
 
             if (_source != null)
             {
-                using (new ReaderLock(_lock))
+                using var rl = new ReaderLock(_lock);
+
+                foreach (var v in (from pi in _source.FastGetAllProperties(true)
+                                   where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
+                                   select new { Key = pi.name, Type = pi.type }).
+                    Concat(from a in _preferredType
+                           where (!onlySerializable || IsTypeSerializable(a.Value))
+                           select new { a.Key, Type = a.Value }))
                 {
-                    foreach (var v in (from pi in _source.FastGetAllProperties(true)
-                                       where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
-                                       select new { Key = pi.name, Type = pi.type }).
-                        Concat(from a in _preferredType
-                               where (!onlySerializable || IsTypeSerializable(a.Value))
-                               select new { a.Key, Type = a.Value }))
+                    if (!info.ContainsKey(v.Key))
                     {
-                        if (!info.ContainsKey(v.Key))
-                        {
-                            info[v.Key] = v.Type;
-                        }
+                        info[v.Key] = v.Type;
                     }
                 }
             }
@@ -715,19 +713,18 @@ namespace CodexMicroORM.Core.Services
 
             if (_source != null)
             {
-                using (new ReaderLock(_lock))
+                using var rl = new ReaderLock(_lock);
+
+                foreach (var v in (from pi in _source.FastGetAllProperties(true)
+                                   where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
+                                   select new { Key = pi.name, Value = _source.FastGetValue(pi.name) }).
+                    Concat(from a in _valueBag
+                           where (!onlySerializable || a.Value == null || IsTypeSerializable(a.Value.GetType()))
+                           select new { a.Key, a.Value }))
                 {
-                    foreach (var v in (from pi in _source.FastGetAllProperties(true)
-                                       where (!onlyWriteable || pi.writeable) && (!onlySerializable || IsTypeSerializable(pi.type))
-                                       select new { Key = pi.name, Value = _source.FastGetValue(pi.name) }).
-                        Concat(from a in _valueBag
-                               where (!onlySerializable || a.Value == null || IsTypeSerializable(a.Value.GetType()))
-                               select new { a.Key, a.Value }))
+                    if (!vals.ContainsKey(v.Key))
                     {
-                        if (!vals.ContainsKey(v.Key))
-                        {
-                            vals[v.Key] = v.Value;
-                        }
+                        vals[v.Key] = v.Value;
                     }
                 }
             }
@@ -742,18 +739,14 @@ namespace CodexMicroORM.Core.Services
 
         public virtual void AcceptChanges()
         {
-            using (new WriterLock(_lock))
-            {
-                _isBagChanged = false;
-            }
+            using var wl = new WriterLock(_lock);
+            _isBagChanged = false;
         }
 
         public virtual bool SaveContents(JsonTextWriter tw, SerializationMode mode)
         {
-            using (new ReaderLock(_lock))
-            {
-                return (CEF.CurrentPCTService()?.SaveContents(tw, this, mode, new SerializationVisitTracker())).GetValueOrDefault();
-            }
+            using var rl = new ReaderLock(_lock);
+            return (CEF.CurrentPCTService()?.SaveContents(tw, this, mode, new SerializationVisitTracker())).GetValueOrDefault();
         }
 
         public virtual void RestoreContents(JsonTextReader tr)

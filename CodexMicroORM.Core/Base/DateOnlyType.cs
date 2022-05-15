@@ -23,23 +23,35 @@ using System.Runtime.Serialization;
 
 namespace CodexMicroORM.Core
 {
-    internal class OnlyDateJsonConverter : JsonConverter<OnlyDate>
+    internal class OnlyDateJsonConverter : JsonConverter<OnlyDate?>
     {
-        public override OnlyDate ReadJson(JsonReader reader, Type objectType, OnlyDate existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override OnlyDate? ReadJson(JsonReader reader, Type objectType, OnlyDate? existingValue, bool hasExistingValue, JsonSerializer serializer)
         {
-            var asint = reader.ReadAsInt32();
+            if (reader.TokenType == JsonToken.Null)
+            {
+                return null;
+            }
 
-            if (!asint.HasValue)
+            if (reader.TokenType != JsonToken.Integer)
             {
                 throw new InvalidOperationException("Invalid Json format for OnlyDate (should be an integer).");
             }
 
-            return new OnlyDate(asint.Value);
+            var asint = Convert.ToInt32(reader.Value);
+
+            return new OnlyDate(asint);
         }
 
-        public override void WriteJson(JsonWriter writer, OnlyDate value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, OnlyDate? value, JsonSerializer serializer)
         {
-            writer.WriteRawValue(value.GetAsInt().ToString());
+            if (value.HasValue)
+            {
+                writer.WriteRawValue(value.Value.GetAsInt().ToString());
+            }
+            else
+            {
+                writer.WriteNull();
+            }
         }
     }
 
@@ -58,6 +70,7 @@ namespace CodexMicroORM.Core
         } = true;
 
         public static OnlyDate MaxValue => new(9999, 12, 31);
+        public static OnlyDate MinValue => new(1, 1, 1);
 
         private OnlyDate(SerializationInfo info, StreamingContext context)
         {

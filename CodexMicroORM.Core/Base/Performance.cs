@@ -144,6 +144,25 @@ namespace CodexMicroORM.Core.Helper
             return Activator.CreateInstance(t);
         }
 
+        public static IDictionary<string, (Type type, bool readable, bool writeable)> FastGetAllPropertiesAsDictionary(this Type t)
+        {
+            if (!_allProps.TryGetValue(t, out var pnmap))
+            {
+                pnmap = new ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>(
+                    from a in t.GetProperties()
+                    select new KeyValuePair<string, (Type type, bool readable, bool writeable)>(a.Name, (a.PropertyType, a.CanRead, a.CanWrite)));
+
+                _allProps[t] = pnmap;
+            }
+
+            if (_allProps.TryGetValue(t, out var od))
+            {
+                return od;
+            }
+
+            return new Dictionary<string, (Type type, bool readable, bool writeable)>();
+        }
+
         public static IEnumerable<(string name, Type type, bool readable, bool writeable)> FastGetAllProperties(this Type t, bool? canRead = null, bool? canWrite = null, string? name = null)
         {
             if (!_allProps.TryGetValue(t, out var pnmap))
