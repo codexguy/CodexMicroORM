@@ -47,6 +47,47 @@ namespace CodexMicroORM.Core
 
         public delegate void GlobalPropertyChangeCallback(object source, string propName, object? oldval, object? newval);
 
+        public static bool IndexedSetCaseInsensitiveStringCompares
+        {
+            get;
+            set;
+        } = false;
+
+        public static int IndexedSetJoinMinimumLargeListSize
+        {
+            get;
+            set;
+        } = 25000;
+
+        public static double IndexedSetJoinSmallerListFactor
+        {
+            get;
+            set;
+        } = 0.25;
+
+        public static bool IndexedSetsSupportJoins
+        {
+            get;
+            set;
+        } = true;
+
+        public static bool AutoInferIndexes
+        {
+            get;
+            set;
+        } = true;
+
+        public static List<(string fieldname, bool nonnull)> DebugStopWhenSerialize
+        {
+            get;
+        } = new();
+
+        public static bool LiveIndexesForIndexedSets
+        {
+            get;
+            set;
+        } = true;
+
         /// <summary>
         /// Offers a mechanism to detect changes in infrastructure objects globally. (e.g. used in a syncing framework)
         /// </summary>

@@ -157,7 +157,7 @@ namespace CodexMicroORM.Core.Collections
             {
                 if (bi != null)
                 {
-                    foreach (var i in bi.Map)
+                    foreach (var i in bi.Map.ToArray())
                     {
                         yield return i;
                     }

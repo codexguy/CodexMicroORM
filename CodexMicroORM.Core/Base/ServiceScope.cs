@@ -2067,7 +2067,7 @@ namespace CodexMicroORM.Core
                 }
 
                 Objects.Clear();
-                _serviceState.Clear();
+                //_serviceState.Clear();
             }
 
             IsDisposed = true;

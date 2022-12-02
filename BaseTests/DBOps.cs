@@ -9,7 +9,9 @@ using System.Data;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace BaseTests
@@ -31,7 +33,7 @@ namespace BaseTests
             Globals.WrapperSupports = WrappingSupport.Notifications;
             Globals.WrappingClassNamespace = null;
             Globals.WrapperClassNamePattern = "{0}Wrapped";
-            CEF.AddGlobalService(DBService.Create(new MSSQLProcBasedProvider($@"Data Source={DB_SERVER};Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true", defaultSchema: "CEFTest")));
+            CEF.AddGlobalService(DBService.Create(new MSSQLProcBasedProvider($@"Data Source={DB_SERVER};Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true;TrustServerCertificate=true", defaultSchema: "CEFTest")));
             CEF.AddGlobalService(new AuditService());
 
             // New in 0.9.12 - this is probably the exception not the rule, where ordinarily better to assume audit fields *will* be first class props on biz objs; but we support the option to not be
@@ -119,6 +121,10 @@ namespace BaseTests
             DBService.RegisterOnSaveParentSave<Receipt>("WidgetGroup");
             DBService.RegisterOnSaveParentSave<Shipment>("WidgetGroup");
 
+            // Some properties should not participate in CopySharedTo
+            CEF.RegisterPropertyNameTreatReadOnly(nameof(Person.Kids));
+            CEF.RegisterPropertyNameTreatReadOnly(nameof(Person.Phones));
+
             // Test encryption for memory back cache - will always be different!
             MemoryStream enckeysrc = new MemoryStream();
             enckeysrc.Write(Guid.NewGuid().ToByteArray());
@@ -127,13 +133,13 @@ namespace BaseTests
             MemoryFileSystemBacked.SetEncryptionKeySource(MemoryFileSystemBacked.SerializationFileEncryptionType.AES256, enckeysrc);
 
             // This will construct a new test database, if needed - if the script changes, you'll need to drop the CodexMicroORMTest database before running
-            using (CEF.NewConnectionScope(new ConnectionScopeSettings() { IsTransactional = false, ConnectionStringOverride = $@"Data Source={DB_SERVER};Database=master;Integrated Security=SSPI;MultipleActiveResultSets=true" }))
+            using (CEF.NewConnectionScope(new ConnectionScopeSettings() { IsTransactional = false, ConnectionStringOverride = $@"Data Source={DB_SERVER};Database=master;Integrated Security=SSPI;MultipleActiveResultSets=true;TrustServerCertificate=true" }))
             {
                 CEF.CurrentDBService().ExecuteRaw(File.ReadAllText("setup.sql"), false);
             }
 
             // Perform specialized clean-up for tests
-            using (CEF.NewConnectionScope(new ConnectionScopeSettings() { IsTransactional = false, ConnectionStringOverride = $@"Data Source={DB_SERVER};Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true" }))
+            using (CEF.NewConnectionScope(new ConnectionScopeSettings() { IsTransactional = false, ConnectionStringOverride = $@"Data Source={DB_SERVER};Database=CodexMicroORMTest;Integrated Security=SSPI;MultipleActiveResultSets=true;TrustServerCertificate=true" }))
             {
                 CEF.CurrentDBService().ExecuteRaw("EXEC WTest.[up_Widget_TestCleanup]");
             }
@@ -467,6 +473,44 @@ namespace BaseTests
         //    {
         //    }
         //}
+
+        [TestMethod]
+        public void TestDataTableOps()
+        {
+            using var ss = CEF.NewServiceScope();
+            Globals.UseShadowPropertiesForNew = false;
+
+            EntitySet<Person> people = new();
+            people.Add(new Person() { PersonID = 1, Age = 12, Gender = "F", Name = "Zella" });
+            people.Add(new Person() { PersonID = 2, Age = 13, Gender = "M", Name = "Robert" });
+            people.Add(new Person() { PersonID = 3, Age = 75, Gender = "M", Name = "Jack" });
+            ss.AcceptAllChanges();
+
+            // Let's assume people has been handed back to a client now - it's not dirty. Let's create a data table from it. Try visualizing the dt variable in VS.
+            var dt = people.DeepCopyDataTable();
+            Assert.IsTrue(dt.Rows.Count == 3);
+
+            // Let's make a few changes - an insert, update and a delete using the dt
+            dt.Rows[1]["Age"] = 22;
+            dt.Rows[0].Delete();
+            var nr = dt.NewRow();
+            nr["Age"] = 40;
+            nr["Gender"] = "F";
+            nr["Name"] = "Bobby Tables";
+            dt.Rows.Add(nr);
+
+            // Now let's assume you wanted to package up the change to go to a server... sending it back as entity, not dt
+            EntitySet<Person> peopleCopy = new();
+            dt.DefaultView.ReconcileDataViewToEntitySet(peopleCopy);
+            ss.AcceptAllChanges();
+
+            // Now let's assume we're applying updates, while on the server, back to our data, to get saved... does the row states imply 1 insert, 1 update and 1 delete? it should!
+            peopleCopy.ReconcileEntitySetToEntitySet(people);
+            var debugSS = CEFDebug.ReturnServiceScope();
+            Assert.IsTrue((from a in ss.GetAllTracked() where a.GetRowState() == ObjectState.Modified select a).Count() == 1);
+            Assert.IsTrue((from a in ss.GetAllTracked() where a.GetRowState() == ObjectState.Added select a).Count() == 1);
+            Assert.IsTrue((from a in ss.GetAllTracked() where a.GetRowState() == ObjectState.Deleted select a).Count() == 1);
+        }
 
         [TestMethod]
         public void SingleItemCreateSave()

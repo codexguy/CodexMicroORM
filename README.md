@@ -471,7 +471,7 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Add: MSSQLCommand.DiscoverRetryCount - joins MSSQLProcBasedProvider.OpenRetryCount to support more resilient DB ops
 	* Change: Split all SQL Server specific dependencies out of the Core project, adding a new CodexMicroORM.SQLServer package which can be referenced, if you're using SQL Server (if you aren't, then no need to carry SQLClient baggage!). Namespaces are all preserved as they were, meaning code should not break, just need to include the additional package reference in your projects. Also had to change protection levels in certain cases to allow this refactoring to work. Depends on Microsoft.Data.SqlClient (4+).
 	* Change: default degree of parallelism for ParallelAsync changed to an algorithm that adapts based on workload (eg. using in multiple places makes "aware" of load over entire process)
-	* Change: ParallelASync uses configureawait(false); achieve higher parallelism
+	* Change: ParallelAsync uses configureawait(false); achieve higher parallelism
 	* Fix: ParallelAsync could process specific item twice
 	* Fix: handle scenario of updating parent ID on child record to point at a new parent (previously could get FK error due to update-before-insert)
 * 1.0.2 - May 2022
@@ -479,6 +479,14 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Fix: link values fix (edge case noticed during additional properties work)
 	* Add: EntityAdditionalProperties attribute; supported in code gen where can use POCO "additional properties" nested classes for stored procs that extend an existing entity (and infrastructure to support this feature); this can result in a better experience dealing with these types of properties, where values are not dependent on the service scope (values can be passed outside of service scope, etc.)
 	* Add: FastGetAllPropertiesAsDictionary
+* 1.0.3 - July 2022
+	* Fix: Do not allow memory cache to fail with concurrency error in Cleanup (non-critical)
+	* Change: dependencies update
+* 1.1.0 - November 2022
+	* Add: ExecuteWithMaxWaitAsync, DeepCopyList, DBSaveTransactional, ReconcileEntitySetToEntitySet - some extension method goodies added, minor cleanup
+	* Add: IndexedSet - a highly read-efficient collection that can "auto-index" itself based on linq (to object) queries run against it. Inherits from EntitySet so can be used interchangeably to a large degree. Supports both equality and range indexes. Requires adding C5 package ref. Moved this from ZDB project (pre-release) to CEF as this can be considered core plumbing with broad applicability. More details to be included here later.
+	* Add: net7 targetting
+	* Fix: minor fixes (e.g. some disposal cleanup, etc.)
 
 ## Roadmap / Plans
 Look for in coming releases:

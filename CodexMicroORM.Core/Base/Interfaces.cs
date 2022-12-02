@@ -215,6 +215,35 @@ namespace CodexMicroORM.Core
         string GetSerializationText(SerializationMode? mode = null);
     }
 
+    public interface ICEFDataIndex
+    {
+        bool OnlyEqualitySupport();
+
+        void ClearAll();
+
+        void UpdateKey(object oldval, object newval, object row);
+
+        IEnumerable<object> GetEqualItems(object value);
+    }
+
+    public interface ICEFComparisonDataIndex
+    {
+        IEnumerable<object> GetGreaterThanItems(object value);
+
+        IEnumerable<object> GetLessThanItems(object value);
+
+        IEnumerable<object> GetGreaterThanEqualItems(object value);
+
+        IEnumerable<object> GetLessThanEqualItems(object value);
+    }
+
+    public interface ICEFDataIndex<T>
+    {
+        void Add(T obj);
+
+        void Remove(T obj);
+    }
+
     public interface ICEFValidationHost : ICEFService
     {
         IEnumerable<(ValidationErrorCode error, string? message)> GetObjectMessage<T>(T? o) where T : class;

@@ -775,10 +775,19 @@ namespace CodexMicroORM.Core
         /// <param name="source"></param>
         /// <param name="prefType"></param>
         /// <returns></returns>
-        public static object? CoerceObjectType(this object? source, Type prefType)
+        public static object? CoerceObjectType(this object? source, Type prefType, bool checkValidNull = false)
         {
             if (source == null || DBNull.Value.Equals(source))
             {
+                // We can only return null if return type is ref type or nullable value type - otherwise we might revert to using default or could get exception
+                if (checkValidNull && prefType != null)
+                {
+                    if (prefType.IsValueType && Nullable.GetUnderlyingType(prefType) == null)
+                    {
+                        return Activator.CreateInstance(prefType);
+                    }
+                }
+
                 return null;
             }
 
@@ -836,11 +845,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static EntitySet<T> DBSave<T>(this EntitySet<T> toSave, DBSaveSettings? settings = null) where T: class, new()
         {
-            if (settings == null)
-            {
-                settings = new DBSaveSettings();
-            }
-
+            settings ??= new DBSaveSettings();
             settings.SourceList = toSave;
             settings.EntityPersistName ??= CEF.GetEntityPersistName<T>(toSave);
             settings.EntityPersistType = typeof(T);
@@ -1327,11 +1332,7 @@ namespace CodexMicroORM.Core
                         if (w != null)
                         {
                             wo = w.GetCopyTo();
-
-                            if (wo == null)
-                            {
-                                wo = w;
-                            }
+                            wo ??= w;
                         }
 
                         return wo;
@@ -1456,6 +1457,88 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// A target EntitySet is updated to look "the same" as a source EntitySet (e.g. a "model"). Objects may be added, updated or removed in the target EntitySet based on the primary key for type T.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="source"></param>
+        /// <param name="target"></param>
+        /// <exception cref="CEFInvalidStateException"></exception>
+        public static void ReconcileEntitySetToEntitySet<T>(this EntitySet<T> source, EntitySet<T> target) where T : class, new()
+        {
+            var ain = target.AddedIsNew;
+
+            try
+            {
+                target.AddedIsNew = false;
+
+                // A natural key must be available!
+                var key = KeyService.ResolveKeyDefinitionForType(typeof(T));
+
+                if (key == null || key.Count == 0)
+                {
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Type {typeof(T).Name} does not have a key defined.");
+                }
+
+                var allCol = typeof(T).FastGetAllProperties(true, true);
+                var nonKeyCol = (from a in allCol where !key.Contains(a.name) select a);
+                var ss = CEF.CurrentServiceScope;
+
+                // Build a dictionary for faster lookup of target, and keep track of what was insert/update
+                var setData = target.ToDictionary(key);
+                HashSet<T> matched = new();
+
+                // First pass for inserts, updates
+                foreach (var s in source)
+                {
+                    StringBuilder sb = new(128);
+
+                    foreach (var k in key)
+                    {
+                        if (sb.Length > 0)
+                        {
+                            sb.Append('~');
+                        }
+                        sb.Append(s.FastGetValue(k));
+                    }
+
+                    if (!setData.TryGetValue(sb.ToString(), out T? entRow))
+                    {
+                        // Order is important here - establish prop values prior to adding to tracking
+                        entRow = new T();
+                        s.CopySharedTo(entRow);
+                        target.Add(CEF.NewObject(entRow));
+                    }
+
+                    matched.Add(entRow.AsUnwrapped() as T);
+                    var iw = entRow.AsInfraWrapped();
+
+                    if (iw != null)
+                    {
+                        foreach (var (name, type, _, _) in nonKeyCol)
+                        {
+                            var setter = ss.GetSetter(iw, name);
+                            setter.setter?.Invoke(s.FastGetValue(name).CoerceObjectType(setter.type ?? type, true));
+                        }
+                    }
+                }
+
+                // Second pass for deletes - anything unvisited from above
+                foreach (var r in target.ToList())
+                {
+                    if (!matched.Contains(r.AsUnwrapped() as T))
+                    {
+                        CEF.DeleteObject(r);
+                        target.Remove(r);
+                    }
+                }
+            }
+            finally
+            {
+                target.AddedIsNew = ain;
+            }
+        }
+
+        /// <summary>
         /// A target EntitySet is updated to look "the same" as a source DataView. Rows may be added, updated or deleted in the EntitySet based on the primary key set for type T.
         /// </summary>
         /// <typeparam name="T"></typeparam>
@@ -1463,66 +1546,87 @@ namespace CodexMicroORM.Core
         /// <param name="target">A collection of entities that will be updated to match the source DataView.</param>
         public static void ReconcileDataViewToEntitySet<T>(this DataView source, EntitySet<T> target) where T : class, new()
         {
-            // A natural key must be available!
-            var key = KeyService.ResolveKeyDefinitionForType(typeof(T));
+            var ain = target.AddedIsNew;
 
-            if (key == null || key.Count == 0)
+            try
             {
-                throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Type {typeof(T).Name} does not have a key defined.");
+                target.AddedIsNew = false;
+
+                // A natural key must be available!
+                var key = KeyService.ResolveKeyDefinitionForType(typeof(T));
+
+                if (key == null || key.Count == 0)
+                {
+                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Type {typeof(T).Name} does not have a key defined.");
+                }
+
+                var allCol = source.Table.Columns.Cast<DataColumn>();
+                var nonKeyCol = (from a in allCol where !(from b in key where b == a.ColumnName select b).Any() select a);
+                var ss = CEF.CurrentServiceScope;
+
+                // Build a dictionary for faster lookup
+                var setData = target.ToDictionary(key);
+                HashSet<T> matched = new();
+                var targProps = typeof(T).FastGetAllPropertiesAsDictionary();
+
+                // First pass for inserts, updates
+                foreach (DataRowView drv in source)
+                {
+                    StringBuilder sb = new(128);
+
+                    foreach (var k in key)
+                    {
+                        if (sb.Length > 0)
+                        {
+                            sb.Append("~");
+                        }
+                        sb.Append(drv[k]);
+                    }
+
+                    if (!setData.TryGetValue(sb.ToString(), out T? entRow))
+                    {
+                        entRow = new T();
+
+                        foreach (DataColumn dc in allCol)
+                        {
+                            if (targProps.TryGetValue(dc.ColumnName, out var info) && (info.writeable || key.Contains(dc.ColumnName)))
+                            {
+                                entRow.FastSetValue(dc.ColumnName, drv[dc.ColumnName].CoerceObjectType(info.type ?? dc.DataType, true));
+                            }
+                        }
+
+                        target.Add(entRow);
+                    }
+                    else
+                    {
+                        var iw = entRow.AsInfraWrapped();
+
+                        if (iw != null)
+                        {
+                            foreach (DataColumn dc in nonKeyCol)
+                            {
+                                var setter = ss.GetSetter(iw, dc.ColumnName);
+                                setter.setter?.Invoke(drv[dc.ColumnName].CoerceObjectType(setter.type ?? dc.DataType, true));
+                            }
+                        }
+                    }
+
+                    matched.Add(entRow.AsUnwrapped() as T);
+                }
+
+                // Second pass for deletes - anything unvisited from above
+                foreach (var r in target.ToList())
+                {
+                    if (!matched.Contains(r.AsUnwrapped() as T))
+                    {
+                        CEF.DeleteObject(r);
+                        target.Remove(r);
+                    }
+                }
             }
-
-            var nonKeyCol = (from a in source.Table.Columns.Cast<DataColumn>() where !(from b in key where b == a.ColumnName select b).Any() select a);
-            var ss = CEF.CurrentServiceScope;
-
-            // Build a dictionary for faster lookup
-            var setData = target.ToDictionary(key);
-
-            // First pass for inserts, updates
-            foreach (DataRowView drv in source)
+            finally
             {
-                StringBuilder sb = new(128);
-
-                foreach (var k in key)
-                {
-                    if (sb.Length > 0)
-                    {
-                        sb.Append("~");
-                    }
-                    sb.Append(drv[k]);
-                }
-
-                if (!setData.TryGetValue(sb.ToString(), out T entRow))
-                {
-                    entRow = target.Add();
-                }
-
-                var iw = entRow.AsInfraWrapped();
-
-                if (iw != null)
-                {
-                    foreach (DataColumn dc in nonKeyCol)
-                    {
-                        var setter = ss.GetSetter(iw, dc.ColumnName);
-                        setter.setter?.Invoke(drv[dc.ColumnName].CoerceObjectType(setter.type ?? dc.DataType));
-                    }
-                }
-            }
-
-            // Second pass for deletes - use a separate DV we can sort for fast lookup
-            using DataView dv = new(source.Table, source.RowFilter, string.Join(",", key.ToArray()), source.RowStateFilter);
-
-            foreach (var kvp in setData.ToList())
-            {
-                var iw = kvp.Value.AsInfraWrapped();
-
-                if (iw != null)
-                {
-                    if (dv.Find((from a in key select iw.GetValue(a)).ToArray()) < 0)
-                    {
-                        CEF.DeleteObject(kvp.Value);
-                        target.Remove(kvp.Value);
-                    }
-                }
+                target.AddedIsNew = ain;
             }
         }
 
@@ -1532,7 +1636,7 @@ namespace CodexMicroORM.Core
         /// <typeparam name="T"></typeparam>
         /// <param name="src"></param>
         /// <returns></returns>
-        public static T DeepCopyObject<T>(this T? src) where T : class, new()
+        public static T DeepCopyObject<T>(this T? src, bool tracked = true) where T : class, new()
         {
             var n = (T)(typeof(T).FastCreateNoParm() ?? throw new InvalidOperationException("Could not instantiate object."));
 
@@ -1547,7 +1651,27 @@ namespace CodexMicroORM.Core
                 }
             }
 
+            if (tracked)
+            {
+                CEF.IncludeObject(n);
+            }
+
             return n;
+        }
+
+        /// <summary>
+        /// Creates a deep copy of an enumerable.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="src"></param>
+        /// <param name="tracked"></param>
+        /// <returns></returns>
+        public static IEnumerable<T> DeepCopyList<T>(this IEnumerable<T> src, bool tracked = true) where T : class, new()
+        {
+            foreach (var i in src)
+            {
+                yield return DeepCopyObject(i, tracked);
+            }
         }
 
         /// <summary>
@@ -1928,11 +2052,119 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
+        /// Offers a way to perform the "forget" portion of a "fire and forget" task. This is wrapped with an empty catch to avoid problems which might otherwise be possible if task throws an exception.
+        /// </summary>
+        /// <param name="task"></param>
+        public static async void ForgetTask(this Task task)
+        {
+            try
+            {
+                await task;
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>
+        /// Offers a way to execute a section of code with a maximum execution time for that code. If it does not complete in time, either exception thrown or false is returned; otherwise, task has been awaited to completion and true is returned. Action should accept cancellation token, although optional for it to use it. Also supports retries - wait time supplied is total duration allowed including retries. If task is not completed in time, cancellation token signals to workload to cancel; it will be left as "forgotten" and may continue to run (if it does not handle cancellation, for example).
+        /// </summary>
+        /// <param name="work">The delegate referencing code to run. Should accept a cancellation token and ideally perform cooperative cancellation but this is not required. This overload allows the parameter to be async method.</param>
+        /// <param name="maxWaitMs">The maximum time to wait for completion of the code, including any retries.</param>
+        /// <param name="continueSilent">When true, method returns without throwing timeout exception; use return value to identify success or timeout.</param>
+        /// <param name="checkCancel">An optional delegate that can short-circuit waiting for completion (return true to force early cancel).</param>
+        /// <param name="retries">The number of retries that are allowed. Zero implies no retries allowed (default).</param>
+        /// <param name="retryHandler">Optional delegate can preview exception and return false to force exception to short-circuit retries.</param>
+        /// <param name="pollMs">Delay time between checks for completion. A large value here implies longer execution time since completion may have happened while still waiting.</param>
+        /// <param name="retryBackoffMs">A factor multiplied by square of try count to determine how long will wait between possible retries.</param>
+        /// <returns></returns>
+        public static async Task<bool> ExecuteWithMaxWaitAsync(this Func<CancellationToken, Task> work, int maxWaitMs, bool continueSilent = true, Func<bool>? checkCancel = null, int retries = 0, Func<Exception, bool>? retryHandler = null, int pollMs = 2, int retryBackoffMs = 100)
+        {
+            return await InternalExecuteWithMaxWaitAsync(work.Invoke, maxWaitMs, continueSilent, checkCancel, retries, retryHandler, pollMs, retryBackoffMs);
+        }
+
+        private static async Task<bool> InternalExecuteWithMaxWaitAsync(Func<CancellationToken, Task> getwork, int maxWaitMs, bool continueSilent, Func<bool>? checkCancel, int retries, Func<Exception, bool>? retryHandler, int pollMs, int retryBackoffMs)
+        {
+            DateTime start = DateTime.Now;
+            CancellationTokenSource cts = new();
+            int pass = 0;
+
+            while (retries >= 0)
+            {
+                try
+                {
+                    var t = getwork.Invoke(cts.Token);
+
+                    while (!t.IsCompleted)
+                    {
+                        if (DateTime.Now.Subtract(start).TotalMilliseconds > maxWaitMs || (checkCancel != null && checkCancel.Invoke()))
+                        {
+                            cts.Cancel();
+                            t.ForgetTask();
+
+                            if (continueSilent)
+                            {
+                                return false;
+                            }
+
+                            throw new TimeoutException($"Waited for {DateTime.Now.Subtract(start).TotalMilliseconds:0} milliseconds; task did not complete in time.");
+                        }
+
+                        await Task.Delay(pollMs);
+                    }
+
+                    await t;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    --retries;
+
+                    if (retries < 0)
+                    {
+                        throw;
+                    }
+
+                    if (retryHandler != null && !retryHandler.Invoke(ex))
+                    {
+                        throw;
+                    }
+
+                    ++pass;
+                    await Task.Delay(pass * pass * retryBackoffMs);
+                }
+            }
+
+            cts.Dispose();
+            return true;
+        }
+
+        /// <summary>
+        /// Offers a way to execute a section of code with a maximum execution time for that code. If it does not complete in time, either exception thrown or false is returned; otherwise, task has been awaited to completion and true is returned. Action should accept cancellation token, although optional for it to use it. Also supports retries - wait time supplied is total duration allowed including retries. If task is not completed in time, cancellation token signals to workload to cancel; it will be left as "forgotten" and may continue to run (if it does not handle cancellation, for example).
+        /// </summary>
+        /// <param name="work">The delegate referencing code to run. Should accept a cancellation token and ideally perform cooperative cancellation but this is not required.</param>
+        /// <param name="maxWaitMs">The maximum time to wait for completion of the code, including any retries.</param>
+        /// <param name="continueSilent">When true, method returns without throwing timeout exception; use return value to identify success or timeout.</param>
+        /// <param name="checkCancel">An optional delegate that can short-circuit waiting for completion (return true to force early cancel).</param>
+        /// <param name="retries">The number of retries that are allowed. Zero implies no retries allowed (default).</param>
+        /// <param name="retryHandler">Optional delegate can preview exception and return false to force exception to short-circuit retries.</param>
+        /// <param name="pollMs">Delay time between checks for completion. A large value here implies longer execution time since completion may have happened while still waiting.</param>
+        /// <param name="retryBackoffMs">A factor multiplied by square of try count to determine how long will wait between possible retries.</param>
+        /// <returns></returns>
+        public static async Task<bool> ExecuteWithMaxWaitAsync(this Action<CancellationToken> work, int maxWaitMs, bool continueSilent = true, Func<bool>? checkCancel = null, int retries = 0, Func<Exception, bool>? retryHandler = null, int pollMs = 2, int retryBackoffMs = 100)
+        {
+            return await InternalExecuteWithMaxWaitAsync((ct) =>
+            {
+                return Task.Run(() => work.Invoke(ct));
+            }, maxWaitMs, continueSilent, checkCancel, retries, retryHandler, pollMs, retryBackoffMs);
+        }
+
+        /// <summary>
         /// Traverses object graph looking for cases where collections can be replaced with EntitySet.
         /// </summary>
         /// <param name="o">Starting object for traversal.</param>
         /// <param name="isNew">If true, assumes objects being added represent "new" rows to insert in the database.</param>
-        public static void CreateLists(this object o, bool isNew = false)
+        internal static void CreateLists(this object o, bool isNew = false)
         {
             if (o == null)
                 return;
@@ -1945,7 +2177,7 @@ namespace CodexMicroORM.Core
 
                     if (WrappingHelper.IsWrappableListType(type, val))
                     {
-                        if (!(val is ICEFList))
+                        if (val is not ICEFList)
                         {
                             var wrappedCol = WrappingHelper.CreateWrappingList(CEF.CurrentServiceScope, type, o, name);
                             o.FastSetValue(name, wrappedCol);

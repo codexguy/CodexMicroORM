@@ -1464,7 +1464,14 @@ namespace CodexMicroORM.Providers
 
                 lock (_indexLock)
                 {
-                    remove = (from a in _index where !a.Active || a.ExpiryDate < d || (!string.IsNullOrEmpty(a.FileName) && !File.Exists(Path.Combine(RootDirectory, a.FileName))) select a).ToList();
+                    try
+                    {
+                        remove = (from a in _index where !a.Active || a.ExpiryDate < d || (!string.IsNullOrEmpty(a.FileName) && !File.Exists(Path.Combine(RootDirectory, a.FileName))) select a).ToList();
+                    }
+                    catch
+                    {
+                        // Purposely consume exception related to concurrency - rely on future pass
+                    }
                 }
 
                 if ((_index.Count - remove.Count) > MaximumItemCount)

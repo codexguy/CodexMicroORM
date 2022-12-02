@@ -70,6 +70,10 @@ namespace CodexMicroORM.Core
         private static readonly object _lockKey = new();
         private static readonly object _lockPCT = new();
 
+        private static readonly ConcurrentDictionary<Type, List<string>> _toSaveProps = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultLargerDictionaryCapacity);
+        private static readonly ConcurrentDictionary<Type, List<string>> _toSavePropsPersist = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultLargerDictionaryCapacity);
+        private static readonly ConcurrentBag<string> _globalPropToSave = new();
+
         #endregion
 
         #region "Public methods"
@@ -504,6 +508,15 @@ namespace CodexMicroORM.Core
             CurrentServiceScope.AcceptAllChanges();
         }
 
+        public static IEnumerable<(object item, string? message, int status)> DBSaveTransactional(DBSaveSettings? settings = null)
+        {
+            using var tx = NewTransactionScope();
+            var rv = CurrentServiceScope.DBSave(settings);
+            tx.CanCommit();
+            tx.Dispose();
+            return rv!;
+        }
+
         public static async Task<IEnumerable<(object item, string? message, int status)>> DBSaveTransactionalAsync(DBSaveSettings? settings = null)
         {
             IEnumerable<(object item, string? message, int status)>? rv = null;
@@ -516,6 +529,7 @@ namespace CodexMicroORM.Core
                     using var tx = NewTransactionScope();
                     rv = CurrentServiceScope.DBSave(settings);
                     tx.CanCommit();
+                    tx.Dispose();
                 }
                 catch (Exception ex2)
                 {
@@ -1111,6 +1125,104 @@ namespace CodexMicroORM.Core
         #endregion
 
         #region "Internals"
+
+        private static bool IsPersistable(Type t)
+        {
+            if (t.IsValueType)
+                return true;
+
+            if (t.Equals(typeof(string)))
+                return true;
+
+            if (t.IsPrimitive)
+                return true;
+
+            if (t.IsSerializable)
+                return true;
+
+            return false;
+        }
+
+        internal static List<string> GetToSaveProperties(Type t, bool persisted)
+        {
+            List<string>? list = null;
+
+            if (persisted)
+            {
+                _toSavePropsPersist.TryGetValue(t, out list);
+            }
+            else
+            {
+                _toSaveProps.TryGetValue(t, out list);
+            }
+
+            if (list != null)
+            {
+                return list;
+            }
+
+            // Return all writeable CLR properties, key fields, FK role name fields
+            list = (from a in t.GetProperties() where a.CanWrite && IsPersistable(a.PropertyType) select a.Name)
+                .Union(_globalPropToSave)
+                .Union(from cr in KeyService.ResolveKeyDefinitionForType(t) select cr)
+                .Union((from cr in CEF.CurrentKeyService().GetRelationsForChild(t) select cr.ChildResolvedKey).SelectMany((p) => p))
+                .Union(from cr in CEF.CurrentDBService().GetPropertyGroupFields(t) select cr)
+                .ToList();
+
+            // For non-persisted, we can look 1 level deeper to identify nested props as well - we iterate properties that belong to the same assembly as the root object
+            if (!persisted)
+            {
+                list.AddRange((from a in t.GetProperties()
+                               where a.PropertyType.Assembly == t.Assembly
+                               select (from b in a.PropertyType.GetProperties()
+                                       where b.CanWrite && IsPersistable(b.PropertyType)
+                                       select b.Name)).SelectMany((p) => p));
+            }
+
+            var asvc = CEF.CurrentAuditService();
+
+            if (asvc != null)
+            {
+                if (!string.IsNullOrEmpty(asvc.LastUpdatedByField) && !list.Contains(asvc.LastUpdatedByField))
+                {
+                    list.Add(asvc.LastUpdatedByField);
+                }
+
+                if (!string.IsNullOrEmpty(asvc.LastUpdatedDateField) && !list.Contains(asvc.LastUpdatedDateField))
+                {
+                    list.Add(asvc.LastUpdatedDateField);
+                }
+            }
+
+            // Support idea of globally excluded properties (i.e. should never persist since might be things like EMailAddressPlain which is just a surrogate for encrypted EMailAddress)
+            var sl = (from a in list where !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a) select a).Distinct().OrderBy((p) => p).ToList();
+
+            if (persisted)
+            {
+                _toSavePropsPersist[t] = sl;
+            }
+            else
+            {
+                _toSaveProps[t] = sl;
+            }
+
+            return sl;
+        }
+
+        internal static IDictionary<string, object?> GetFilteredProperties(Type t, IDictionary<string, object?> props, bool persisted)
+        {
+            Dictionary<string, object?> ret = new(props.Count);
+
+            foreach (var pn in GetToSaveProperties(t, persisted))
+            {
+                if (props.ContainsKey(pn))
+                {
+                    ret[pn] = props[pn];
+                }
+            }
+
+            return ret;
+        }
 
         private static Action<bool> InternalSubscribeAppEvents(Action<bool> subscriber)
         {

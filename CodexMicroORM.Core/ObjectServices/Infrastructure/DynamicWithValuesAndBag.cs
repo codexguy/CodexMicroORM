@@ -390,8 +390,8 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                _originalValues = null!;
-                _source = null!;
+                //_originalValues = null!;
+                //_source = null!;
                 _disposedValue = true;
             }
         }

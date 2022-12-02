@@ -180,6 +180,13 @@ namespace CodexMicroORM.Core
         }
     }
 
+    public class CEFInvalidDataException : InvalidOperationException
+    {
+        public CEFInvalidDataException(string msg) : base(msg)
+        {
+        }
+    }
+
     public class CEFValidationException : ApplicationException
     {
         private readonly IEnumerable<(ValidationErrorCode error, string message)>? _messages = null;
