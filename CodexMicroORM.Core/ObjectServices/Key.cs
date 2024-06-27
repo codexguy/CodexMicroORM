@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ using System.Linq;
 using CodexMicroORM.Core.Collections;
 using System.Collections.Immutable;
 using CodexMicroORM.Core.Helper;
-using System.Diagnostics;
 using System.Threading;
 
 namespace CodexMicroORM.Core.Services
@@ -59,6 +58,8 @@ namespace CodexMicroORM.Core.Services
         }
 
         #region "Public state"
+
+        public static HashSet<Type> HavePKForTypes => new(_primaryKeys.Keys);
 
         public static bool DefaultPrimaryKeysCanBeDBAssigned
         {
@@ -114,7 +115,7 @@ namespace CodexMicroORM.Core.Services
             if (string.IsNullOrEmpty(field))
                 throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, "Field must be non-blank.");
 
-            _primaryKeys[typeof(T)] = new string[] { field };
+            _primaryKeys[typeof(T)] = [ field ];
             _keyKnownTypes[typeof(T)] = knownType;
 
             CEF.RegisterForType<T>(new KeyService());
@@ -146,15 +147,20 @@ namespace CodexMicroORM.Core.Services
             CEF.RegisterForType<T>(new KeyService());
         }
 
-        public static IList<string> ResolveKeyDefinitionForType(Type t)
+        public static IList<string> ResolveKeyDefinitionForType(Type t, RetrievalIdentityMode? identityMode = null)
         {
-            if (_primaryKeys.TryGetValue(t, out IList<string> pk))
+            if (identityMode.GetValueOrDefault(Globals.DefaultRetrievalIdentityMode) == RetrievalIdentityMode.AllowMultipleWithShadowProp)
+            {
+                return ["_ID"];
+            }
+
+            if (_primaryKeys.TryGetValue(t, out IList<string>? pk))
             {
                 return pk;
             }
             else
             {
-                return Array.Empty<string>();
+                return [];
             }
         }
 
@@ -163,7 +169,7 @@ namespace CodexMicroORM.Core.Services
         /// </summary>
         /// <param name="t"></param>
         /// <returns></returns>
-        private static IList<string> ResolveChildRolesForType(Type t)
+        private static List<string> ResolveChildRolesForType(Type t)
         {
             return (from a in _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), t) select a.ChildRoleName ?? a.ParentKey).SelectMany((p) => p).ToList();
         }
@@ -200,14 +206,32 @@ namespace CodexMicroORM.Core.Services
 
                         if (pot != null)
                         {
-                            foreach (var n in InternalGetParentObjects(state, ss, pot, types, visits))
+                            if (!visits.Contains(pot))
                             {
-                                yield return n;
+                                yield return fk.Parent.GetInfraWrapperTarget();
+
+                                foreach (var n in InternalGetParentObjects(state, ss, pot, types, visits))
+                                {
+                                    yield return n;
+                                }
                             }
                         }
-
-                        yield return fk.Parent.GetInfraWrapperTarget();
                     }
+
+                    //foreach (var fk in state.AllParents(uw))
+                    //{
+                    //    var pot = fk.Parent.GetTarget();
+
+                    //    if (pot != null)
+                    //    {
+                    //        foreach (var n in InternalGetParentObjects(state, ss, pot, types, visits))
+                    //        {
+                    //            yield return n;
+                    //        }
+                    //    }
+
+                    //    yield return fk.Parent.GetInfraWrapperTarget();
+                    //}
 
                     if ((types & RelationTypes.Children) != 0)
                     {
@@ -309,7 +333,7 @@ namespace CodexMicroORM.Core.Services
 
             foreach (var child in (from a in children select a.ChildType).Distinct())
             {
-                if (_primaryKeys.TryGetValue(child, out IList<string> pk))
+                if (_primaryKeys.TryGetValue(child, out IList<string>? pk))
                 {
                     visits[child] = pk;
                 }
@@ -332,7 +356,7 @@ namespace CodexMicroORM.Core.Services
 
             foreach (var parent in (from a in parents select a.ParentType).Distinct())
             {
-                if (_primaryKeys.TryGetValue(parent, out IList<string> pk))
+                if (_primaryKeys.TryGetValue(parent, out IList<string>? pk))
                 {
                     visits[parent] = pk;
                 }
@@ -378,20 +402,18 @@ namespace CodexMicroORM.Core.Services
             return need;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate, RetrievalIdentityMode identityMode)
         {
             var uw = to.GetTarget();
 
             if (uw == null)
                 return;
 
-            var pkFields = ResolveKeyDefinitionForType(uw.GetBaseType());
+            var pkFields = ResolveKeyDefinitionForType(uw.GetBaseType(), identityMode);
 
             // If we have no key fields, nothing we can do here!
-            if (pkFields == null || pkFields.Count() == 0)
-            {
+            if (pkFields == null || pkFields.Count == 0)
                 return;
-            }
 
             Type? prefKeyType = null;
             bool needsKeyAssign = false;
@@ -409,6 +431,13 @@ namespace CodexMicroORM.Core.Services
                         {
                             needsKeyAssign = true;
                         }
+                        else
+                        {
+                            if (identityMode == RetrievalIdentityMode.AllowMultipleWithShadowProp)
+                            {
+                                needsKeyAssign = true;
+                            }
+                        }
                     }
                 }
             }
@@ -419,7 +448,7 @@ namespace CodexMicroORM.Core.Services
                 foreach (var k in pkFields)
                 {
                     // Don't overwrite properties that we may have copied!
-                    if (props == null || !props.ContainsKey(k))
+                    if (props == null || !props.TryGetValue(k, out var kval))
                     {
                         var (setter, type) = ss.GetSetter(uw, k);
 
@@ -435,12 +464,7 @@ namespace CodexMicroORM.Core.Services
 
                         if (rset != null)
                         {
-                            var keyType = (type ?? kssp.type);
-
-                            if (keyType == null)
-                            {
-                                keyType = Globals.DefaultKeyType;
-                            }
+                            var keyType = (type ?? kssp.type) ?? Globals.DefaultKeyType;
 
                             if (keyType.Equals(typeof(int)))
                             {
@@ -497,7 +521,7 @@ namespace CodexMicroORM.Core.Services
                             var spval = props[SHADOW_PROP_PREFIX + k];
                             var defVal = WrappingHelper.GetDefaultForType(spval?.GetType() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue));
 
-                            if (defVal.IsSame(props[k]) && !defVal.IsSame(spval))
+                            if (defVal.IsSame(kval) && !defVal.IsSame(spval))
                             {
                                 var sptype = spval.GetType();
 
@@ -543,12 +567,12 @@ namespace CodexMicroORM.Core.Services
 
         public IEnumerable<object> GetParentObjects(ServiceScope ss, object o, RelationTypes types = RelationTypes.None)
         {
-            return InternalGetParentObjects(ss.GetServiceState<KeyServiceState>() ?? throw new CEFInvalidStateException(InvalidStateType.MissingServiceState, "Key"), ss, o, types, new HashSet<object>());
+            return InternalGetParentObjects(ss.GetServiceState<KeyServiceState>() ?? throw new CEFInvalidStateException(InvalidStateType.MissingServiceState, "Key"), ss, o, types, []);
         }
 
         public IEnumerable<object> GetChildObjects(ServiceScope ss, object o, RelationTypes types = RelationTypes.None)
         {
-            return InternalGetChildObjects(ss.GetServiceState<KeyServiceState>() ?? throw new CEFInvalidStateException(InvalidStateType.MissingServiceState, "Key"), ss, o, types, new HashSet<object>());
+            return InternalGetChildObjects(ss.GetServiceState<KeyServiceState>() ?? throw new CEFInvalidStateException(InvalidStateType.MissingServiceState, "Key"), ss, o, types, []);
         }
 
         public void UpdateBoundKeys(ServiceScope.TrackedObject to, ServiceScope ss, string fieldName, object? oval, object? nval)
@@ -591,7 +615,7 @@ namespace CodexMicroORM.Core.Services
 
                 var childRels = _relations.GetAllByName(nameof(TypeChildRelationship.ChildType), uw.GetBaseType()).ToArray();
 
-                Dictionary<TypeChildRelationship, List<(int ordinal, string name, object? value)>> kvCache = new();
+                Dictionary<TypeChildRelationship, List<(int ordinal, string name, object? value)>> kvCache = [];
                 List<(int ordinal, string name, object? value)>? curPK = null;
 
                 foreach (var rel in (from a in childRels where !string.IsNullOrEmpty(a.ParentPropertyName) select a))
@@ -606,8 +630,13 @@ namespace CodexMicroORM.Core.Services
 
                             if (testParent != null)
                             {
-                                objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false, false);
-                                didAdd = true;
+                                var prs = testParent.Infra?.GetRowState();
+
+                                if (prs != null && prs != ObjectState.Deleted)
+                                {
+                                    objstate.AddFK(ss, rel, testParent, to, testParent.GetNotifyFriendly(), true, false, prs == ObjectState.Added);
+                                    didAdd = true;
+                                }
                             }
                             else
                             {
@@ -759,7 +788,7 @@ namespace CodexMicroORM.Core.Services
 
                                     if (chTo != null)
                                     {
-                                        objstate.AddFK(ss, rel, to, chTo, to.GetNotifyFriendly(), true, false, false);
+                                        objstate.AddFK(ss, rel, to, chTo, to.GetNotifyFriendly(), true, false, chTo.Infra?.GetRowState() == ObjectState.Added);
                                     }
                                 }
                             }
@@ -771,12 +800,9 @@ namespace CodexMicroORM.Core.Services
                 {
                     // In this mode, we try to identify if the current object was previously passed over for linking as a child ref
                     // Normally this should not occur if we populate in a "good order" - but when loading from data store in parallel, could encounter out-of-order
-                    if (curPK == null)
-                    {
-                        curPK = GetKeyValues(uw);
-                    }
+                    curPK ??= GetKeyValues(uw);
 
-                    if (curPK?.Count() > 0)
+                    if (curPK?.Count > 0)
                     {
                         foreach (var pobj in objstate.GetMissingChildLinkbacksForParentByValue(to.BaseType ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue), (from k in curPK select k.value)))
                         {
@@ -865,7 +891,7 @@ namespace CodexMicroORM.Core.Services
                                         {
                                             var toAdd = sValEnum.Current;
                                             var toAddWrapped = ss.GetDynamicWrapperFor(toAdd, false);
-                                            var toAddTracked = ss.InternalCreateAddBase(toAdd, toAddWrapped != null && toAddWrapped.GetRowState() == ObjectState.Added, null, null, null, null, true, false) ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
+                                            var toAddTracked = ss.InternalCreateAddBase(toAdd, toAddWrapped != null && toAddWrapped.GetRowState() == ObjectState.Added, null, null, null, null, true, false, ss.ResolvedRetrievalIdentityMode(toAdd)) ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
 
                                             if (asCefList != null && !asCefList.ContainsItem(toAddTracked))
                                             {
@@ -921,6 +947,8 @@ namespace CodexMicroORM.Core.Services
             if (o == null)
                 throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(o));
 
+            var ss = CEF.CurrentServiceScope;
+
             if (cols == null)
             {
                 cols = ResolveKeyDefinitionForType(o.GetBaseType());
@@ -931,10 +959,8 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            List<(int ordinal, string name, object? value)> values = new();
+            List<(int ordinal, string name, object? value)> values = [];
             int ordinal = 0;
-
-            var ss = CEF.CurrentServiceScope;
 
             foreach (var kf in cols)
             {
@@ -989,7 +1015,7 @@ namespace CodexMicroORM.Core.Services
                     if (toc != null)
                     {
                         var kss = ss.GetServiceState<KeyServiceState>();
-                        kss?.AddFK(ss, ki, top, toc, top.GetNotifyFriendly(), true, false, false);
+                        kss?.AddFK(ss, ki, top, toc, top.GetNotifyFriendly(), true, false, true);
                     }
                 }
             }
@@ -997,12 +1023,7 @@ namespace CodexMicroORM.Core.Services
 
         public void WireDependents(object o, object replaced, ServiceScope ss, ICEFList list, bool? objectModelOnly)
         {
-            var state = ss.GetServiceState<KeyServiceState>();
-
-            if (state == null)
-            {
-                throw new CEFInvalidStateException(InvalidStateType.LowLevelState, "Could not find key service state.");
-            }
+            var state = ss.GetServiceState<KeyServiceState>() ?? throw new CEFInvalidStateException(InvalidStateType.LowLevelState, "Could not find key service state.");
 
             var uw = o.AsUnwrapped();
 
@@ -1023,7 +1044,7 @@ namespace CodexMicroORM.Core.Services
                     // If the unwrapped object exists in an EntitySet, replace it with a wrapped version
                     foreach (var tcr in (from a in tcrs where a.ChildPropertyName != null && a.ParentType != null select a))
                     {
-                        List<object?> childVals = new();
+                        List<object?> childVals = [];
 
                         foreach (var crn in tcr.ChildResolvedKey)
                         {
@@ -1041,28 +1062,31 @@ namespace CodexMicroORM.Core.Services
                         {
                             var wt = testParent.GetWrapperTarget() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue);
 
-                            var cpi = wt.GetType().GetProperty(tcr.ChildPropertyName);
-
-                            if (cpi != null && cpi.CanRead)
+                            if (tcr.ChildPropertyName != null)
                             {
-                                if (wt.FastGetValue(cpi.Name) is ICEFList es)
+                                var cpi = wt.GetType().GetProperty(tcr.ChildPropertyName);
+
+                                if (cpi != null && cpi.CanRead)
                                 {
-                                    var toRemove = (es.ContainsItem(o) && !es.ContainsItem(replaced)) ? o : null;
-
-                                    try
+                                    if (wt.FastGetValue(cpi.Name) is ICEFList es)
                                     {
-                                        list?.SuspendNotifications(true);
-                                        es.AddWrappedItem(replaced ?? o);
+                                        var toRemove = (es.ContainsItem(o) && !es.ContainsItem(replaced)) ? o : null;
 
-                                        // Special case - trigger removal of unwrapped and add wrapped
-                                        if (toRemove != null)
+                                        try
                                         {
-                                            es.RemoveItem(toRemove);
+                                            list?.SuspendNotifications(true);
+                                            es.AddWrappedItem(replaced ?? o);
+
+                                            // Special case - trigger removal of unwrapped and add wrapped
+                                            if (toRemove != null)
+                                            {
+                                                es.RemoveItem(toRemove);
+                                            }
                                         }
-                                    }
-                                    finally
-                                    {
-                                        list?.SuspendNotifications(false);
+                                        finally
+                                        {
+                                            list?.SuspendNotifications(false);
+                                        }
                                     }
                                 }
                             }
@@ -1074,14 +1098,14 @@ namespace CodexMicroORM.Core.Services
 
         public static IDictionary<Type, IList<string>> GetChildTypes(object o, bool all = true)
         {
-            Dictionary<Type, IList<string>> visits = new();
+            Dictionary<Type, IList<string>> visits = [];
             InternalGetChildTypes(o.GetBaseType(), visits, all);
             return visits;
         }
 
         public static IDictionary<Type, IList<string>> GetParentTypes(object o, bool all = true)
         {
-            Dictionary<Type, IList<string>> visits = new();
+            Dictionary<Type, IList<string>> visits = [];
             InternalGetParentTypes(o.GetBaseType(), visits, all);
             return visits;
         }
@@ -1102,14 +1126,14 @@ namespace CodexMicroORM.Core.Services
             /// <summary>
             /// This value type is used internally to represent the key value of an object - done in a way to avoid using ref types such as strings (previously used a single stringized version) which can be costly for memory use.
             /// </summary>
-            internal struct CompositeItemWrapper
+            internal readonly struct CompositeItemWrapper
             {
                 private readonly long? AsWhole;
                 private readonly Guid? AsGuid;
                 private readonly string? AsString;
                 private readonly bool IsNull;
 
-                public override bool Equals(object obj)
+                public override bool Equals(object? obj)
                 {
                     if (obj is not CompositeItemWrapper)
                     {
@@ -1244,7 +1268,7 @@ namespace CodexMicroORM.Core.Services
                 public CompositeWrapper(Type basetype)
                 {
                     BaseType = basetype ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, "basetype");
-                    Items = ImmutableArray.Create<CompositeItemWrapper>();
+                    Items = [];
                 }
 
                 public void Add(CompositeItemWrapper item)
@@ -1252,7 +1276,7 @@ namespace CodexMicroORM.Core.Services
                     Items = Items.Add(item);
                 }
 
-                public override bool Equals(object obj)
+                public readonly override bool Equals(object? obj)
                 {
                     if (obj is not CompositeWrapper)
                     {
@@ -1284,7 +1308,7 @@ namespace CodexMicroORM.Core.Services
                     return true;
                 }
 
-                public override int GetHashCode()
+                public readonly override int GetHashCode()
                 {
                     int hc = BaseType.GetHashCode();
 
@@ -1321,9 +1345,9 @@ namespace CodexMicroORM.Core.Services
                     Composite = BuildComposite(null);
                 }
 
-                private void Parent_PropertyChanged(object sender, PropertyChangedEventArgs e)
+                private void Parent_PropertyChanged(object? sender, PropertyChangedEventArgs e)
                 {
-                    var ordinal = ParentKeyFields.IndexOf(e.PropertyName);
+                    var ordinal = ParentKeyFields.IndexOf(e.PropertyName ?? throw new InvalidOperationException("Missing PropertyName."));
 
                     // Was it a key change?
                     if (ordinal >= 0 && NotifyParent.IsAlive && NotifyParent.Target != null)
@@ -1389,10 +1413,7 @@ namespace CodexMicroORM.Core.Services
                                 pkGet = LinkedScope.GetGetter(o, SHADOW_PROP_PREFIX + f).getter;
                             }
 
-                            if (pkGet == null)
-                            {
-                                pkGet = LinkedScope.GetGetter(o, f).getter;
-                            }
+                            pkGet ??= LinkedScope.GetGetter(o, f).getter;
                         }
 
                         if (pkGet != null)
@@ -1404,7 +1425,7 @@ namespace CodexMicroORM.Core.Services
                     return cw;
                 }
 
-                public override bool Equals(object obj)
+                public override bool Equals(object? obj)
                 {
                     if (obj is KeyObjectStatePK otherPK)
                     {
@@ -1448,7 +1469,7 @@ namespace CodexMicroORM.Core.Services
                 {
                     if (!_disposedValue)
                     {
-                        if (disposing && this.GetValue(nameof(NotifyParent), true) != null)
+                        if (disposing && this.GetValue(nameof(NotifyParent), true) != null && NotifyParent.Target != null)
                         {
                             ((INotifyPropertyChanged)NotifyParent.Target).PropertyChanged -= Parent_PropertyChanged;
                         }
@@ -1463,6 +1484,7 @@ namespace CodexMicroORM.Core.Services
                 public void Dispose()
                 {
                     Dispose(true);
+                    GC.SuppressFinalize(this);
                 }
                 #endregion
             }
@@ -1475,7 +1497,7 @@ namespace CodexMicroORM.Core.Services
                 public ServiceScope.TrackedObject Child { get; set; }
                 public CEFWeakReference<INotifyPropertyChanged>? NotifyParent { get; set; }
 
-                public override bool Equals(object obj)
+                public override bool Equals(object? obj)
                 {
                     if (obj is KeyObjectStateFK otherFK)
                     {
@@ -1531,9 +1553,9 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                private void Parent_PropertyChanged(object sender, PropertyChangedEventArgs e)
+                private void Parent_PropertyChanged(object? sender, PropertyChangedEventArgs e)
                 {
-                    if (Key.ParentKey == null)
+                    if (e.PropertyName == null || Key.ParentKey == null)
                     {
                         return;
                     }
@@ -1558,10 +1580,7 @@ namespace CodexMicroORM.Core.Services
                             }
                         }
 
-                        if (forParent == null)
-                        {
-                            forParent = LinkedScope.GetGetter(NotifyParent.Target, e.PropertyName).getter;
-                        }
+                        forParent ??= LinkedScope.GetGetter(NotifyParent.Target, e.PropertyName).getter;
 
                         if (forParent == null)
                         {
@@ -1572,27 +1591,27 @@ namespace CodexMicroORM.Core.Services
                         var (setter, type) = LinkedScope.GetSetter(Child.GetInfraWrapperTarget(), chCol);
 
                         // Change - not necessarily an exception to be missing a setter here, related object may not longer be part of same scope (gone out of scope) and let's not throw an error but silently handle if it IS in scope
-                        if (setter != null)
-                        {
-                            setter.Invoke(forParent.Invoke());
-                        }
+                        setter?.Invoke(forParent());
                     }
                 }
 
                 internal IList<object?> GetParentKeyValue()
                 {
-                    List<object?> val = new();
+                    List<object?> val = [];
 
                     if (Key.ParentKey != null && NotifyParent != null)
                     {
                         for (int i = 0; i < Key.ParentKey.Count; ++i)
                         {
-                            var (getter, type) = LinkedScope.GetGetter(NotifyParent.Target, Key.ParentKey[i]);
-
-                            if (getter != null)
+                            if (NotifyParent.Target != null)
                             {
-                                var parVal = getter.Invoke();
-                                val.Add(parVal);
+                                var (getter, type) = LinkedScope.GetGetter(NotifyParent.Target, Key.ParentKey[i]);
+
+                                if (getter != null)
+                                {
+                                    var parVal = getter.Invoke();
+                                    val.Add(parVal);
+                                }
                             }
                         }
                     }
@@ -1602,7 +1621,7 @@ namespace CodexMicroORM.Core.Services
 
                 internal IList<object?> GetChildRoleValue()
                 {
-                    List<object?> val = new();
+                    List<object?> val = [];
 
                     if (Child.Target != null)
                     {
@@ -1627,13 +1646,16 @@ namespace CodexMicroORM.Core.Services
                     {
                         for (int i = 0; i < Key.ParentKey.Count && i < Key.ChildResolvedKey.Count; ++i)
                         {
-                            var (getter, type) = LinkedScope.GetGetter(NotifyParent.Target, Key.ParentKey[i]);
-
-                            if (getter != null)
+                            if (NotifyParent.Target != null)
                             {
-                                var parVal = getter.Invoke();
-                                var forChild = LinkedScope.GetSetter(Child.GetInfraWrapperTarget() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue, "Could not find child data."), Key.ChildResolvedKey[i]);
-                                forChild.setter?.Invoke(parVal);
+                                var (getter, type) = LinkedScope.GetGetter(NotifyParent.Target, Key.ParentKey[i]);
+
+                                if (getter != null)
+                                {
+                                    var parVal = getter.Invoke();
+                                    var forChild = LinkedScope.GetSetter(Child.GetInfraWrapperTarget() ?? throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue, "Could not find child data."), Key.ChildResolvedKey[i]);
+                                    forChild.setter?.Invoke(parVal);
+                                }
                             }
                         }
                     }
@@ -1668,7 +1690,7 @@ namespace CodexMicroORM.Core.Services
                 {
                     if (!disposedValue)
                     {
-                        if (disposing && NotifyParent != null && this.GetValue(nameof(NotifyParent), true) != null)
+                        if (disposing && NotifyParent != null && this.GetValue(nameof(NotifyParent), true) != null && NotifyParent.Target != null)
                         {
                             ((INotifyPropertyChanged)NotifyParent.Target).PropertyChanged -= Parent_PropertyChanged;
                         }
@@ -1684,6 +1706,7 @@ namespace CodexMicroORM.Core.Services
                 public void Dispose()
                 {
                     Dispose(true);
+                    GC.SuppressFinalize(this);
                 }
                 #endregion
             }
@@ -1695,9 +1718,9 @@ namespace CodexMicroORM.Core.Services
                 public bool Processed;
             }
 
-            private readonly SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<object, ConcurrentObservableCollection<ServiceScope.TrackedObject>>> _missingParentByRef = new();
-            private readonly SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>> _missingParentByVal = new();
-            private readonly SlimConcurrentDictionary<Type, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>> _missingParentChildLinkback = new();
+            private readonly SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<object, ConcurrentObservableCollection<ServiceScope.TrackedObject>>> _missingParentByRef = [];
+            private readonly SlimConcurrentDictionary<TypeChildRelationship, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>> _missingParentByVal = [];
+            private readonly SlimConcurrentDictionary<Type, SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>> _missingParentChildLinkback = [];
 
             private readonly object _asNull = new();
             private bool _firstInit = true;
@@ -1852,7 +1875,7 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                return Array.Empty<UnlinkedChildByValueInfo>();
+                return [];
             }
 
             internal IEnumerable<UnlinkedChildByValueInfo> GetMissingChildrenByValue(TypeChildRelationship key, IEnumerable<object> keyVal)
@@ -1875,7 +1898,7 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                return Array.Empty<UnlinkedChildByValueInfo>();
+                return [];
             }
 
             public IEnumerable<ServiceScope.TrackedObject> GetMissingChildrenForParentByRef(TypeChildRelationship key, object parentWoTValue)
@@ -1890,7 +1913,7 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                return Array.Empty<ServiceScope.TrackedObject>();
+                return [];
             }
 
             public void TrackMissingParentChildLinkback(TypeChildRelationship key, ServiceScope.TrackedObject child, Type parentType, IEnumerable<object> parentKey)
@@ -1909,7 +1932,7 @@ namespace CodexMicroORM.Core.Services
 
                     if (uk == null)
                     {
-                        uk = new SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>();
+                        uk = [];
                         _missingParentChildLinkback[parentType] = uk;
                     }
 
@@ -1917,7 +1940,7 @@ namespace CodexMicroORM.Core.Services
 
                     if (tl == null)
                     {
-                        tl = new ConcurrentObservableCollection<UnlinkedChildByValueInfo>();
+                        tl = [];
                         uk[cw] = tl;
                     }
                 }
@@ -1941,7 +1964,7 @@ namespace CodexMicroORM.Core.Services
 
                     if (uk == null)
                     {
-                        uk = new SlimConcurrentDictionary<CompositeWrapper, ConcurrentObservableCollection<UnlinkedChildByValueInfo>>();
+                        uk = [];
                         _missingParentByVal[key] = uk;
                     }
 
@@ -1949,7 +1972,7 @@ namespace CodexMicroORM.Core.Services
 
                     if (tl == null)
                     {
-                        tl = new ConcurrentObservableCollection<UnlinkedChildByValueInfo>();
+                        tl = [];
                         uk[cw] = tl;
                     }
                 }
@@ -1967,7 +1990,7 @@ namespace CodexMicroORM.Core.Services
 
                     if (uk == null)
                     {
-                        uk = new SlimConcurrentDictionary<object, ConcurrentObservableCollection<ServiceScope.TrackedObject>>();
+                        uk = [];
                         _missingParentByRef[key] = uk;
                     }
 
@@ -1975,7 +1998,7 @@ namespace CodexMicroORM.Core.Services
 
                     if (tl == null)
                     {
-                        tl = new ConcurrentObservableCollection<ServiceScope.TrackedObject>();
+                        tl = [];
                         uk[parentWoTValue ?? _asNull] = tl;
                     }
                 }

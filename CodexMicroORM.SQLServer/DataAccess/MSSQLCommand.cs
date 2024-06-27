@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -70,23 +70,23 @@ namespace CodexMicroORM.Providers
         {
             StringBuilder sb = new();
             sb.Append(_cmd.CommandText);
-            sb.Append("?");
+            sb.Append('?');
             bool first = true;
 
             foreach (SqlParameter p in _cmd.Parameters)
             {
                 if (!first)
                 {
-                    sb.Append("&");
+                    sb.Append('&');
                 }
 
                 first = false;
                 sb.Append(p.ParameterName);
-                sb.Append("=");
+                sb.Append('=');
                 sb.Append(p.Value);
                 sb.Append(" (");
                 sb.Append(p.Size);
-                sb.Append(")");
+                sb.Append(')');
             }
 
             return sb.ToString();
@@ -206,7 +206,7 @@ namespace CodexMicroORM.Providers
                         }
                         else
                         {
-                            switch (dr["TYPE_NAME"].ToString().ToLower())
+                            switch (dr["TYPE_NAME"].ToString()?.ToLower())
                             {
                                 case "xml":
                                 case "sql_variant":
@@ -286,7 +286,7 @@ namespace CodexMicroORM.Providers
         {
             if (_cmd.CommandType == CommandType.StoredProcedure)
             {
-                if (!_paramCache.ContainsKey(_cmd.CommandText))
+                if (!_paramCache.TryGetValue(_cmd.CommandText, out var cached))
                 {
                     DiscoverParameters();
                     _paramCache[_cmd.CommandText] = _cmd.Parameters.Cast<SqlParameter>();
@@ -294,7 +294,7 @@ namespace CodexMicroORM.Providers
                 else
                 {
                     _cmd.Parameters.Clear();
-                    _cmd.Parameters.AddRange((from a in _paramCache[_cmd.CommandText] select CloneParameterNoValue(a)).ToArray());
+                    _cmd.Parameters.AddRange((from a in cached select CloneParameterNoValue(a)).ToArray());
                 }
             }
         }
@@ -432,7 +432,7 @@ namespace CodexMicroORM.Providers
             DataTable dt = new();
             da.Fill(dt);
 
-            Dictionary<string, Type> ret = new();
+            Dictionary<string, Type> ret = [];
 
             foreach (DataColumn dc in dt.Columns)
             {

@@ -67,10 +67,11 @@ namespace CodexMicroORM.DemoObjects
         #endregion
 
         // Generated - initialize known collections
+        // Note: changed in 1.2 from List to EntitySet for Kids to acknowledge need for change tracking, null initialization, etc.
         public PersonWrapped()
         {
-            Kids = new List<Person>();
-            Phones = new List<Phone>();
+            Kids = new EntitySet<Person>();
+            Phones = new EntitySet<Phone>();
         }
 
         public new IList<Person> Kids

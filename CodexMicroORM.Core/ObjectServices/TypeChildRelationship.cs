@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,11 +38,11 @@ namespace CodexMicroORM.Core.Services
             sb.Append(ParentPropertyName);
             if (ParentKey != null)
             {
-                sb.Append(string.Join("", ParentKey.ToArray()));
+                sb.Append(string.Join("", ParentKey));
             }
             if (ChildRoleName != null)
             {
-                sb.Append(string.Join("", ChildRoleName.ToArray()));
+                sb.Append(string.Join("", ChildRoleName));
             }
             _identity = sb.ToString();
         }
@@ -54,7 +54,7 @@ namespace CodexMicroORM.Core.Services
             return unchecked((int)(rol + h1));
         }
 
-        public override bool Equals(object obj) => this._identity.IsSame((obj as TypeChildRelationship)?._identity);
+        public override bool Equals(object? obj) => this._identity.IsSame((obj as TypeChildRelationship)?._identity);
 
         private Type? _childType;
         public Type? ChildType
@@ -153,7 +153,7 @@ namespace CodexMicroORM.Core.Services
         {
             get
             {
-                return _childRoleName ?? _parentKey ?? Array.Empty<string>();
+                return _childRoleName ?? _parentKey ?? [];
             }
         }
 

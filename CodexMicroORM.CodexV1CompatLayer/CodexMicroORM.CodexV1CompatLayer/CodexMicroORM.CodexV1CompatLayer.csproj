@@ -1,27 +1,34 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net461</TargetFrameworks>
-    <Version>1.0.1</Version>
+    <TargetFrameworks>netstandard2.0;net462;net80</TargetFrameworks>
+    <Version>1.2.0</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <Authors>CodeX Enterprises LLC</Authors>
     <Company>CodeX Enterprises LLC</Company>
     <PackageLicenseUrl></PackageLicenseUrl>
-    <Copyright>Copyright (c) 2020, All Rights Reserved</Copyright>
+    <Copyright>Copyright (c) 2024, All Rights Reserved</Copyright>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <PackageIconUrl></PackageIconUrl>
     <PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
     <Description>For users of CodexFramework V1.0, this package offers a way to change less code when migrating to use CodexMicroORM as a replacement framework.</Description>
     <PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
     <PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
-    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageIcon>xSkrapeIcon.jpg</PackageIcon>
     <LangVersion>latest</LangVersion>
-    <FileVersion>1.0.2.0</FileVersion>
+    <FileVersion>1.2.0.0</FileVersion>
   </PropertyGroup>
 
-  <ItemGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+		<NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001</NoWarn>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+		<NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
     <ProjectReference Include="..\..\CodexMicroORM.Core\CodexMicroORM.Core.csproj" />
   </ItemGroup>
 

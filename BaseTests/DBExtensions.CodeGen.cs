@@ -41,11 +41,11 @@ namespace CodexMicroORM.DemoObjects
     {
         public static EntitySet<Phone> DBRetrieveAllForFamily(this EntitySet<Phone> set, int ParentPersonID)
         {
-            return set.DBRetrieveByQuery<Phone>(CommandType.StoredProcedure, "CEFTest.up_Phone_AllForFamily", ParentPersonID);
+            return set.DBRetrieveByQuery<Phone>(CommandType.StoredProcedure, "CEFTest.up_Phone_AllForFamily", ParentPersonID, false);
         }
         public static EntitySet<Phone> DBAppendAllForFamily(this EntitySet<Phone> set, int ParentPersonID)
         {
-            return set.DBAppendByQuery<Phone>(CommandType.StoredProcedure, "CEFTest.up_Phone_AllForFamily", ParentPersonID);
+            return set.DBAppendByQuery<Phone>(CommandType.StoredProcedure, "CEFTest.up_Phone_AllForFamily", ParentPersonID, false);
         }
         public static EntitySet<Phone> DBRetrieveByOwner(this EntitySet<Phone> set, int PersonID, PhoneType? PhoneTypeID)
         {

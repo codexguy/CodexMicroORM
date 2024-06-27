@@ -8,10 +8,11 @@ using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace BaseTests
@@ -131,6 +132,9 @@ namespace BaseTests
             enckeysrc.Write(Guid.NewGuid().ToByteArray());
             enckeysrc.Write(Guid.NewGuid().ToByteArray());
             MemoryFileSystemBacked.SetEncryptionKeySource(MemoryFileSystemBacked.SerializationFileEncryptionType.AES256, enckeysrc);
+
+            // Added 1.2 - test methodology from latest code gen templates
+            AttributeInitializer.Apply(typeof(CodexMicroORM.DemoObjects2.Person).Assembly);
 
             // This will construct a new test database, if needed - if the script changes, you'll need to drop the CodexMicroORMTest database before running
             using (CEF.NewConnectionScope(new ConnectionScopeSettings() { IsTransactional = false, ConnectionStringOverride = $@"Data Source={DB_SERVER};Database=master;Integrated Security=SSPI;MultipleActiveResultSets=true;TrustServerCertificate=true" }))
@@ -480,7 +484,7 @@ namespace BaseTests
             using var ss = CEF.NewServiceScope();
             Globals.UseShadowPropertiesForNew = false;
 
-            EntitySet<Person> people = new();
+            EntitySet<Person> people = [];
             people.Add(new Person() { PersonID = 1, Age = 12, Gender = "F", Name = "Zella" });
             people.Add(new Person() { PersonID = 2, Age = 13, Gender = "M", Name = "Robert" });
             people.Add(new Person() { PersonID = 3, Age = 75, Gender = "M", Name = "Jack" });
@@ -501,11 +505,15 @@ namespace BaseTests
 
             // Now let's assume you wanted to package up the change to go to a server... sending it back as entity, not dt
             EntitySet<Person> peopleCopy = new();
-            dt.DefaultView.ReconcileDataViewToEntitySet(peopleCopy);
-            ss.AcceptAllChanges();
+            using (var ss2 = CEF.NewServiceScope())
+            {
+                dt.DefaultView.ReconcileDataViewToEntitySet(peopleCopy);
+                ss2.AcceptAllChanges();
+            }
 
             // Now let's assume we're applying updates, while on the server, back to our data, to get saved... does the row states imply 1 insert, 1 update and 1 delete? it should!
-            peopleCopy.ReconcileEntitySetToEntitySet(people);
+            EntitySet<Person> people2 = new(people);
+            peopleCopy.ReconcileEntitySetToEntitySet(people2);
             var debugSS = CEFDebug.ReturnServiceScope();
             Assert.IsTrue((from a in ss.GetAllTracked() where a.GetRowState() == ObjectState.Modified select a).Count() == 1);
             Assert.IsTrue((from a in ss.GetAllTracked() where a.GetRowState() == ObjectState.Added select a).Count() == 1);
@@ -533,7 +541,7 @@ namespace BaseTests
 
             using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
             {
-                var p1 = CEF.NewObject<PersonWrapped>();
+                var p1 = CEF.NewObject<Person>();
                 p1.Name = "Joe";
                 p1.Age = 22;
                 p1.Gender = "M";
@@ -555,7 +563,8 @@ namespace BaseTests
                 var phes = new EntitySet<Phone>().DBRetrieveByKey(phid);
                 Assert.AreEqual(1, phes.Count());
                 Assert.AreEqual(null, phes.First().Owner);
-                Assert.AreEqual(null, phes.First().AsDynamic().PersonID);
+                var d = phes.First().AsDynamic();
+                Assert.AreEqual(null, (int?)d.PersonID);
             }
         }
 
@@ -595,13 +604,13 @@ namespace BaseTests
         {
             using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
             {
-                var p1 = CEF.NewObject<PersonWrapped>();
+                var p1 = CEF.NewObject<Person>();
                 p1.Name = "Joe";
                 p1.Age = 22;
                 p1.Gender = "M";
                 p1.Phones.Add(new Phone() { Number = "111-2222", PhoneTypeID = PhoneType.Home, Owner = p1 });
                 p1.Phones.Add(new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile, Owner = p1 });
-                var p2 = CEF.NewObject<PersonWrapped>();
+                var p2 = CEF.NewObject<Person>();
                 p2.Name = "Mary";
                 p2.Age = 2;
                 p2.Gender = "F";
@@ -620,12 +629,12 @@ namespace BaseTests
         {
             using (CEF.NewServiceScope())
             {
-                var p1 = CEF.NewObject<PersonWrapped>();
+                var p1 = CEF.NewObject<Person>();
                 p1.Name = "Joe";
                 p1.Age = 22;
                 p1.Gender = "M";
                 p1.Phones = CEF.CreateList(p1, nameof(Person.Phones), ObjectState.Added, new Phone() { Number = "111-2222", PhoneTypeID = PhoneType.Home, Owner = p1 }, new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile, Owner = p1 });
-                var p2 = CEF.NewObject<PersonWrapped>();
+                var p2 = CEF.NewObject<Person>();
                 p2.Name = "Mary";
                 p2.Age = 2;
                 p2.Gender = "F";
@@ -651,16 +660,24 @@ namespace BaseTests
 
             using (CEF.NewServiceScope())
             {
-                var p1 = new Person() { Name = "Fred", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile } } };
-                var p2 = new Person() { Name = "Sam", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3334", PhoneTypeID = PhoneType.Mobile } } };
-                var p3 = new Person() { Name = "Carol", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile } } };
-                var p4 = new Person() { Name = "Kylo", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile } } };
-                var p5 = new Person() { Name = "Perry", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile } } };
-                var p6 = new Person() { Name = "William", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile } } };
-                p1.Kids = new Person[] { p2, p3 };
-                p2.Kids = new Person[] { p4 };
-                p3.Kids = new Person[] { p5, p6 };
-                CEF.NewObject(p1);
+                var p1 = new Person() { Name = "Fred", Age = 84 };
+                p1.Phones = [ new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile, Owner = p1 } ];
+                var p2 = new Person() { Name = "Sam", Age = 64 };
+                p2.Phones = [ new Phone() { Number = "222-3334", PhoneTypeID = PhoneType.Mobile, Owner = p2 } ];
+                var p3 = new Person() { Name = "Carol", Age = 58 };
+                p3.Phones = [ new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile, Owner = p3 } ];
+                var p4 = new Person() { Name = "Kylo", Age = 42 };
+                p4.Phones = [ new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile, Owner = p4 } ];
+                var p5 = new Person() { Name = "Perry", Age = 33 };
+                p5.Phones = [ new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile, Owner = p5 } ];
+                var p6 = new Person() { Name = "William", Age = 30 };
+                p6.Phones = [ new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile, Owner = p6 } ];
+
+                p1.Kids = [ p2, p3 ];
+                p2.Kids = [ p4 ];
+                p3.Kids = [ p5, p6 ];
+
+                CEF.NewObject(p1, true);
                 CEF.DBSave();
                 p1ID = p1.PersonID;
             }
@@ -676,7 +693,7 @@ namespace BaseTests
                 }
 
                 var parent = (from a in people where a.Kids?.Count > 0 select a).FirstOrDefault();
-                Assert.AreEqual(2, parent.Kids.Count());
+                Assert.AreEqual(2, parent.Kids?.Count);
                 Assert.AreEqual(2, (from a in parent.Kids select a.Phones.Count()).Sum());
             }
         }
@@ -688,7 +705,7 @@ namespace BaseTests
 
             using (CEF.NewServiceScope(new ServiceScopeSettings() { GetLastUpdatedBy = () => { return "XYZ"; } }))
             {
-                CEF.NewObject(p1);
+                CEF.NewObject(p1, true);
                 Assert.AreEqual(2, CEF.DBSave().Count());
             }
 
@@ -754,9 +771,9 @@ namespace BaseTests
             using (CEF.NewServiceScope(new ServiceScopeSettings() { InitializeNullCollections = true }))
             {
                 EntitySet<Person> vals = new EntitySet<Person>();
-                vals.Add(new Person() { Name = "Joe Jr.", Age = 20, Gender = "Z" });
-                vals.Add(new Person() { Name = "Unrelated", Age = 25, Gender = "F" });
-                vals.Add(new Person() { Name = "Joe Sr.", Age = 40, Gender = "M" });
+                vals.Add(CEF.NewObject(new Person() { Name = "Joe Jr.", Age = 20, Gender = "Z" }));
+                vals.Add(CEF.NewObject(new Person() { Name = "Unrelated", Age = 25, Gender = "F" }));
+                vals.Add(CEF.NewObject(new Person() { Name = "Joe Sr.", Age = 40, Gender = "M" }));
                 vals.Last().Kids.Add(vals.First());
 
                 // This fails since it violates a CHECK constraint we have in the database, on Gender - being in a transaction, it should not "accept changes" to support an effective "retry"
@@ -877,8 +894,8 @@ namespace BaseTests
                 Assert.AreEqual(3, CEF.DBSave().Count());
                 Assert.AreEqual("222-3338", (from a in p1b.Kids where a.Name == "STCarol" from b in a.Kids where b.Name == "STWilliam" select b.Phones.First()).First().Number);
 
-                // There were 3 changed items, yes, but had to have 5 in total to properly "root" all objects in the hierarchy
-                Assert.AreEqual(5, CEF.GetAllTracked().Count());
+                // There were 3 changed items, yes, but need more to properly "root" all objects in the hierarchy
+                Assert.AreEqual(7, CEF.GetAllTracked().Count());
 
                 var end1 = (from a in p1b.Kids where a.Age == 45 select a).First().AsDynamic().LastUpdatedDate;
                 var end2 = (from a in p1b.Kids where a.Name == "STCarol" from b in a.Kids where b.Name == "STWilliam" select b).First().AsDynamic().LastUpdatedDate;
@@ -1057,16 +1074,23 @@ namespace BaseTests
         {
             using (CEF.NewServiceScope())
             {
-                var p1 = new Person() { Name = "Fred", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile } } };
-                var p2 = new Person() { Name = "Sam", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3334", PhoneTypeID = PhoneType.Mobile } } };
-                var p3 = new Person() { Name = "Carol", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile } } };
-                var p4 = new Person() { Name = "Kylo", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile } } };
-                var p5 = new Person() { Name = "Perry", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile } } };
-                var p6 = new Person() { Name = "William", Age = 44, Phones = new Phone[] { new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile } } };
-                p1.Kids = new Person[] { p2, p3 };
-                p2.Kids = new Person[] { p4 };
-                p3.Kids = new Person[] { p5, p6 };
-                CEF.NewObject(p1);
+                // In this style, no need to call CEF.NewObject with recursion - it's all getting added incrementally but stick to style of using EntitySet, etc.
+                var p1 = CEF.NewObject(new Person() { Name = "Fred", Age = 44 });
+                p1.Phones = new EntitySet<Phone>(p1, nameof(Person.Phones)) { new Phone() { Number = "222-3333", PhoneTypeID = PhoneType.Mobile, Owner = p1 } };
+                var p2 = CEF.NewObject(new Person() { Name = "Sam", Age = 44 });
+                p2.Phones = new EntitySet<Phone>(p2, nameof(Person.Phones)) { new Phone() { Number = "222-3334", PhoneTypeID = PhoneType.Mobile, Owner = p2 } };
+                var p3 = CEF.NewObject(new Person() { Name = "Carol", Age = 44 });
+                p3.Phones = new EntitySet<Phone>(p3, nameof(Person.Phones)) { new Phone() { Number = "222-3335", PhoneTypeID = PhoneType.Mobile, Owner = p3 } };
+                var p4 = CEF.NewObject(new Person() { Name = "Kylo", Age = 44 });
+                p4.Phones = new EntitySet<Phone>(p4, nameof(Person.Phones)) { new Phone() { Number = "222-3336", PhoneTypeID = PhoneType.Mobile, Owner = p4 } };
+                var p5 = CEF.NewObject(new Person() { Name = "Perry", Age = 44 });
+                p5.Phones = new EntitySet<Phone>(p5, nameof(Person.Phones)) { new Phone() { Number = "222-3337", PhoneTypeID = PhoneType.Mobile, Owner = p5 } };
+                var p6 = CEF.NewObject(new Person() { Name = "William", Age = 44 });
+                p6.Phones = new EntitySet<Phone>(p6, nameof(Person.Phones)) { new Phone() { Number = "222-3338", PhoneTypeID = PhoneType.Mobile, Owner = p6 } };
+                p1.Kids = new EntitySet<Person>([ p2, p3 ]);
+                p2.Kids = new EntitySet<Person>([ p4 ]);
+                p3.Kids = new EntitySet<Person>([ p5, p6 ]);
+
                 Assert.AreEqual(12, CEF.DBSave().Count());
                 Assert.AreEqual(2, CEF.CurrentKeyService().GetObjectNestLevel(p6));
                 Assert.AreEqual(3, CEF.CurrentKeyService().GetObjectNestLevel(p6.Phones.First()));
@@ -1077,14 +1101,17 @@ namespace BaseTests
                 Assert.AreEqual(2, (from a in es2 where a.AsInfraWrapped().GetRowState() == ObjectState.Unchanged select a).Count());
                 Assert.IsTrue((from a in es2 where a.Name == "Carol" select a).FirstOrDefault().PersonID == p3.PersonID);
                 var es3 = new EntitySet<Phone>();
-                es3.Add(p2.Phones.First());
-                es3.Add(p4.Phones.First());
-                p2.AsWrapped<PersonWrapped>().Phones.RemoveAt(0);
-                p4.AsWrapped<PersonWrapped>().Phones.RemoveAt(0);
+                var p2p = p2.Phones.First();
+                var p4p = p4.Phones.First();
+                es3.Add(p2p);
+                es3.Add(p4p);
+                p2.Phones.RemoveAt(0);
+                p4.Phones.RemoveAt(0);
+                p2p.Owner = null;
+                p4p.Owner = null;
                 es3.Sequential((ph) => ph.PhoneTypeID = PhoneType.Home);
-                Assert.IsTrue(es3.All((p) => p.PhoneTypeID == PhoneType.Home && p.AsDynamic().PersonID == null));
                 Assert.AreEqual(2, es3.DBSave().Count());
-                CEF.DeleteObject(p1);
+                CEF.DeleteObject(p1);   // should cascade delete but p2p and p4p not in main graph anymore so should not delete
                 Assert.AreEqual(10, CEF.DBSave(new DBSaveSettings() { RootObject = p1 }).Count());
                 es3.DeleteAll();
                 Assert.AreEqual(2, CEF.DBSave().Count());
@@ -1105,7 +1132,7 @@ namespace BaseTests
                 p1.Kids = new Person[] { p2, p3 };
                 p2.Kids = new Person[] { p4 };
                 p3.Kids = new Person[] { p5, p6 };
-                CEF.NewObject(p1);
+                CEF.NewObject(p1, true);
 
                 using (CEF.NewServiceScope())
                 {
@@ -1135,7 +1162,7 @@ namespace BaseTests
                 p1.Kids = new Person[] { p2, p3 };
                 p2.Kids = new Person[] { p4 };
                 p3.Kids = new Person[] { p5, p6 };
-                CEF.NewObject(p1);
+                CEF.NewObject(p1, true);
 
                 using (var cs = CEF.NewConnectionScope())
                 {

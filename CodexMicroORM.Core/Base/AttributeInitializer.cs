@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,10 +18,8 @@ Major Changes:
 ***********************************************************************/
 using CodexMicroORM.Core.Services;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Threading.Tasks;
 #nullable enable
 
@@ -49,7 +47,7 @@ namespace CodexMicroORM.Core
             }
 
             // Traverse provided assemblies, looking for classes that implement attributes of interest
-            Parallel.ForEach(args, (a) =>
+            Parallel.ForEach(args ?? [], (a) =>
             {
                 Parallel.ForEach(a.GetTypes(), (t) =>
                 {
@@ -62,11 +60,11 @@ namespace CodexMicroORM.Core
                             PreviewHandler?.Invoke((t, null, typeof(EntityPrimaryKeyAttribute)));
                             if (pkAttr.ShadowType != null)
                             {
-                                typeof(KeyService).GetMethod("RegisterKeyWithType").MakeGenericMethod(t).Invoke(null, new object[] { pkAttr.Fields.First(), pkAttr.ShadowType });
+                                typeof(KeyService).GetMethod("RegisterKeyWithType")!.MakeGenericMethod(t).Invoke(null, [ pkAttr.Fields.First(), pkAttr.ShadowType ]);
                             }
                             else
                             {
-                                typeof(KeyService).GetMethod("RegisterKey").MakeGenericMethod(t).Invoke(null, new object[] { pkAttr.Fields });
+                                typeof(KeyService).GetMethod("RegisterKey")!.MakeGenericMethod(t).Invoke(null, [ pkAttr.Fields ]);
                             }
 
                             foreach (var prop in t.GetProperties())
@@ -76,7 +74,7 @@ namespace CodexMicroORM.Core
                                 if (maxLenAttr != null)
                                 {
                                     PreviewHandler?.Invoke((t, prop.Name, typeof(EntityMaxLengthAttribute)));
-                                    typeof(ValidationService).GetMethod("RegisterMaxLength").MakeGenericMethod(t).Invoke(null, new object[] { prop.Name, maxLenAttr.Length });
+                                    typeof(ValidationService).GetMethod("RegisterMaxLength")!.MakeGenericMethod(t).Invoke(null, [ prop.Name, maxLenAttr.Length ]);
                                 }
 
                                 var defValAttr = prop.GetCustomAttribute<EntityDefaultValueAttribute>();
@@ -84,7 +82,7 @@ namespace CodexMicroORM.Core
                                 if (defValAttr != null)
                                 {
                                     PreviewHandler?.Invoke((t, prop.Name, typeof(EntityDefaultValueAttribute)));
-                                    typeof(DBService).GetMethod("RegisterDefault").MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name, defValAttr.Value.CoerceType(prop.PropertyType)! });
+                                    typeof(DBService).GetMethod("RegisterDefault")!.MakeGenericMethod(t, prop.PropertyType).Invoke(null, [ prop.Name, defValAttr.Value.CoerceType(prop.PropertyType) ]);
                                 }
 
                                 var reqValAttr = prop.GetCustomAttribute<EntityRequiredAttribute>();
@@ -92,7 +90,7 @@ namespace CodexMicroORM.Core
                                 if (reqValAttr != null)
                                 {
                                     PreviewHandler?.Invoke((t, prop.Name, typeof(EntityRequiredAttribute)));
-                                    typeof(ValidationService).GetMethod("RegisterRequired", new Type[] { typeof(string) }).MakeGenericMethod(t, prop.PropertyType).Invoke(null, new object[] { prop.Name });
+                                    typeof(ValidationService).GetMethod("RegisterRequired", [ typeof(string) ])!.MakeGenericMethod(t, prop.PropertyType).Invoke(null, [ prop.Name ]);
                                 }
 
                                 var ignBindAttr = prop.GetCustomAttribute<EntityIgnoreBindingAttribute>();
@@ -116,13 +114,13 @@ namespace CodexMicroORM.Core
                         if (dnsAttr != null)
                         {
                             PreviewHandler?.Invoke((t, null, typeof(EntityDoNotSaveAttribute)));
-                            typeof(ServiceScope).GetMethod("RegisterDoNotSave").MakeGenericMethod(t).Invoke(null, Array.Empty<object>());
+                            typeof(ServiceScope).GetMethod("RegisterDoNotSave")!.MakeGenericMethod(t).Invoke(null, []);
                         }
 
                         foreach (EntityAdditionalPropertiesAttribute addPropAttr in t.GetCustomAttributes<EntityAdditionalPropertiesAttribute>())
                         {
                             PreviewHandler?.Invoke((t, null, typeof(EntityAdditionalPropertiesAttribute)));
-                            typeof(ServiceScope).GetMethod("AddAdditionalPropertyHost").MakeGenericMethod(t).Invoke(null, new object[] { addPropAttr.PropertyName });
+                            typeof(ServiceScope).GetMethod("AddAdditionalPropertyHost")!.MakeGenericMethod(t).Invoke(null, [ addPropAttr.PropertyName ]);
                         }
                     }
                     catch
@@ -142,7 +140,7 @@ namespace CodexMicroORM.Core
                             if (dateStoreAttr != null && dateStoreAttr.StorageMode != PropertyDateStorage.None)
                             {
                                 PreviewHandler?.Invoke((t, prop.Name, typeof(EntityDateHandlingAttribute)));
-                                typeof(ServiceScope).GetMethod("SetDateStorageMode").MakeGenericMethod(t).Invoke(null, new object[] { prop.Name, dateStoreAttr.StorageMode });
+                                typeof(ServiceScope).GetMethod("SetDateStorageMode")!.MakeGenericMethod(t).Invoke(null, [ prop.Name, dateStoreAttr.StorageMode ]);
                             }
                         }
                     }
@@ -162,16 +160,16 @@ namespace CodexMicroORM.Core
                         {
                             PreviewHandler?.Invoke((t, null, typeof(EntityCacheRecommendAttribute)));
 
-                            typeof(ServiceScope).GetMethod("SetCacheBehavior").MakeGenericMethod(t).Invoke(null, new object[] { CacheBehavior.MaximumDefault });
+                            typeof(ServiceScope).GetMethod("SetCacheBehavior")!.MakeGenericMethod(t).Invoke(null, [ CacheBehavior.MaximumDefault ]);
 
                             if (cacheAttr.OnlyMemory.HasValue)
                             {
-                                typeof(ServiceScope).GetMethod("SetCacheOnlyMemory").MakeGenericMethod(t).Invoke(null, new object[] { cacheAttr.OnlyMemory.Value });
+                                typeof(ServiceScope).GetMethod("SetCacheOnlyMemory")!.MakeGenericMethod(t).Invoke(null, [ cacheAttr.OnlyMemory.Value ]);
                             }
 
                             if (cacheAttr.IntervalMinutes.HasValue)
                             {
-                                typeof(ServiceScope).GetMethod("SetCacheSeconds").MakeGenericMethod(t).Invoke(null, new object[] { cacheAttr.IntervalMinutes.Value * 60 });
+                                typeof(ServiceScope).GetMethod("SetCacheSeconds")!.MakeGenericMethod(t).Invoke(null, [ cacheAttr.IntervalMinutes.Value * 60 ]);
                             }
                         }
                     }
@@ -190,7 +188,7 @@ namespace CodexMicroORM.Core
                         if (schemaAttr != null)
                         {
                             PreviewHandler?.Invoke((t, null, typeof(EntitySchemaNameAttribute)));
-                            typeof(DBService).GetMethod("RegisterSchema").MakeGenericMethod(t).Invoke(null, new object[] { schemaAttr.Name });
+                            typeof(DBService).GetMethod("RegisterSchema")!.MakeGenericMethod(t).Invoke(null, [ schemaAttr.Name ]);
                         }
                     }
                     catch
@@ -208,7 +206,7 @@ namespace CodexMicroORM.Core
                         if (relAttr != null)
                         {
                             PreviewHandler?.Invoke((t, null, typeof(EntityRelationshipsAttribute)));
-                            typeof(KeyService).GetMethod("RegisterRelationship").MakeGenericMethod(t).Invoke(null, new object[] { relAttr.Relations });
+                            typeof(KeyService).GetMethod("RegisterRelationship")!.MakeGenericMethod(t).Invoke(null, [ relAttr.Relations ]);
                         }
                     }
                     catch

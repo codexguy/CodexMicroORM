@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -114,15 +114,21 @@ namespace CodexMicroORM.Core.Services
 
         public IndexedSet<T> AddEqualityIndex(string propName)
         {
-            _view.AutoInferIndexes = false;
-            _view.AddEqualityIndex(propName, null);
+            if (_view != null)
+            {
+                _view.AutoInferIndexes = false;
+                _view.AddEqualityIndex(propName, null);
+            }
             return this;
         }
 
         public IndexedSet<T> AddRangeIndex(string propName)
         {
-            _view.AutoInferIndexes = false;
-            _view.AddRangeIndex(propName, null);
+            if (_view != null)
+            {
+                _view.AutoInferIndexes = false;
+                _view.AddRangeIndex(propName, null);
+            }
             return this;
         }
 
@@ -205,7 +211,7 @@ namespace CodexMicroORM.Core.Services
             set;
         } = null;
 
-        public IEnumerable<object?> FindByEquality(IEnumerable<string> fieldNames, IEnumerable<object> values)
+        public IEnumerable<object?> FindByEquality(IEnumerable<string> fieldNames, IEnumerable<object?> values)
         {
             if (_view == null)
             {
@@ -218,7 +224,7 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public IEnumerable<T> FindByEquality(string fieldName, object value)
+        public IEnumerable<T> FindByEquality(string fieldName, object? value)
         {
             if (_view == null)
             {
@@ -227,7 +233,7 @@ namespace CodexMicroORM.Core.Services
 
             using (new ReaderLock(this.LockInfo))
             {
-                return View.FindByEqualityTyped(new string[] { fieldName }, new object[] { value }).ToArray();
+                return View.FindByEqualityTyped([ fieldName ], [ value ]).ToArray();
             }
         }
 
@@ -238,7 +244,7 @@ namespace CodexMicroORM.Core.Services
                 throw new InvalidOperationException("View is not initialized.");
             }
 
-            return View.FindByEqualityTyped(new string[] { fieldName }, new object[] { value });
+            return View.FindByEqualityTyped([ fieldName ], [ value ]);
         }
 
         public IEnumerable<T> FindByEqualityTyped(IEnumerable<string> fieldNames, IEnumerable<object> values)
@@ -251,10 +257,10 @@ namespace CodexMicroORM.Core.Services
             return View.FindByEqualityTyped(fieldNames, values);
         }
 
-        private void IndexChangeTracker_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void IndexChangeTracker_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             // This only matters if we actually have indexes present!
-            if ((_view?._propIndexes?.Count).GetValueOrDefault() == 0)
+            if (sender == null || e.PropertyName == null || (_view?._propIndexes?.Count).GetValueOrDefault() == 0)
             {
                 return;
             }
@@ -263,43 +269,35 @@ namespace CodexMicroORM.Core.Services
 
             if (iw != null)
             {
-                IDictionary<string, object?>? dic = null;
                 var cv = iw.GetValue(e.PropertyName);
                 object? pv = null;
 
-                using (var rl = new ReaderLock(LockInfo))
+                using var rl = new ReaderLock(LockInfo);
+                if (_prevAllValues.TryGetValue(sender, out var dic))
                 {
-                    if (_prevAllValues.ContainsKey(sender))
-                    {
-                        dic = _prevAllValues[sender];
+                    dic.TryGetValue(e.PropertyName, out pv);
+                }
 
-                        if (dic.ContainsKey(e.PropertyName))
+                if (!cv.IsSame(pv))
+                {
+                    rl.Release();
+
+                    using (new WriterLock(LockInfo))
+                    {
+                        // Update indexes that refer to the changed column, if any
+                        if (View._propIndexes.TryGetValue(e.PropertyName, out var piv1))
                         {
-                            pv = dic[e.PropertyName];
+                            piv1.UpdateKey(pv, cv, sender);
                         }
-                    }
 
-                    if (!cv.IsSame(pv))
-                    {
-                        rl.Release();
-
-                        using (new WriterLock(LockInfo))
+                        if (dic == null)
                         {
-                            // Update indexes that refer to the changed column, if any
-                            if (View._propIndexes.ContainsKey(e.PropertyName))
-                            {
-                                View._propIndexes[e.PropertyName].UpdateKey(pv, cv, sender);
-                            }
-
-                            if (dic == null)
-                            {
-                                dic = CEF.GetFilteredProperties(typeof(T), iw.GetAllValues(), false);
-                                _prevAllValues[sender] = dic;
-                            }
-                            else
-                            {
-                                dic[e.PropertyName] = cv;
-                            }
+                            dic = CEF.GetFilteredProperties(typeof(T), iw.GetAllValues(), false);
+                            _prevAllValues[sender] = dic;
+                        }
+                        else
+                        {
+                            dic[e.PropertyName] = cv;
                         }
                     }
                 }
@@ -462,7 +460,7 @@ namespace CodexMicroORM.Core.Services
 
             if ((filter & MergeToType.Delete) != 0)
             {
-                List<T> todelete = new();
+                List<T> todelete = [];
 
                 foreach (T row in toset)
                 {
@@ -511,6 +509,7 @@ namespace CodexMicroORM.Core.Services
         public void Dispose()
         {
             Dispose(true);
+            GC.SuppressFinalize(this);
         }
         #endregion
     }
@@ -569,12 +568,10 @@ namespace CodexMicroORM.Core.Services
             EnsureIndexed(true, true, propName, () =>
             {
                 if (propType == null)
-                {
                     propType = typeof(T).GetProperty(propName)?.PropertyType;
-                }
 
                 if (propType == null)
-                    throw new ArgumentNullException("propType");
+                    throw new ArgumentNullException(nameof(propType));
 
                 return propType;
             });
@@ -590,7 +587,7 @@ namespace CodexMicroORM.Core.Services
                 }
 
                 if (propType == null)
-                    throw new ArgumentNullException("propType");
+                    throw new ArgumentNullException(nameof(propType));
 
                 return propType;
             });
@@ -598,7 +595,7 @@ namespace CodexMicroORM.Core.Services
 
         private bool EnsureIndexed(bool canCreate, bool isEquality, string propName, Func<Type> propTypeGet)
         {
-            _propIndexes.TryGetValue(propName, out ICEFDataIndex ci);
+            _propIndexes.TryGetValue(propName, out ICEFDataIndex? ci);
 
             if (ci != null)
             {
@@ -618,7 +615,7 @@ namespace CodexMicroORM.Core.Services
                         propType2 = typeof(Nullable<>).MakeGenericType(propType2);
                     }
 
-                    _propIndexes[propName] = (ICEFDataIndex)Activator.CreateInstance(typeof(ComparisonSortedIndex<,>).MakeGenericType(typeof(T), propType2), this, propName);
+                    _propIndexes[propName] = (ICEFDataIndex)(Activator.CreateInstance(typeof(ComparisonSortedIndex<,>).MakeGenericType(typeof(T), propType2), this, propName) ?? throw new InvalidOperationException($"Could not instantiate ComparisonSortedIndex."));
                 }
 
                 return true;
@@ -646,7 +643,7 @@ namespace CodexMicroORM.Core.Services
             {
                 try
                 {
-                    _propIndexes[propName] = (ICEFDataIndex)Activator.CreateInstance(typeof(EqualityHashIndex<,>).MakeGenericType(typeof(T), propType), this, propName);
+                    _propIndexes[propName] = (ICEFDataIndex)(Activator.CreateInstance(typeof(EqualityHashIndex<,>).MakeGenericType(typeof(T), propType), this, propName) ?? throw new InvalidOperationException("Could not instantiate EqualityHashIndex."));
                 }
 #pragma warning disable CS0168 // Variable is declared but never used
                 catch (Exception ex)
@@ -669,7 +666,7 @@ namespace CodexMicroORM.Core.Services
                     throw new NotSupportedException("Property must support IComparable.");
                 }
 
-                _propIndexes[propName] = (ICEFDataIndex)Activator.CreateInstance(typeof(ComparisonSortedIndex<,>).MakeGenericType(typeof(T), propType), this, propName);
+                _propIndexes[propName] = (ICEFDataIndex)(Activator.CreateInstance(typeof(ComparisonSortedIndex<,>).MakeGenericType(typeof(T), propType), this, propName) ?? throw new InvalidOperationException("Could not instantiate ComparisonSortedIndex."));
             }
 
             return true;
@@ -683,7 +680,7 @@ namespace CodexMicroORM.Core.Services
             LessThanOrEqual = 4
         }
 
-        public IEnumerable<T> FindByRangeTyped(RangeType rt, IEnumerable<string> fieldNames, IEnumerable<object> values)
+        public IEnumerable<T> FindByRangeTyped(RangeType rt, IEnumerable<string?> fieldNames, IEnumerable<object?> values)
         {
             var fnl = fieldNames.ToArray();
             var vl = values.ToArray();
@@ -699,7 +696,7 @@ namespace CodexMicroORM.Core.Services
             for (int i = 0; i < fnl.Length; ++i)
             {
                 var v = vl[i];
-                var fn = fnl[i];
+                var fn = fnl[i] ?? "";
 
                 if (!EnsureIndexed(AutoInferIndexes.GetValueOrDefault(Globals.AutoInferIndexes), false, fn, () =>
                 {
@@ -744,7 +741,7 @@ namespace CodexMicroORM.Core.Services
                     return pt;
                 }))
                 {
-                    return new T[] { };
+                    return [];
                 }
 
                 using (CEF.UseServiceScope(_ss ?? CEF.NewOrCurrentServiceScope()))
@@ -778,15 +775,18 @@ namespace CodexMicroORM.Core.Services
                     }
                     else
                     {
-                        list = list.Intersect(l2);
+                        if (l2 != null)
+                        {
+                            list = list.Intersect(l2);
+                        }
                     }
                 }
             }
 
-            return list ?? new T[] { };
+            return list ?? [];
         }
 
-        public IEnumerable<T> FindByEqualityTyped(IEnumerable<string> fieldNames, IEnumerable<object> values)
+        public IEnumerable<T> FindByEqualityTyped(IEnumerable<string> fieldNames, IEnumerable<object?> values)
         {
             var fnl = fieldNames.ToArray();
             var vl = values.ToArray();
@@ -847,7 +847,7 @@ namespace CodexMicroORM.Core.Services
                     return pt;
                 }))
                 {
-                    return new T[] { };
+                    return [];
                 }
 
                 using (CEF.UseServiceScope(_ss ?? CEF.NewOrCurrentServiceScope()))
@@ -867,10 +867,10 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            return list ?? new T[] { };
+            return list ?? [];
         }
 
-        IEnumerable<object> ICEFIndexed.FindByEquality(IEnumerable<string> fieldNames, IEnumerable<object> values)
+        IEnumerable<object> ICEFIndexed.FindByEquality(IEnumerable<string> fieldNames, IEnumerable<object?> values)
         {
             return FindByEqualityTyped(fieldNames, values);
         }
@@ -879,6 +879,11 @@ namespace CodexMicroORM.Core.Services
         {
             // Can we perform better than the existing join operator? Likely depends on set sizes - at least one needs to be small, one large (can loop the small, seeking the large) AND the large key column should have an equality index present already
             // Theory is the existing join performance is I believe O(n+m) - if we optimize, can be as low as O(n') where n' = smaller of n and m (if one is large, then could be significant benefit)
+
+            if (_source == null || inner == null)
+            {
+                yield break;
+            }
 
             var tc = _source.Count();
             var ic = inner.Count();
@@ -889,7 +894,7 @@ namespace CodexMicroORM.Core.Services
 
                 if (!string.IsNullOrEmpty(imi))
                 {
-                    if (inner.EnsureIndexed(AutoInferIndexes.GetValueOrDefault(Globals.AutoInferIndexes), true, imi, () => { return typeof(TKey); }))
+                    if (inner.EnsureIndexed(AutoInferIndexes.GetValueOrDefault(Globals.AutoInferIndexes), true, imi!, () => { return typeof(TKey); }))
                     {
                         var oks = outerKeySelector.Compile();
                         var rs = resultSelector.Compile();
@@ -898,7 +903,7 @@ namespace CodexMicroORM.Core.Services
                         {
                             var v = oks(i);
 
-                            foreach (var im in inner.FindByEqualityTyped(new string[] { imi }, new object[] { v }))
+                            foreach (var im in inner.FindByEqualityTyped([ imi! ], [ v ]))
                             {
                                 yield return rs(i, im);
                             }
@@ -916,7 +921,7 @@ namespace CodexMicroORM.Core.Services
 
                     if (!string.IsNullOrEmpty(omi))
                     {
-                        if (EnsureIndexed(AutoInferIndexes.GetValueOrDefault(Globals.AutoInferIndexes), true, omi, () => { return typeof(TKey); }))
+                        if (EnsureIndexed(AutoInferIndexes.GetValueOrDefault(Globals.AutoInferIndexes), true, omi!, () => { return typeof(TKey); }))
                         {
                             var iks = innerKeySelector.Compile();
                             var rs = resultSelector.Compile();
@@ -925,7 +930,7 @@ namespace CodexMicroORM.Core.Services
                             {
                                 var v = iks(i);
 
-                                foreach (var om in FindByEqualityTyped(new string[] { omi }, new object[] { v }))
+                                foreach (var om in FindByEqualityTyped([ omi! ], [ v ]))
                                 {
                                     yield return rs(om, i);
                                 }
@@ -965,7 +970,7 @@ namespace CodexMicroORM.Core.Services
 
                             if (leftResults == null)
                             {
-                                return Array.Empty<T>();
+                                return [];
                             }
 
                             if (!leftResults.Any())
@@ -977,7 +982,7 @@ namespace CodexMicroORM.Core.Services
 
                             if (rightResults == null)
                             {
-                                return Array.Empty<T>();
+                                return [];
                             }
 
                             if (!rightResults.Any())
@@ -1062,9 +1067,9 @@ namespace CodexMicroORM.Core.Services
                     return (fn(d), true);
                 }
 
-                MethodInfo internalHelper = typeof(IndexedSnapshot<T>).GetMethod("GetDynamicValue", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(IndexedSnapshot<T>).GetMethod("GetDynamicValue", BindingFlags.Static | BindingFlags.NonPublic) ?? throw new InvalidOperationException("Failed to find GetDynamicValue method.");
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(mi.ReturnType);
-                var asCast = (Func<Delegate, object>)constructedHelper.Invoke(null, Array.Empty<object>());
+                var asCast = (Func<Delegate, object?>)(constructedHelper.Invoke(null, []) ?? throw new InvalidOperationException("Failed calling MakeGenericMethod."));
 
                 _dyncache[mi.ReturnType] = asCast;
                 return (asCast(d), true);
@@ -1073,10 +1078,10 @@ namespace CodexMicroORM.Core.Services
             return (null, false);
         }
 
-        private static ConcurrentDictionary<Type, Func<Delegate, object>> _dyncache = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, Func<Delegate, object?>> _dyncache = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Code Quality", "IDE0051:Remove unused private members", Justification = "Dynamic call")]
-        private static Func<Delegate, object> GetDynamicValue<TRet>()
+        private static Func<Delegate, object?> GetDynamicValue<TRet>()
         {
             return (Delegate target) =>
                     ((Func<TRet>)target ?? throw new ArgumentException($"Target is null for type {typeof(TRet).Name}")).Invoke();
@@ -1092,7 +1097,7 @@ namespace CodexMicroORM.Core.Services
                 // If found on both, we can't do anything, need to use standard (for now)
                 if (foundMemberLeft != null ^ foundMemberRight != null)
                 {
-                    object compTo;
+                    object? compTo;
 
                     // Evaluate the "other side" to get comparison value
                     if (foundMemberLeft != null)
@@ -1118,7 +1123,7 @@ namespace CodexMicroORM.Core.Services
                         compTo = val;
                     }
 
-                    return FindByEqualityTyped(new string[] { foundMemberLeft ?? foundMemberRight }, new object[] { compTo });
+                    return FindByEqualityTyped([ foundMemberLeft ?? foundMemberRight ?? throw new InvalidOperationException("Failed to find member name.") ], [ compTo ]);
                 }
 
                 // Special case: linq correlated subqueries - made more efficienct by using indexes for equality
@@ -1130,7 +1135,7 @@ namespace CodexMicroORM.Core.Services
 
                         if (ok)
                         {
-                            return FindByEqualityTyped(new string[] { foundMemberLeft }, new object[] { val });
+                            return FindByEqualityTyped([ foundMemberLeft ], [ val ]);
                         }
                     }
                     else
@@ -1141,7 +1146,7 @@ namespace CodexMicroORM.Core.Services
 
                             if (ok)
                             {
-                                return FindByEqualityTyped(new string[] { foundMemberRight }, new object[] { val });
+                                return FindByEqualityTyped([ foundMemberRight ], [ val ]);
                             }
                         }
                     }
@@ -1161,7 +1166,7 @@ namespace CodexMicroORM.Core.Services
                 // If found on both, we can't do anything, need to use standard (for now)
                 if (foundMemberLeft != null ^ foundMemberRight != null)
                 {
-                    object compTo;
+                    object? compTo;
 
                     try
                     {
@@ -1185,14 +1190,14 @@ namespace CodexMicroORM.Core.Services
                         ? RangeType.GreaterThan : be.NodeType == ExpressionType.GreaterThanOrEqual
                         ? RangeType.GreaterThanOrEqual : be.NodeType == ExpressionType.LessThan
                         ? RangeType.LessThan : be.NodeType == ExpressionType.LessThanOrEqual ? RangeType.LessThanOrEqual : throw new ArgumentException("Invalid range type.")
-                        , new string[] { foundMemberLeft ?? foundMemberRight }, new object[] { compTo });
+                        , [ foundMemberLeft ?? foundMemberRight ], [ compTo ]);
                 }
             }
 
             return Enumerable.Where(this, predicate.Compile());
         }
 
-        internal static Expression FindExpressionByType(Expression src, ExpressionType tofind, bool foundtype = false)
+        internal static Expression? FindExpressionByType(Expression src, ExpressionType tofind, bool foundtype = false)
         {
             if (src.NodeType == tofind && foundtype)
             {
@@ -1207,7 +1212,7 @@ namespace CodexMicroORM.Core.Services
                     foundtype = true;
                 }
 
-                return FindExpressionByType(me.Expression, tofind, foundtype);
+                return FindExpressionByType(me.Expression ?? throw new InvalidOperationException("Failed to get Expression."), tofind, foundtype);
             }
 
             return null;
@@ -1227,7 +1232,7 @@ namespace CodexMicroORM.Core.Services
             {
                 if (ce.Method.DeclaringType == typeof(PublicExtensions) && ce.Arguments.Count == 2 && ((ce.Method.Name == "PropertyValue") || (ce.Method.Name == "PropertyNullValue")))
                 {
-                    return Expression.Lambda(ce.Arguments[1]).Compile().DynamicInvoke().ToString();
+                    return (Expression.Lambda(ce.Arguments[1]).Compile().DynamicInvoke() ?? throw new InvalidOperationException("Failed to get a value from DynamicInvoke.")).ToString();
                 }
             }
 
@@ -1290,6 +1295,7 @@ namespace CodexMicroORM.Core.Services
         public void Dispose()
         {
             Dispose(true);
+            GC.SuppressFinalize(this);
         }
 
         #endregion

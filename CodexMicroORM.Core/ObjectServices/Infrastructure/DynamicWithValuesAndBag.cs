@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -36,14 +36,16 @@ namespace CodexMicroORM.Core.Services
     {
         protected Dictionary<string, object?> _originalValues = new(Globals.DefaultDictionaryCapacity, Globals.CurrentStringComparer);
         protected ObjectState _rowState;
+#if DEBUG
         private static readonly bool _debugStopEnabled = true;
+#endif
 
         public event EventHandler<DirtyStateChangeEventArgs>? DirtyStateChange;
 
         public static List<(Type type, ObjectState? state, string ignoreonstack)> DebugStopOnChangeImmediateByType
         {
             get;
-        } = new();
+        } = [];
 
         internal DynamicWithValuesAndBag(object o, ObjectState irs, IDictionary<string, object?>? props, IDictionary<string, Type>? types) : base(o, props, types)
         {
@@ -107,7 +109,7 @@ namespace CodexMicroORM.Core.Services
 
                                 foreach (var frame in st.GetFrames())
                                 {
-                                    if (Regex.IsMatch(frame.GetMethod().Name, ignoreonstack, RegexOptions.IgnoreCase))
+                                    if (Regex.IsMatch(frame.GetMethod()?.Name ?? "", ignoreonstack, RegexOptions.IgnoreCase))
                                     {
                                         return;
                                     }
@@ -248,11 +250,11 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        private void CEFValueTrackingWrapper_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void CEFValueTrackingWrapper_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (_source != null && !_disposedValue)
             {
-                var (readable, value) = _source.FastPropertyReadableWithValue(e.PropertyName);
+                var (readable, value) = _source.FastPropertyReadableWithValue(e.PropertyName ?? throw new InvalidOperationException("Missing PropertyName."));
 
                 if (readable)
                 {
@@ -361,7 +363,7 @@ namespace CodexMicroORM.Core.Services
 
             using (new ReaderLock(_lock))
             {
-                if (!_originalValues.ContainsKey(propName))
+                if (!_originalValues.TryGetValue(propName, out var ov))
                 {
                     if (throwIfNotSet)
                     {
@@ -371,7 +373,7 @@ namespace CodexMicroORM.Core.Services
                     return null;
                 }
 
-                return _originalValues[propName];
+                return ov;
             }
         }
 
@@ -400,6 +402,7 @@ namespace CodexMicroORM.Core.Services
         public void Dispose()
         {
             Dispose(true);
+            GC.SuppressFinalize(this);
         }
         #endregion
 

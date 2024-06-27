@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -43,11 +43,11 @@ namespace CodexMicroORM.Core.Services
     {
         private readonly static ConcurrentDictionary<Type, Type> _directTypeMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private readonly static ConcurrentDictionary<Type, string> _cachedTypeMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, object> _defValMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, object?> _defValMap = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private readonly static ConcurrentDictionary<Type, bool> _isWrapListCache = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static ConcurrentDictionary<Type, IDictionary<string, Type>> _propCache = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+        private readonly static ConcurrentDictionary<Type, IDictionary<string, (Type, Boolean)>> _propCache = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
         private readonly static ConcurrentDictionary<Type, bool> _sourceValTypeOk = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private readonly static SlimConcurrentDictionary<string, Type> _typeByName = new();
+        private readonly static SlimConcurrentDictionary<string, Type?> _typeByName = [];
         private static long _copyNesting = 0;
 
 
@@ -56,14 +56,14 @@ namespace CodexMicroORM.Core.Services
             if (t == null)
                 return null;
 
-            if (_defValMap.TryGetValue(t, out object val))
+            if (_defValMap.TryGetValue(t, out object? val))
             {
                 return val;
             }
 
-            MethodInfo mi = typeof(WrappingHelper).GetMethod("InternalGetDefaultForType", BindingFlags.NonPublic | BindingFlags.InvokeMethod | BindingFlags.Static);
+            MethodInfo mi = typeof(WrappingHelper).GetMethod("InternalGetDefaultForType", BindingFlags.NonPublic | BindingFlags.InvokeMethod | BindingFlags.Static)!;
             mi = mi.MakeGenericMethod(t);
-            var val2 = mi.Invoke(null, Array.Empty<object>());
+            var val2 = mi.Invoke(null, []);
             _defValMap[t] = val2;
             return val2;
         }
@@ -79,21 +79,28 @@ namespace CodexMicroORM.Core.Services
         {
             var ot = o?.GetType() ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(o));
 
-            if (_directTypeMap.ContainsKey(ot))
+            if (_directTypeMap.TryGetValue(ot, out var fn))
             {
-                return _directTypeMap[ot].FullName;
+                return fn.FullName!;
             }
 
-            if (_cachedTypeMap.ContainsKey(ot))
+            if (_cachedTypeMap.TryGetValue(ot, out var fn2))
             {
-                return _cachedTypeMap[ot];
+                return fn2;
             }
 
             string? cn;
 
             if (!string.IsNullOrEmpty(Globals.WrapperClassNamePattern))
             {
-                cn = string.Format(Globals.WrapperClassNamePattern, ot.Name);
+                if (!string.IsNullOrEmpty(Globals.WrapperClassNamePattern) && Globals.WrapperClassNamePattern!.StartsWith("{0}") && ot.Name.EndsWith(Globals.WrapperClassNamePattern.Replace("{0}", "")))
+                {
+                    cn = ot.Name;
+                }
+                else
+                {
+                    cn = string.Format(Globals.WrapperClassNamePattern, ot.Name);
+                }
             }
             else
             {
@@ -170,7 +177,7 @@ namespace CodexMicroORM.Core.Services
 
         public static HashSet<string> PopulateNestedPropertiesFromValues(object o, IDictionary<string, object?> props)
         {
-            HashSet<string> wasSet = new();
+            HashSet<string> wasSet = [];
 
             foreach (var extprop in ServiceScope.ResolvedAdditionalPropertyHosts(o.GetType()))
             {
@@ -216,15 +223,14 @@ namespace CodexMicroORM.Core.Services
             if (dic == null)
             {
                 dic = (from a in target.FastGetAllProperties(true, true)
-                       where !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
-                       select new { Name = a.name, PropertyType = a.type }).ToDictionary((p) => p.Name, (p) => p.PropertyType);
+                       select new { Name = a.name, PropertyType = a.type, RO = CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name) }).ToDictionary((p) => p.Name, (p) => (p.PropertyType, p.RO));
 
                 _propCache[target.GetType()] = dic;
             }
 
-            var iter = sourceProps == null ? 
-                (from t in dic select (t.Key, target.FastGetValue(t.Key), t.Value)) 
-                : (from s in sourceProps from t in dic where s.Key == t.Key select (s.Key, s.Value, t.Value ));
+            var iter = sourceProps == null ?
+                (from t in dic where (!t.Value.Item2 || isNew) select (t.Key, target.FastGetValue(t.Key), t.Value))
+                : (from s in sourceProps from t in dic where (!t.Value.Item2 || isNew) && s.Key == t.Key select (s.Key, s.Value, t.Value));
 
             var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 4 && iter.Count() >= Environment.ProcessorCount ? Environment.ProcessorCount >> 2 : 1;
 
@@ -232,12 +238,11 @@ namespace CodexMicroORM.Core.Services
 
             try
             {
-                void a((string PropName, object SourceVal, Type TargPropType) info)
+                void a((string PropName, object SourceVal, (Type TargPropType, bool ReadOnly) inner) info)
                 {
                     object? wrapped = null;
-                    bool setval = false;
 
-                    if (ss != null && !simpleCopy && IsWrappableListType(info.TargPropType, info.SourceVal))
+                    if (ss != null && !simpleCopy && IsWrappableListType(info.inner.TargPropType, info.SourceVal))
                     {
                         ICEFList? wrappedCol = null;
 
@@ -245,7 +250,7 @@ namespace CodexMicroORM.Core.Services
                         {
                             // This by definition represents CHILDREN
                             // Use an observable collection we control - namely EntitySet
-                            wrappedCol = CreateWrappingList(ss, info.TargPropType, target, info.PropName);
+                            wrappedCol = CreateWrappingList(ss, info.inner.TargPropType, target, info.PropName);
                             target.FastSetValue(info.PropName, wrappedCol);
                         }
                         else
@@ -257,17 +262,19 @@ namespace CodexMicroORM.Core.Services
                         if (info.SourceVal != null && wrappedCol != null)
                         {
                             // Based on the above type checks, we know this thing supports IEnumerable
-                            var sValEnum = ((System.Collections.IEnumerable)info.SourceVal).GetEnumerator();
+                            var sValEnum = ((IEnumerable)info.SourceVal).GetEnumerator();
 
                             while (sValEnum.MoveNext())
                             {
-                                if (visits.ContainsKey(sValEnum.Current))
+                                var cur = sValEnum.Current;
+
+                                if (visits.TryGetValue(cur, out object? val))
                                 {
-                                    wrapped = visits[sValEnum.Current] ?? sValEnum.Current;
+                                    wrapped = val ?? cur;
                                 }
                                 else
                                 {
-                                    wrapped = ss.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, visits, true, true);
+                                    wrapped = ss.InternalCreateAddBase(cur, isNew, null, null, null, visits, true, true, ss.ResolvedRetrievalIdentityMode(cur));
                                 }
 
                                 if (wrapped != null)
@@ -299,15 +306,14 @@ namespace CodexMicroORM.Core.Services
                             if (simpleCopy && !justTraverse)
                             {
                                 target.FastSetValue(info.PropName, info.SourceVal);
-                                setval = true;
                             }
                             else
                             {
                                 if (svtok)
                                 {
-                                    if (visits.ContainsKey(info.SourceVal))
+                                    if (visits.TryGetValue(info.SourceVal, out object? sv))
                                     {
-                                        wrapped = visits[info.SourceVal] ?? info.SourceVal;
+                                        wrapped = sv ?? info.SourceVal;
                                     }
                                     else
                                     {
@@ -315,7 +321,7 @@ namespace CodexMicroORM.Core.Services
 
                                         if (to == null)
                                         {
-                                            wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, null, visits, true, true);
+                                            wrapped = ss.InternalCreateAddBase(info.SourceVal, isNew, null, null, null, visits, true, true, ss?.ResolvedRetrievalIdentityMode(info.SourceVal) ?? Globals.DefaultRetrievalIdentityMode);
                                         }
                                         else
                                         {
@@ -326,7 +332,6 @@ namespace CodexMicroORM.Core.Services
                                     if (wrapped != null)
                                     {
                                         target.FastSetValue(info.PropName, wrapped);
-                                        setval = true;
                                     }
                                 }
                                 else
@@ -334,7 +339,6 @@ namespace CodexMicroORM.Core.Services
                                     if (!justTraverse)
                                     {
                                         target.FastSetValue(info.PropName, info.SourceVal);
-                                        setval = true;
                                     }
                                 }
                             }
@@ -344,7 +348,6 @@ namespace CodexMicroORM.Core.Services
                             if (!justTraverse)
                             {
                                 target.FastSetValue(info.PropName, info.SourceVal);
-                                setval = true;
                             }
                         }
                     }
@@ -387,7 +390,7 @@ namespace CodexMicroORM.Core.Services
             foreach (var (name, _, _, _) in source.FastGetAllProperties(true, true))
             {
                 // For new rows, ignore the PK since it should be assigned by key service
-                if ((!isNew || !pkFields.Contains(name)) && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(name))
+                if ((!isNew || !pkFields.Contains(name)) && (isNew || !CEF.RegisteredPropertyNameTreatReadOnly.Contains(name)))
                 {
                     props[name] = source.FastGetValue(name);
 
@@ -401,12 +404,38 @@ namespace CodexMicroORM.Core.Services
             CopyParsePropertyValues(props, target, isNew, ss, visits, false, false);
         }
 
-        private static ICEFWrapper? InternalCreateWrapper(bool isNew, object o, bool missingAllowed, ServiceScope ss, IDictionary<object, ICEFWrapper> wrappers, IDictionary<object, object> visits)
+        internal static void CopyReadOnlyCollectionsBackFromWrapper(object srcwrapped, object target)
+        {
+            // This is a special case where we want to copy back collections which may have been instantiated in a wrapper class, so that consumers can use the unwrapped instances as if they were wrapped
+            foreach (var name in (from a in srcwrapped.FastGetAllProperties(true, true)
+                                  join b in target.FastGetAllProperties(true, true) on a.name equals b.name
+                                  where CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
+                                  && (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type)
+                                  select a.name))
+            {
+                var sv = srcwrapped.FastGetValue(name);
+                var tv = target.FastGetValue(name);
+
+                if (sv != null && tv == null && sv.GetType().Name.StartsWith(Globals.PreferredEntitySetType.Name))
+                {
+                    try
+                    {
+                        target.FastSetValue(name, sv);
+                    }
+                    catch
+                    {
+                        // consider this non-fatal, may revisit
+                    }
+                }
+            }
+        }
+
+        private static ICEFWrapper? InternalCreateWrapper(bool isNew, object o, bool missingAllowed, ServiceScope ss, Dictionary<object, ICEFWrapper> wrappers, IDictionary<object, object> visits)
         {
             // Try to not duplicate wrappers: return one if previously generated in this parsing instance
-            if (wrappers.ContainsKey(o))
+            if (wrappers.TryGetValue(o, out var w))
             {
-                return wrappers[o];
+                return w;
             }
 
             ICEFWrapper? replwrap = null;
@@ -420,7 +449,7 @@ namespace CodexMicroORM.Core.Services
                     throw new CEFInvalidStateException(InvalidStateType.ObjectTrackingIssue, $"Failed to determine name of wrapper class for object of type {o.GetType().Name}.");
                 }
 
-                if (!_typeByName.TryGetValue(fqn, out Type t))
+                if (!_typeByName.TryGetValue(fqn, out Type? t))
                 {
                     t = Type.GetType(fqn, false, true);
                     _typeByName[fqn] = t;
@@ -516,6 +545,76 @@ namespace CodexMicroORM.Core.Services
         }
 
         /// <summary>
+        /// A traverser of any object graph, looking for specific types to invoke delegate for.
+        /// </summary>
+        /// <param name="o"></param>
+        /// <param name="types"></param>
+        /// <param name="toRun"></param>
+        public static void NodeVisiter(object o, HashSet<Type> types, Action<object> toRun)
+        {
+            if (o == null)
+            {
+                return;
+            }
+
+            var visits = new ConcurrentDictionary<object, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+
+            InternalNodeVisiter(o, types, toRun, visits);
+        }
+
+        private static void InternalNodeVisiter(object o, HashSet<Type> types, Action<object> toRun, IDictionary<object, bool> visits)
+        {
+            if (visits.ContainsKey(o))
+            {
+                return;
+            }
+
+            visits[o] = true;
+
+            var props = o.FastGetAllProperties(true, true);
+            var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 4 && props.Count() > Environment.ProcessorCount ? Environment.ProcessorCount >> 2 : 1;
+
+            Parallel.ForEach(props, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (prop) =>
+            {
+                var name = prop.name;
+                var type = prop.type;
+                var sv = o.FastGetValue(name);
+
+                if (sv != null && !type.IsValueType && (sv is IEnumerable || !type.FullName!.StartsWith("System.")))
+                {
+                    // Either type matches, or is an enumerable of a type we're interested in, in which case loop for each
+                    if (types.Contains(type))
+                    {
+                        toRun(sv);
+                    }
+                    else
+                    {
+                        if (sv is IEnumerable asEnum)
+                        {
+                            var sValEnum = asEnum.GetEnumerator();
+
+                            while (sValEnum.MoveNext())
+                            {
+                                var sv2 = sValEnum.Current;
+                                var sv2t = sv2.GetType();
+
+                                if (sv2 != null && !sv2t.IsValueType && (sv2 is IEnumerable || !sv2t.FullName!.StartsWith("System.")))
+                                {
+                                    if (types.Contains(sv2t))
+                                    {
+                                        toRun(sv2);
+                                    }
+
+                                    InternalNodeVisiter(sv2, types, toRun, visits);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        /// <summary>
         /// Performs a depth-first traversal of object graph, invoking a delegate of choice for each infrastructure wrapper found.
         /// </summary>
         /// <param name="iw">Root object to start traversal.</param>
@@ -534,8 +633,8 @@ namespace CodexMicroORM.Core.Services
 
             visits[iw] = true;
 
-            var av = (from a in iw.GetAllValues() where a.Value != null && !a.Value.GetType().IsValueType && !a.Value.GetType().FullName.StartsWith("System.") select a).ToList();
-            var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 4 && av.Count() > Environment.ProcessorCount ? Environment.ProcessorCount >> 2 : 1;
+            var av = (from a in iw.GetAllValues() where a.Value != null && !a.Value.GetType().IsValueType && !a.Value.GetType().FullName!.StartsWith("System.") select a).ToList();
+            var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 4 && av.Count > Environment.ProcessorCount ? Environment.ProcessorCount >> 2 : 1;
 
             Parallel.ForEach(av, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (kvp) =>
             {

@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,9 +28,9 @@ namespace CodexMicroORM.Core
 {
     public sealed class SerializationVisitTracker
     {
-        public HashSet<object> Objects { get; } = new HashSet<object>();
+        public HashSet<object> Objects { get; } = [];
 
-        public HashSet<Type> Types { get; } = new HashSet<Type>();
+        public HashSet<Type> Types { get; } = [];
     }
 
     /// <summary>
@@ -81,7 +81,7 @@ namespace CodexMicroORM.Core
     /// </summary>
     /// <typeparam name="TK"></typeparam>
     /// <typeparam name="TV"></typeparam>
-    public class ConcurrentDictionaryEx<TK, TV> : ConcurrentDictionary<TK, TV>
+    public class ConcurrentDictionaryEx<TK, TV> : ConcurrentDictionary<TK, TV> where TK : notnull
     {
         private readonly object _lock = new();
 
@@ -397,7 +397,7 @@ namespace CodexMicroORM.Core
             _hash = target?.GetHashCode();
         }
 
-        public override bool Equals(object obj)
+        public override bool Equals(object? obj)
         {
             if (obj == null)
                 return this.Target == null;

@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -107,6 +107,27 @@ namespace CodexMicroORM.Core
     {
         UseAmbient = 0,
         CreateNew = 1
+    }
+
+    public enum FrameworkWarningType
+    {
+        RetrievalIdentity = 1
+    }
+
+    /// <summary>
+    /// Added: 1.2
+    /// When retrieving possibly multiple records into an Entity Set, if the underlying type has a key defined and if the incoming data has duplicate keys, this setting determines how to handle the situation.
+    /// None is is close to the existing behavior, pre 1.2 - zero overhead added to retrieval process, behaves like MaintainIdentityAndWarn with no warnings issued.
+    /// MaintainIdentityAndWarn is close to the existing behavior, pre 1.2. In this case, the first instance is kept/returned, a warning is issued for each attempt to return a new row, values are copied to the first instance, such that there will only be as many instances tracked as there are unique values.
+    /// WireFirst will keep a list of all instances that were attempted to be returned but only the first per key value will be "linkable" within the object graph.
+    /// WithShadowProp will effectively act as a key-override such that the type or instance will be treated similar to a non-keyed type, but with a shadow property to hold a system-generated key value (_ID). This makes it possible to have multiple instances of the same key value, but they will not be linkable within the object graph.
+    /// </summary>
+    public enum RetrievalIdentityMode
+    {
+        MaintainIdentityAndWarn = 0,
+        ThrowErrorOnDuplicate = 1,
+        AllowMultipleWireFirst = 2,
+        AllowMultipleWithShadowProp = 3
     }
 
     [Flags]

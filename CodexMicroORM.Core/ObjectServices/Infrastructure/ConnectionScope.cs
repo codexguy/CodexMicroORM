@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -93,13 +93,13 @@ namespace CodexMicroORM.Core.Services
         {
             get;
             set;
-        } = new HashSet<ICEFInfraWrapper>();
+        } = [];
 
         public ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object? value)> data)> ToRollbackList
         {
             get;
             set;
-        } = new ConcurrentBag<(ICEFInfraWrapper row, ObjectState prevstate, IList<(string name, object? value)> data)>();
+        } = [];
 
         public IDBProviderConnection CurrentConnection
         {
@@ -248,6 +248,7 @@ namespace CodexMicroORM.Core.Services
         public void Dispose()
         {
             Dispose(true);
+            GC.SuppressFinalize(this);
         }
 
         public Action? Disposed

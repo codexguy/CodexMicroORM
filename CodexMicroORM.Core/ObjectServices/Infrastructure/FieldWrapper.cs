@@ -1,4 +1,5 @@
 ﻿using System;
+#nullable enable
 
 namespace CodexMicroORM.Core.Services
 {
@@ -7,15 +8,15 @@ namespace CodexMicroORM.Core.Services
     /// The main driver is a need to allow us to include null as the key in directionaries, namely indexing dictionaries.
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public struct FieldWrapper<T> : IComparable<T>, IComparable
+    public readonly struct FieldWrapper<T> : IComparable<T>, IComparable
     {
-        private readonly T _value;
+        private readonly T? _value;
 
-        public FieldWrapper(T val)
+        public FieldWrapper(T? val)
         {
             if (Globals.IndexedSetCaseInsensitiveStringCompares && typeof(T) == typeof(string) && val != null)
             {
-                _value = (T)((object)val.ToString().ToLower());
+                _value = (T)((object)val.ToString()!.ToLower());
             }
             else
             {
@@ -23,9 +24,9 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public T Value => _value;
+        public T? Value => _value;
 
-        public int CompareTo(object other)
+        public int CompareTo(object? other)
         {
             if (other == null && _value == null)
                 return 0;
@@ -36,16 +37,16 @@ namespace CodexMicroORM.Core.Services
             if (_value == null)
                 return -1;
 
-            if (other is FieldWrapper<T>)
-                other = ((FieldWrapper<T>)other).Value;
+            if (other is FieldWrapper<T> wrapper)
+                other = wrapper.Value;
 
-            if (other is IComparable && _value is IComparable)
-                return ((IComparable)_value).CompareTo(other);
+            if (other is IComparable && _value is IComparable cmp)
+                return cmp.CompareTo(other);
 
-            return _value.ToString().CompareTo(other.ToString());
+            return _value.ToString()!.CompareTo(other!.ToString());
         }
 
-        public int CompareTo(T other)
+        public int CompareTo(T? other)
         {
             if (other == null && _value == null)
                 return 0;
@@ -56,13 +57,13 @@ namespace CodexMicroORM.Core.Services
             if (_value == null)
                 return -1;
 
-            if (other is IComparable<T> && _value is IComparable<T>)
-                return ((IComparable<T>)_value).CompareTo(other);
+            if (other is IComparable<T> && _value is IComparable<T> cmpg)
+                return cmpg.CompareTo(other);
 
-            if (other is IComparable && _value is IComparable)
-                return ((IComparable)_value).CompareTo(other);
+            if (other is IComparable && _value is IComparable cmp)
+                return cmp.CompareTo(other);
 
-            return _value.ToString().CompareTo(other.ToString());
+            return _value.ToString()!.CompareTo(other.ToString());
         }
 
         public override int GetHashCode()
@@ -72,16 +73,21 @@ namespace CodexMicroORM.Core.Services
                 return int.MinValue;
             }
 
+            if (_value == null)
+            {
+                return -1;
+            }
+
             return _value.GetHashCode();
         }
 
-        public override bool Equals(object obj)
+        public override bool Equals(object? obj)
         {
-            T toCompare;
+            T? toCompare;
 
-            if (obj is FieldWrapper<T>)
+            if (obj is FieldWrapper<T> ot)
             {
-                toCompare = ((FieldWrapper<T>)obj).Value;
+                toCompare = ot.Value;
             }
             else
             {
@@ -108,7 +114,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            return toCompare.Equals(_value);
+            return toCompare!.Equals(_value);
         }
 
         public static bool operator ==(FieldWrapper<T> left, FieldWrapper<T> right)

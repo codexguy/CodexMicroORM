@@ -1,13 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net461;net7</TargetFrameworks>
+    <TargetFrameworks>netstandard2.0;net462;net7;net80</TargetFrameworks>
 	<PackageId>CodexMicroORM.Core</PackageId>
-	<Version>1.1.0</Version>
+	<Version>1.2.0</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Product>CodexMicroORM.Core</Product>
-	<Copyright>Copyright (c) 2022, All Rights Reserved</Copyright>
+	<Copyright>Copyright (c) 2024, All Rights Reserved</Copyright>
 	<PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
 	<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 	<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
@@ -17,18 +17,21 @@
 	<PackageIconUrl></PackageIconUrl>
 	<ApplicationIcon>xSkrape.ico</ApplicationIcon>
 	<PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
-	<AssemblyVersion>1.1.0.0</AssemblyVersion>
-	<FileVersion>1.1.0.0</FileVersion>
+	<AssemblyVersion>1.2.0.0</AssemblyVersion>
+	<FileVersion>1.2.0.0</FileVersion>
 	<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
 	<PackageIcon>xSkrapeIcon.jpg</PackageIcon>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060</NoWarn>
+    <NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001</NoWarn>
   </PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+		<NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001;CS0162</NoWarn>
+	</PropertyGroup>
 
-  <ItemGroup>
+	<ItemGroup>
     <Compile Remove="DatabaseProviders\**" />
     <EmbeddedResource Remove="DatabaseProviders\**" />
     <None Remove="DatabaseProviders\**" />
@@ -39,11 +42,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="C5" Version="2.5.3" />
+    <PackageReference Include="C5" Version="3.0.0" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
-    <PackageReference Include="System.Collections.Immutable" Version="7.0.0" />
-    <PackageReference Include="System.Text.Json" Version="7.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.Collections.Immutable" Version="8.0.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.3" />
   </ItemGroup>
 
   <ItemGroup>

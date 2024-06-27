@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -228,7 +228,7 @@ namespace CodexMicroORM.Core
             return GetDateTime().ToShortDateString();
         }
 
-        public string ToString(string format, IFormatProvider formatProvider)
+        public string ToString(string? format, IFormatProvider? formatProvider)
         {
             return GetDateTime().ToString(format, formatProvider);
         }
@@ -238,12 +238,12 @@ namespace CodexMicroORM.Core
             return GetDateTime().ToString(fmt);
         }
 
-        public string ToString(IFormatProvider provider)
+        public string ToString(IFormatProvider? provider)
         {
             return GetDateTime().ToString(provider);
         }
 
-        public override bool Equals(object obj)
+        public override bool Equals(object? obj)
         {
             if (obj is OnlyDate d)
             {
@@ -296,7 +296,7 @@ namespace CodexMicroORM.Core
             return GetAsInt().GetHashCode();
         }
 
-        public int CompareTo(object obj)
+        public int CompareTo(object? obj)
         {
             if (obj == null)
             {
@@ -321,22 +321,22 @@ namespace CodexMicroORM.Core
             return TypeCode.DateTime;
         }
 
-        bool IConvertible.ToBoolean(IFormatProvider provider)
+        bool IConvertible.ToBoolean(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        byte IConvertible.ToByte(IFormatProvider provider)
+        byte IConvertible.ToByte(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        char IConvertible.ToChar(IFormatProvider provider)
+        char IConvertible.ToChar(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        public DateTime ToDateTime(IFormatProvider provider)
+        public DateTime ToDateTime(IFormatProvider? provider)
         {
             return GetDateTime();
         }
@@ -346,42 +346,42 @@ namespace CodexMicroORM.Core
             return GetDateTime();
         }
 
-        decimal IConvertible.ToDecimal(IFormatProvider provider)
+        decimal IConvertible.ToDecimal(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        double IConvertible.ToDouble(IFormatProvider provider)
+        double IConvertible.ToDouble(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        short IConvertible.ToInt16(IFormatProvider provider)
+        short IConvertible.ToInt16(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        public int ToInt32(IFormatProvider provider)
+        public int ToInt32(IFormatProvider? provider)
         {
             return GetAsInt();
         }
 
-        public long ToInt64(IFormatProvider provider)
+        public long ToInt64(IFormatProvider? provider)
         {
             return GetDateTime().Ticks;
         }
 
-        sbyte IConvertible.ToSByte(IFormatProvider provider)
+        sbyte IConvertible.ToSByte(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        float IConvertible.ToSingle(IFormatProvider provider)
+        float IConvertible.ToSingle(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        public object ToType(Type conversionType, IFormatProvider provider)
+        public object ToType(Type conversionType, IFormatProvider? provider)
         {
             if (conversionType == typeof(OnlyDate) || conversionType == typeof(OnlyDate?))
             {
@@ -396,17 +396,17 @@ namespace CodexMicroORM.Core
             throw new InvalidCastException();
         }
 
-        ushort IConvertible.ToUInt16(IFormatProvider provider)
+        ushort IConvertible.ToUInt16(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        uint IConvertible.ToUInt32(IFormatProvider provider)
+        uint IConvertible.ToUInt32(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }
 
-        ulong IConvertible.ToUInt64(IFormatProvider provider)
+        ulong IConvertible.ToUInt64(IFormatProvider? provider)
         {
             throw new InvalidCastException();
         }

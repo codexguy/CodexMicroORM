@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ using CodexMicroORM.Core.Helper;
 //using Newtonsoft.Json;
 using System.Text.Json;
 using System.IO.Compression;
+using System.Diagnostics;
 
 namespace CodexMicroORM.Providers
 {
@@ -138,6 +139,8 @@ namespace CodexMicroORM.Providers
 
         private long _stopping = 0;
 
+        private long _pendingWrites = 0;
+
         private readonly object _indexLock = new();
         
         #endregion
@@ -193,8 +196,11 @@ namespace CodexMicroORM.Providers
             private set;
         } = SerializationFileEncryptionType.None;
 
-        private static ICryptoTransform? _globalEncryptor;
-        private static ICryptoTransform? _globalDecryptor;
+        private static Func<ICryptoTransform>? _globalEncryptor;
+        private static Func<ICryptoTransform>? _globalDecryptor;
+
+        private static ICryptoTransform GetEncryptor() => _globalEncryptor!.Invoke();
+        private static ICryptoTransform GetDecryptor() => _globalDecryptor!.Invoke();
 
         public static void SetEncryptionKeySource(SerializationFileEncryptionType type, MemoryStream ms)
         {
@@ -204,14 +210,15 @@ namespace CodexMicroORM.Providers
                     throw new InvalidOperationException("Cannot set an encryption key source with encryption type = None.");
 
                 case SerializationFileEncryptionType.AES256:
-                    AesManaged a = new();
+                    Aes a = Aes.Create();
+                    a.Padding = PaddingMode.PKCS7;
                     var key = new byte[a.KeySize / 8];
                     var iv = new byte[a.BlockSize / 8];
                     ms.Seek(0, SeekOrigin.Begin);
                     ms.Read(key, 0, key.Length);
                     ms.Read(iv, 0, iv.Length);
-                    _globalEncryptor = a.CreateEncryptor(key, iv);
-                    _globalDecryptor = a.CreateDecryptor(key, iv);
+                    _globalEncryptor = () => a.CreateEncryptor(key, iv);
+                    _globalDecryptor = () => a.CreateDecryptor(key, iv);
                     break;
             }
 
@@ -361,7 +368,7 @@ namespace CodexMicroORM.Providers
 
             var key = (from a in KeyService.ResolveKeyDefinitionForType(baseType) select props[a]).ToArray();
 
-            if (!key.Any())
+            if (key.Length == 0)
             {
                 throw new CEFInvalidStateException(InvalidStateType.MissingKey, baseType.Name);
             }
@@ -393,12 +400,9 @@ namespace CodexMicroORM.Providers
             StringBuilder sb = new(128);
             sb.Append(baseType.Name);
 
-            if (key == null)
-            {
-                key = (from a in KeyService.ResolveKeyDefinitionForType(baseType) select props[a]).ToArray();
-            }
+            key ??= (from a in KeyService.ResolveKeyDefinitionForType(baseType) select props[a]).ToArray();
 
-            if (!key.Any())
+            if (key.Length == 0)
             {
                 throw new CEFInvalidStateException(InvalidStateType.MissingKey, baseType.Name);
             }
@@ -461,7 +465,7 @@ namespace CodexMicroORM.Providers
 
             string hash;
 
-            using (SHA1Managed hasher = new())
+            using (SHA1 hasher = SHA1.Create())
             {
                 hash = Convert.ToBase64String(hasher.ComputeHash(Encoding.ASCII.GetBytes(sb.ToString())));
             }
@@ -505,11 +509,7 @@ namespace CodexMicroORM.Providers
         public void AddByQuery<T>(IEnumerable<T> list, string text, object?[]? parms = null, int? expirySeconds = null, CacheBehavior? mode = null) where T : class, new()
         {
             var ss = CEF.CurrentServiceScope;
-
-            if (mode == null)
-            {
-                mode = ss.ResolvedCacheBehaviorForType(typeof(T));
-            }
+            mode ??= ss.ResolvedCacheBehaviorForType(typeof(T));
 
             if ((mode & CacheBehavior.QueryBased) == 0 && (mode & CacheBehavior.ConvertQueryToIdentity) != 0 && ((mode & CacheBehavior.ForAllDoesntConvertToIdentity) == 0 || string.Compare(text, "All", true) != 0 || !text.EndsWith("_ForList]")))
             {
@@ -569,7 +569,7 @@ namespace CodexMicroORM.Providers
 
             string hash;
 
-            using (SHA1Managed hasher = new())
+            using (SHA1 hasher = SHA1.Create())
             {
                 hash = Convert.ToBase64String(hasher.ComputeHash(Encoding.ASCII.GetBytes(sb.ToString())));
             }
@@ -623,7 +623,7 @@ namespace CodexMicroORM.Providers
                     using (CEF.UseServiceScope(ss))
                     {
                         // Process all items in parallel, building a list we'll turn into json but also potentially caching "by identity" per row
-                        ConcurrentBag<IDictionary<string, object?>> rows = new();
+                        ConcurrentBag<IDictionary<string, object?>> rows = [];
 
                         var aiw = list.AllAsInfraWrapped().ToArray();
 
@@ -703,7 +703,7 @@ namespace CodexMicroORM.Providers
                 key = (from a in ks.GetKeyValues(o) select a.value).ToArray();
             }
 
-            if (!key.Any())
+            if (key.Length == 0)
             {
                 throw new CEFInvalidStateException(InvalidStateType.MissingKey, typeof(T).Name);
             }
@@ -853,7 +853,7 @@ namespace CodexMicroORM.Providers
 
             if (props != null)
             {
-                return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, c.Properties, null, null, false, false) as T;
+                return CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, c.Properties, null, null, false, false, Globals.DefaultRetrievalIdentityMode) as T;
             }
 
             return null;
@@ -913,9 +913,12 @@ namespace CodexMicroORM.Providers
 
             if (rows != null)
             {
+                var ss = CEF.CurrentServiceScope;
+
                 foreach (var rowdata in rows)
                 {
-                    if (CEF.CurrentServiceScope.InternalCreateAddBase(new T(), false, ObjectState.Unchanged, rowdata, null, null, false, false) is T i)
+                    var nt = new T();
+                    if (ss.InternalCreateAddBase(nt, false, ObjectState.Unchanged, rowdata, null, null, false, false, ss.ResolvedRetrievalIdentityMode(nt)) is T i)
                     {
                         yield return i;
                     }
@@ -934,30 +937,41 @@ namespace CodexMicroORM.Providers
 
         private void SaveProperties(string fn, Dictionary<string, object?> r)
         {
-            switch (CurrentSerializationFormat)
+            try
             {
-                case SerializationFormat.SystemTextJson:
-                    {
-                        using var fs = File.OpenWrite(fn);
-                        Stream efs = fs;
-                        CryptoStream? cs = null;
+                Interlocked.Increment(ref _pendingWrites);
 
-                        if (_globalEncryptor != null)
+                switch (CurrentSerializationFormat)
+                {
+                    case SerializationFormat.SystemTextJson:
                         {
-                            efs = cs = new CryptoStream(fs, _globalEncryptor, CryptoStreamMode.Write);
+                            using var mso = new MemoryStream();
+                            BinaryWriter bw;
+                            CryptoStream? cs = null;
+
+                            if (_globalEncryptor != null)
+                            {
+                                cs = new CryptoStream(mso, GetEncryptor(), CryptoStreamMode.Write);
+                                bw = new BinaryWriter(cs);
+                            }
+                            else
+                            {
+                                bw = new BinaryWriter(new GZipStream(mso, CompressionMode.Compress));
+                            }
+
+                            var tosave = JsonSerializer.Serialize(ScrubDictionary(r), r.GetType());
+                            bw.Write(Encoding.UTF8.GetBytes(tosave));
+                            cs?.FlushFinalBlock();
+                            var buffer = mso.ToArray();
+                            File.WriteAllBytes(fn, buffer);
+                            bw.Dispose();
+                            break;
                         }
-
-                        using var gs = new GZipStream(efs, CompressionMode.Compress);
-                        using var bw = new BinaryWriter(gs);
-                        bw.Write(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(ScrubDictionary(r), r.GetType())));
-
-                        bw.Close();
-                        gs.Close();
-                        cs?.FlushFinalBlock();
-                        cs?.Close();
-                        fs.Close();
-                        break;
-                    }
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _pendingWrites);
             }
         }
 
@@ -967,18 +981,25 @@ namespace CodexMicroORM.Providers
             {
                 case SerializationFormat.SystemTextJson:
                     {
-                        using var fs = File.OpenRead(fn);
-                        Stream efs = fs;
+                        var contents = File.ReadAllBytes(fn);
+                        byte[] buffer;
+                        using var mso = new MemoryStream(contents.Length);
 
                         if (_globalDecryptor != null)
                         {
-                            efs = new CryptoStream(fs, _globalDecryptor, CryptoStreamMode.Read);
+                            using var efs = new CryptoStream(mso, GetDecryptor(), CryptoStreamMode.Write);
+                            efs.Write(contents, 0, contents.Length);
+                            efs.FlushFinalBlock();
+                            buffer = mso.ToArray();
+                        }
+                        else
+                        {
+                            using var gs = new GZipStream(new MemoryStream(contents), CompressionMode.Decompress);
+                            gs.CopyTo(mso);
+                            buffer = mso.ToArray();
                         }
 
-                        var mso = new MemoryStream(Convert.ToInt32(fs.Length) * 2);
-                        using var gs = new GZipStream(efs, CompressionMode.Decompress);
-                        CopyStreamTo(gs, mso);
-                        return ScrubDictionary((Dictionary<string, object?>)JsonSerializer.Deserialize(Encoding.UTF8.GetString(mso.ToArray()), typeof(Dictionary<string, object?>)));
+                        return ScrubDictionary((Dictionary<string, object?>)((JsonSerializer.Deserialize(Encoding.UTF8.GetString(buffer), typeof(Dictionary<string, object?>))) ?? throw new InvalidOperationException("Failed to deserialize JSON.")));
                     }
             }
 
@@ -989,7 +1010,7 @@ namespace CodexMicroORM.Providers
 
         private Dictionary<string, object?> ScrubDictionary(IDictionary<string, object?> source)
         {
-            Dictionary<string, object?> toSave = new();
+            Dictionary<string, object?> toSave = [];
 
             // We only persist serializable values or would get error!
             foreach (var kvp in source)
@@ -1076,7 +1097,7 @@ namespace CodexMicroORM.Providers
 
                         if (!_skipTypeForSave.TryGetValue(t, out bool doSkip))
                         {
-                            doSkip = !t.IsSerializable || (!t.IsEnum && !t.IsPrimitive && !t.FullName.StartsWith("System."));
+                            doSkip = !t.IsSerializable || (!t.IsEnum && !t.IsPrimitive && !(t.FullName ?? "").StartsWith("System."));
                             _skipTypeForSave[t] = doSkip;
                         }
 
@@ -1095,49 +1116,49 @@ namespace CodexMicroORM.Providers
         {
             if (Directory.Exists(Path.GetDirectoryName(fn)))
             {
-                switch (CurrentSerializationFormat)
+                try
                 {
-                    case SerializationFormat.SystemTextJson:
-                        {
-                            using var fs = File.OpenWrite(fn);
-                            Stream efs = fs;
-                            CryptoStream? cs = null;
+                    Interlocked.Increment(ref _pendingWrites);
 
-                            if (_globalEncryptor != null)
+                    switch (CurrentSerializationFormat)
+                    {
+                        case SerializationFormat.SystemTextJson:
                             {
-                                efs = cs = new CryptoStream(fs, _globalEncryptor, CryptoStreamMode.Write);
+                                using var mso = new MemoryStream();
+                                BinaryWriter bw;
+                                CryptoStream? cs = null;
+
+                                if (_globalEncryptor != null)
+                                {
+                                    cs = new CryptoStream(mso, GetEncryptor(), CryptoStreamMode.Write);
+                                    bw = new BinaryWriter(cs);
+                                }
+                                else
+                                {
+                                    bw = new BinaryWriter(new GZipStream(mso, CompressionMode.Compress));
+                                }
+
+                                // Write to stream
+                                foreach (var r in rows)
+                                {
+                                    var jsonrep = JsonSerializer.Serialize(ScrubDictionary(r), r.GetType());
+                                    var jbin = Encoding.UTF8.GetBytes(jsonrep);
+                                    bw.Write(jbin.Length);
+                                    bw.Write(jbin);
+                                }
+
+                                cs?.FlushFinalBlock();
+                                var buffer = mso.ToArray();
+                                File.WriteAllBytes(fn, buffer);
+                                bw.Dispose();
+                                break;
                             }
-
-                            using var gs = new GZipStream(efs, CompressionMode.Compress);
-                            using var bw = new BinaryWriter(gs);
-
-                            // Write to stream
-                            foreach (var r in rows)
-                            {
-                                var jsonrep = JsonSerializer.Serialize(ScrubDictionary(r), r.GetType());
-                                bw.Write(jsonrep.Length);
-                                bw.Write(Encoding.UTF8.GetBytes(jsonrep));
-                            }
-
-                            bw.Close();
-                            gs.Close();
-                            cs?.FlushFinalBlock();
-                            cs?.Close();
-                            fs.Close();
-                            break;
-                        }
+                    }
                 }
-            }
-        }
-
-        private static void CopyStreamTo(Stream src, Stream dest)
-        {
-            byte[] bytes = new byte[4096];
-            int cnt;
-
-            while ((cnt = src.Read(bytes, 0, bytes.Length)) != 0)
-            {
-                dest.Write(bytes, 0, cnt);
+                finally
+                {
+                    Interlocked.Decrement(ref _pendingWrites);
+                }
             }
         }
 
@@ -1149,28 +1170,35 @@ namespace CodexMicroORM.Providers
                 case SerializationFormat.SystemTextJson:
                     {
                         // Entire file is compressed to get biggest benefit
-                        using var fs = File.OpenRead(fn);
-                        Stream efs = fs;
+                        var contents = File.ReadAllBytes(fn);
+                        byte[] buffer;
+                        using var mso = new MemoryStream(contents.Length);
 
                         if (_globalDecryptor != null)
                         {
-                            efs = new CryptoStream(fs, _globalDecryptor, CryptoStreamMode.Read);
+                            using var efs = new CryptoStream(mso, GetDecryptor(), CryptoStreamMode.Write);
+                            efs.Write(contents, 0, contents.Length);
+                            efs.FlushFinalBlock();
+                            buffer = mso.ToArray();
+                        }
+                        else
+                        {
+                            using var gs = new GZipStream(new MemoryStream(contents), CompressionMode.Decompress);
+                            gs.CopyTo(mso);
+                            buffer = mso.ToArray();
                         }
 
-                        var mso = new MemoryStream(Convert.ToInt32(fs.Length) * 2);
-                        using var gs = new GZipStream(efs, CompressionMode.Decompress);
-                        CopyStreamTo(gs, mso);
-                        mso.Seek(0, SeekOrigin.Begin);
-                        using var br = new BinaryReader(mso);
+                        using var mso2 = new MemoryStream(buffer);
+                        using var br = new BinaryReader(mso2);
 
-                        while (mso.Position < mso.Length)
+                        while (mso2.Position < mso2.Length)
                         {
                             var length = br.ReadInt32();
                             var record = br.ReadBytes(length);
-                            yield return ScrubDictionary((Dictionary<string, object?>)JsonSerializer.Deserialize(Encoding.UTF8.GetString(record), typeof(Dictionary<string, object?>)));
+                            var astext = Encoding.UTF8.GetString(record);
+                            yield return ScrubDictionary((Dictionary<string, object?>)(JsonSerializer.Deserialize(astext, typeof(Dictionary<string, object?>)) ?? throw new InvalidOperationException("Failed to deserialize JSON.")));
                         }
 
-                        br.Close();
                         break;
                     }
             }
@@ -1222,7 +1250,7 @@ namespace CodexMicroORM.Providers
 
             try
             {
-                List<MFSEntry> items = new();
+                List<MFSEntry> items = [];
 
                 foreach (var i in _index)
                 {
@@ -1254,13 +1282,13 @@ namespace CodexMicroORM.Providers
                         {
                             if (i.Properties != null)
                             {
-                                SaveProperties(Path.Combine(RootDirectory, i.FileName), i.Properties);
+                                SaveProperties(Path.Combine(RootDirectory, i.FileName ?? ""), i.Properties);
                             }
                             else
                             {
                                 if (i.Rows != null)
                                 {
-                                    SaveRows(Path.Combine(RootDirectory, i.FileName), i.Rows);
+                                    SaveRows(Path.Combine(RootDirectory, i.FileName ?? ""), i.Rows);
                                 }
                             }
 
@@ -1451,6 +1479,14 @@ namespace CodexMicroORM.Providers
         {
             SaveUncommitted(honorShutdown);
 
+            // Also need to wait for any pending saves to complete
+            int maxWait = 1000;
+            while (maxWait > 0 && (Interlocked.Read(ref _pendingWrites) > 0 || _savingCommitted > 0))
+            {
+                --maxWait;
+                Thread.Sleep(10);
+            }
+
             if (honorShutdown && Interlocked.Read(ref _stopping) > 0)
             {
                 return;
@@ -1460,7 +1496,7 @@ namespace CodexMicroORM.Providers
             if (honorShutdown)
             {
                 DateTime d = DateTime.Now;
-                List<MFSEntry> remove = new();
+                List<MFSEntry> remove = [];
 
                 lock (_indexLock)
                 {
@@ -1517,7 +1553,7 @@ namespace CodexMicroORM.Providers
             SaveIndex(honorShutdown);
         }
 
-        private void _monitor_Elapsed(object sender, ElapsedEventArgs e)
+        private void _monitor_Elapsed(object? sender, ElapsedEventArgs e)
         {
             if (Interlocked.Read(ref _stopping) > 0)
             {
@@ -1619,6 +1655,7 @@ namespace CodexMicroORM.Providers
         public void Dispose()
         {
             Dispose(true);
+            GC.SuppressFinalize(this);
         }
         #endregion
 
@@ -1637,7 +1674,7 @@ namespace CodexMicroORM.Providers
             return WrappingSupport.None;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate, RetrievalIdentityMode identityMode)
         {
         }
 

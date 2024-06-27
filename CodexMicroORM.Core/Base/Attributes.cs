@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -88,7 +88,7 @@ namespace CodexMicroORM.Core
         public EntityPrimaryKeyAttribute(string field, Type datatype)
         {
             ShadowType = datatype;
-            Fields = new string[] { field };
+            Fields = [ field ];
         }
     }
 
@@ -194,7 +194,7 @@ namespace CodexMicroORM.Core
             private set;
         }
 
-        private readonly static ConcurrentDictionary<string, Type> _typeCache = new();
+        private readonly static ConcurrentDictionary<string, Type> _typeCache = [];
 
         private Type? FindTypeByName(string name)
         {
@@ -219,7 +219,7 @@ namespace CodexMicroORM.Core
 
         public EntityRelationshipsAttribute(params string[] relations)
         {
-            List<TypeChildRelationship> list = new();
+            List<TypeChildRelationship> list = [];
 
             foreach (var rel in relations)
             {
@@ -230,12 +230,7 @@ namespace CodexMicroORM.Core
                     throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Invalid relationship spec '{rel}'.");
                 }
 
-                var childType = FindTypeByName(typeAndFields[0]);
-
-                if (childType == null)
-                {
-                    throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Could not find child type '{typeAndFields[0]}'.");
-                }
+                var childType = FindTypeByName(typeAndFields[0]) ?? throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Could not find child type '{typeAndFields[0]}'."); ;
 
                 var fields = typeAndFields[1].Split(',');
 
@@ -244,7 +239,7 @@ namespace CodexMicroORM.Core
                     throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Invalid relationship spec '{rel}'.");
                 }
 
-                var tcr = (TypeChildRelationship) typeof(TypeChildRelationship).GetMethod("Create").MakeGenericMethod(childType).Invoke(null, new object[] { fields });
+                var tcr = (TypeChildRelationship) typeof(TypeChildRelationship).GetMethod("Create")!.MakeGenericMethod(childType).Invoke(null, [ fields ])!;
 
                 if (!string.IsNullOrEmpty(typeAndFields[2]))
                 {

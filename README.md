@@ -487,14 +487,9 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Add: IndexedSet - a highly read-efficient collection that can "auto-index" itself based on linq (to object) queries run against it. Inherits from EntitySet so can be used interchangeably to a large degree. Supports both equality and range indexes. Requires adding C5 package ref. Moved this from ZDB project (pre-release) to CEF as this can be considered core plumbing with broad applicability. More details to be included here later.
 	* Add: net7 targetting
 	* Fix: minor fixes (e.g. some disposal cleanup, etc.)
-
-## Roadmap / Plans
-Look for in coming releases:
-
-* Support for more complex types of object mapping (as needed)
-* ZableDB as an optional storage provider (OODBMS with high performance Linq to Objects queries)
-* Real-world usage in the context of a published app (will be discussing at length in blog - [coming soon](https://www.wizerfood.com))
-
-Come and subscribe to [blog updates](https://www.xskrape.com/Home/Articles).
-
-Have opinions about what you'd like to see? Drop me a line @ joelc@codexframework.com. Pull requests are welcome, too.
+* 1.2.0 - June 2024
+	* Add: Recursive option for CEF.NewObject (making an explicit opt-in, due to performance)
+	* Add: Retrieve Identity settings/options, including Globals.DefaultRetrievalIdentityMode, Globals.FrameworkWarningHandler, AllowRetrievalDups (addresses where default behavior could be "surprising" when doing custom queries that return duplicates of key value for entity retrieved into)
+	* Add: New unit tests related to IndexedSet, retrieve identity, etc.
+	* Change: net80 targeting, cleanup related to .NET Core, various updates to dependencies (latest)
+	* Change: Various syntax updates to support latest C# features, unit tests cleanup (some deprecated for now, see notes in DBOps.cs, 100% pass rate)

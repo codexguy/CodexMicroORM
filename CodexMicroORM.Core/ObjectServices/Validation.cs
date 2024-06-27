@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -47,11 +47,7 @@ namespace CodexMicroORM.Core.Services
             CEF.RegisterForType<T>(new ValidationService());
 
             _typeIllegalUpdate.TryGetValue(typeof(T), out var vl);
-
-            if (vl == null)
-            {
-                vl = new List<string>();
-            }
+            vl ??= [];
 
             vl.Add(propName);
             _typeIllegalUpdate[typeof(T)] = vl;
@@ -85,11 +81,7 @@ namespace CodexMicroORM.Core.Services
             CEF.RegisterForType<T>(new ValidationService());
 
             _typePropRequired.TryGetValue(typeof(T), out var vl);
-
-            if (vl == null)
-            {
-                vl = new List<(string prop, object? defval)>();
-            }
+            vl ??= [];
 
             vl.Add((propName, default(V)));
             _typePropRequired[typeof(T)] = vl;
@@ -106,11 +98,7 @@ namespace CodexMicroORM.Core.Services
             CEF.RegisterForType<T>(new ValidationService());
 
             _typePropRequired.TryGetValue(typeof(T), out var vl);
-
-            if (vl == null)
-            {
-                vl = new List<(string prop, object? defval)>();
-            }
+            vl ??= [];
 
             if (propType.IsValueType)
             {
@@ -135,11 +123,7 @@ namespace CodexMicroORM.Core.Services
             CEF.RegisterForType<T>(new ValidationService());
 
             _typeCustomValidator.TryGetValue(typeof(T), out var vl);
-
-            if (vl == null)
-            {
-                vl = new List<(string? prop, Func<object, string?> fn)>();
-            }
+            vl ??= [];
 
             vl.Add((propName, (object p) => validator.Invoke((T)p)));
             _typeCustomValidator[typeof(T)] = vl;
@@ -175,12 +159,8 @@ namespace CodexMicroORM.Core.Services
         public static void RegisterMaxLength<T>(string propName, int maxlength) where T : class
         {
             CEF.RegisterForType<T>(new ValidationService());
-            _typePropMaxLength.TryGetValue(typeof(T), out List<(string prop, int maxlength)> vl);
-
-            if (vl == null)
-            {
-                vl = new List<(string prop, int maxlength)>();
-            }
+            _typePropMaxLength.TryGetValue(typeof(T), out List<(string prop, int maxlength)>? vl);
+            vl ??= [];
 
             vl.Add((propName, maxlength));
             _typePropMaxLength[typeof(T)] = vl;
@@ -196,12 +176,8 @@ namespace CodexMicroORM.Core.Services
         public static void RegisterRangeValidation<T>(string propName, double? minval, double? maxval) where T : class
         {
             CEF.RegisterForType<T>(new ValidationService());
-            _typePropRange.TryGetValue(typeof(T), out List<(string prop, double minval, double maxval)> vl);
-
-            if (vl == null)
-            {
-                vl = new List<(string prop, double minval, double maxval)>();
-            }
+            _typePropRange.TryGetValue(typeof(T), out List<(string prop, double minval, double maxval)>? vl);
+            vl ??= [];
 
             vl.Add((propName, minval.GetValueOrDefault(double.MinValue), maxval.GetValueOrDefault(double.MaxValue)));
             _typePropRange[typeof(T)] = vl;
@@ -257,7 +233,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public IEnumerable<(ValidationErrorCode error, string? message)> GetObjectMessage<T>(T? o) where T : class
         {
-            List<(ValidationErrorCode error, string? message)> messages = new();
+            List<(ValidationErrorCode error, string? message)> messages = [];
 
             if (o == null)
             {
@@ -291,18 +267,18 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            if (_typePropMaxLength.TryGetValue(bt, out List<(string prop, int maxlength)> vl2))
+            if (_typePropMaxLength.TryGetValue(bt, out List<(string prop, int maxlength)>? vl2))
             {
                 foreach (var (prop, maxlength) in vl2)
                 {
-                    if (iw.GetValue(prop)?.ToString().Length > maxlength)
+                    if (iw.GetValue(prop)?.ToString()?.Length > maxlength)
                     {
                         messages.Add((ValidationErrorCode.TooLarge, BuildMessageForProperty(TooLargeFieldMessage, prop, maxlength)));
                     }
                 }
             }
 
-            if (_typeIllegalUpdate.TryGetValue(bt, out List<string> vl2b))
+            if (_typeIllegalUpdate.TryGetValue(bt, out List<string>? vl2b))
             {
                 iw.UpdateData();
 
@@ -320,7 +296,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            if (_typePropRange.TryGetValue(bt, out List<(string prop, double minval, double maxval)> vl3))
+            if (_typePropRange.TryGetValue(bt, out List<(string prop, double minval, double maxval)>? vl3))
             {
                 foreach (var (prop, minval, maxval) in vl3)
                 {
@@ -373,7 +349,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public IEnumerable<(ValidationErrorCode error, string? message)> GetPropertyMessages<T>(T? o, string propName) where T : class
         {
-            List<(ValidationErrorCode error, string? message)> messages = new();
+            List<(ValidationErrorCode error, string? message)> messages = [];
 
             if (o == null)
             {
@@ -406,17 +382,17 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            if (_typePropMaxLength.TryGetValue(bt, out List<(string prop, int maxlength)> vl2))
+            if (_typePropMaxLength.TryGetValue(bt, out List<(string prop, int maxlength)>? vl2))
             {
                 var pmatch = (from a in vl2 where string.Compare(propName, a.prop, !Globals.CaseSensitiveDictionaries) == 0 select a);
 
-                if (pmatch.Any() && iw.GetValue(propName)?.ToString().Length > pmatch.First().maxlength)
+                if (pmatch.Any() && iw.GetValue(propName)?.ToString()?.Length > pmatch.First().maxlength)
                 {
                     messages.Add((ValidationErrorCode.TooLarge, BuildMessageForProperty(TooLargeFieldMessage, propName, pmatch.First().maxlength)));
                 }
             }
 
-            if (_typeIllegalUpdate.TryGetValue(bt, out List<string> vl2b))
+            if (_typeIllegalUpdate.TryGetValue(bt, out List<string>? vl2b))
             {
                 iw.UpdateData();
 
@@ -465,7 +441,7 @@ namespace CodexMicroORM.Core.Services
         {
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate, RetrievalIdentityMode identityMode)
         {
         }
 

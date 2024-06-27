@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -88,9 +88,9 @@ namespace CodexMicroORM.Core.Services
             return $"DynamicWithBag (for {_source?.GetType().Name}, {string.Join("/", (from a in this.GetAllValues() select $"{a.Key}={a.Value}").ToArray())})";
         }
 
-        public override bool Equals(object obj)
+        public override bool Equals(object? obj)
         {
-            if (_source != null)
+            if (_source != null && obj != null)
             {
                 var uw1 = this.AsUnwrapped();
                 var uw2 = obj.AsUnwrapped();
@@ -139,9 +139,9 @@ namespace CodexMicroORM.Core.Services
 
             if (_source != null)
             {
-                if (!_source.FastPropertyWriteable(binder.Name) && _valueBag.ContainsKey(binder.Name))
+                if (!_source.FastPropertyWriteable(binder.Name) && _valueBag.TryGetValue(binder.Name, out var v1))
                 {
-                    result = _valueBag[binder.Name];
+                    result = v1;
                     return true;
                 }
 
@@ -154,9 +154,9 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            if (_valueBag.ContainsKey(binder.Name))
+            if (_valueBag.TryGetValue(binder.Name, out var v2))
             {
-                result = _valueBag[binder.Name];
+                result = v2;
                 return true;
             }
 
@@ -170,7 +170,7 @@ namespace CodexMicroORM.Core.Services
         /// <param name="binder"></param>
         /// <param name="value"></param>
         /// <returns></returns>
-        public override bool TrySetMember(SetMemberBinder binder, object value)
+        public override bool TrySetMember(SetMemberBinder binder, object? value)
         {
             return SetValue(binder.Name, value);
         }
@@ -189,19 +189,19 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            if (_preferredType.ContainsKey(propName))
+            if (_preferredType.TryGetValue(propName, out var v3))
             {
-                return _preferredType[propName];
+                return v3;
             }
 
-            if (_valueBag.ContainsKey(propName))
+            if (_valueBag.TryGetValue(propName, out var v4))
             {
-                if (_valueBag[propName] == null)
+                if (v4 == null)
                 {
                     return typeof(object);
                 }
 
-                return _valueBag[propName]?.GetType();
+                return v4.GetType();
             }
 
             return null;
@@ -216,9 +216,9 @@ namespace CodexMicroORM.Core.Services
                 return _valueBag[KeyService.SHADOW_PROP_PREFIX + propName];
             }
 
-            if (_valueBag.ContainsKey(propName))
+            if (_valueBag.TryGetValue(propName, out var v5))
             {
-                return _valueBag[propName];
+                return v5;
             }
 
             if (_source != null)
@@ -419,7 +419,7 @@ namespace CodexMicroORM.Core.Services
                             {
                                 if (isnull)
                                 {
-                                    value = InternalChangeType(value, Nullable.GetUnderlyingType(pt));
+                                    value = InternalChangeType(value, Nullable.GetUnderlyingType(pt) ?? throw new InvalidOperationException("Failed to get underlying type."));
                                 }
                                 else
                                 {
@@ -502,13 +502,11 @@ namespace CodexMicroORM.Core.Services
 
             var isSpecial = propName[0] == KeyService.SPECIAL_PROP_PREFIX;
 
-            if (_valueBag.ContainsKey(propName))
+            if (_valueBag.TryGetValue(propName, out var oldVal2))
             {
                 if (propName[0] != KeyService.SHADOW_PROP_PREFIX)
                 {
-                    var oldVal = _valueBag[propName];
-
-                    if (!oldVal.IsSame(value))
+                    if (!oldVal2.IsSame(value))
                     {
                         if (!isSpecial)
                         {
@@ -524,7 +522,7 @@ namespace CodexMicroORM.Core.Services
 
                         if (!isSpecial && _allowPropChanged)
                         {
-                            OnPropertyChanged(propName, oldVal, value, true);
+                            OnPropertyChanged(propName, oldVal2, value, true);
                         }
 
                         return true;
@@ -569,7 +567,7 @@ namespace CodexMicroORM.Core.Services
                 return _valueBag.Keys.Concat(from pi in _source.FastGetAllProperties() select pi.name).ToArray();
             }
 
-            return Array.Empty<string>();
+            return [];
         }
 
         public virtual WrappingSupport SupportsWrapping()

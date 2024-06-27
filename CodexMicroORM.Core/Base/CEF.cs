@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,14 +40,14 @@ namespace CodexMicroORM.Core
     {
         #region "Private state (global)"
 
-        private static readonly SlimConcurrentDictionary<Type, IList<ICEFService>> _resolvedServicesByType = new();
+        private static readonly SlimConcurrentDictionary<Type, IList<ICEFService>> _resolvedServicesByType = [];
         private static readonly ConcurrentDictionary<Type, IList<ICEFService>> _regServicesByType = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
-        private static ImmutableArray<ICEFService> _globalServices = ImmutableArray<ICEFService>.Empty;
-        private static readonly HashSet<string> _treatPropertyAsReadOnly = new();
-        private static readonly HashSet<Action<bool>> _appEventList = new();
+        private static ImmutableArray<ICEFService> _globalServices = [];
+        private static readonly HashSet<string> _treatPropertyAsReadOnly = [];
+        private static readonly HashSet<Action<bool>> _appEventList = [];
 
         internal static ServiceScope? InternalGlobalServiceScope = null;
-        internal static ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?>> SaveTriggers = new();
+        internal static ConcurrentDictionary<Type, Func<DBSaveTriggerFlags, ICEFInfraWrapper, DBSaveSettings, object?, object?>> SaveTriggers = [];
 
         private static readonly AsyncLocal<ImmutableStack<ServiceScope>> _allServiceScopes = new();
 
@@ -72,7 +72,7 @@ namespace CodexMicroORM.Core
 
         private static readonly ConcurrentDictionary<Type, List<string>> _toSaveProps = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultLargerDictionaryCapacity);
         private static readonly ConcurrentDictionary<Type, List<string>> _toSavePropsPersist = new(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultLargerDictionaryCapacity);
-        private static readonly ConcurrentBag<string> _globalPropToSave = new();
+        private static readonly ConcurrentBag<string> _globalPropToSave = [];
 
         #endregion
 
@@ -159,13 +159,8 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ConnectionScope NewTransactionScope(ConnectionScopeSettings? settings = null)
         {
-            if (settings == null)
-            {
-                settings = new ConnectionScopeSettings();
-            }
-
+            settings ??= new ConnectionScopeSettings();
             settings.IsTransactional = true;
-
             return NewConnectionScope(settings);
         }
 
@@ -197,14 +192,10 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static ConnectionScope NewConnectionScope(ConnectionScopeSettings? settings = null)
         {
-            if (settings == null)
-            {
-                settings = new ConnectionScopeSettings();
-            }
-
+            settings ??= new ConnectionScopeSettings();
             var mode = settings.ScopeMode.GetValueOrDefault(Globals.DefaultConnectionScopeMode);
 
-            var ss = CEF.CurrentServiceScope;
+            var ss = CurrentServiceScope;
             var useLocal = ss.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread);
             var cs = new ConnectionScope(settings.IsTransactional.GetValueOrDefault(Globals.UseTransactionsForNewScopes), settings.ConnectionStringOverride, settings.CommandTimeoutOverride);
 
@@ -233,7 +224,7 @@ namespace CodexMicroORM.Core
         {
             get
             {
-                var ss = CEF.CurrentServiceScope;
+                var ss = CurrentServiceScope;
                 var useLocal = ss.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread);
 
                 if (!useLocal)
@@ -247,7 +238,7 @@ namespace CodexMicroORM.Core
                         ss.ConnScopeInit(cs);
                     }
 
-                    return ss._currentConnScope!.Value;
+                    return ss._currentConnScope?.Value ?? throw new InvalidOperationException("Failed to get current scope.");
                 }
 
                 if (_currentConnScope?.Value == null)
@@ -259,7 +250,7 @@ namespace CodexMicroORM.Core
                     ConnScopeInit(cs);
                 }
 
-                return _currentConnScope!.Value;
+                return _currentConnScope?.Value ?? throw new InvalidOperationException("Failed to get current scope.");
             }
         }
 
@@ -368,7 +359,7 @@ namespace CodexMicroORM.Core
         /// </summary>
         public static void RemoveAllServiceScopes()
         {
-            while (_allServiceScopes.Value.Count() > 0)
+            while (_allServiceScopes.Value?.Count() > 0)
             {
                 try
                 {
@@ -379,10 +370,7 @@ namespace CodexMicroORM.Core
                 {
                 }
             }
-            if (_currentServiceScope.Value != null)
-            {
-                _currentServiceScope.Value.Dispose();
-            }
+            _currentServiceScope.Value?.Dispose();
             _currentServiceScope.Value = null;
         }
 
@@ -637,10 +625,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static T? DBSave<T>(this T tosave, DBSaveSettings? settings = null) where T : class, new()
         {
-            if (settings == null)
-            {
-                settings = new DBSaveSettings();
-            }
+            settings ??= new DBSaveSettings();
 
             if (tosave != null && tosave is IEnumerable enumerable)
             {
@@ -667,10 +652,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static (ValidationErrorCode error, string? message) DBSaveWithMessage<T>(this T tosave, DBSaveSettings? settings = null) where T : class, new()
         {
-            if (settings == null)
-            {
-                settings = new DBSaveSettings();
-            }
+            settings ??= new DBSaveSettings();
 
             settings.RootObject = tosave;
             settings.EntityPersistName ??= GetEntityPersistName<T>(tosave);
@@ -693,7 +675,7 @@ namespace CodexMicroORM.Core
         /// <param name="parms"></param>
         public static void DBExecuteNoResult(CommandType cmdType, string cmdText, params object?[] parms)
         {
-            CEF.CurrentDBService().ExecuteNoResultSet(cmdType, cmdText, parms);
+            CurrentDBService().ExecuteNoResultSet(cmdType, cmdText, parms);
         }
 
         /// <summary>
@@ -834,7 +816,7 @@ namespace CodexMicroORM.Core
 
         public static EntitySet<T> DBRetrieveByKeyOrInsert<T>(this EntitySet<T> pop, T template) where T : class, new ()
         {
-            var kv = CEF.CurrentKeyService()?.GetKeyValues(template);
+            var kv = CurrentKeyService()?.GetKeyValues(template);
 
             if (kv?.Count > 0)
             {
@@ -842,7 +824,7 @@ namespace CodexMicroORM.Core
 
                 if (!pop.Any())
                 {
-                    template = CEF.NewObject(template);
+                    template = NewObject(template);
                     pop.Add(template);
                     DBSave(template, false);
                 }
@@ -889,9 +871,9 @@ namespace CodexMicroORM.Core
         /// <typeparam name="T"></typeparam>
         /// <param name="initial"></param>
         /// <returns></returns>
-        public static T NewObject<T>(T? initial = null) where T : class, new()
+        public static T NewObject<T>(T? initial = null, bool recursive = false) where T : class, new()
         {
-            return CurrentServiceScope.NewObject<T>(initial);
+            return CurrentServiceScope.NewObject(initial, recursive: recursive);
         }
 
         /// <summary>
@@ -903,7 +885,8 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static T IncludeObject<T>(T toAdd, ObjectState? drs = null) where T : class, new()
         {
-            return CurrentServiceScope.IncludeObject<T>(toAdd, drs, null);
+            var ss = CurrentServiceScope;
+            return ss.IncludeObject<T>(toAdd, ss.ResolvedRetrievalIdentityMode(toAdd), drs, null);
         }
 
         /// <summary>
@@ -915,7 +898,8 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static T IncludeObject<T>(T toAdd, IDictionary<string, object?> props) where T : class, new()
         {
-            return CurrentServiceScope.IncludeObject<T>(toAdd, null, props);
+            var ss = CurrentServiceScope;
+            return ss.IncludeObject<T>(toAdd, ss.ResolvedRetrievalIdentityMode(toAdd), null, props);
         }
 
         /// <summary>
@@ -979,7 +963,7 @@ namespace CodexMicroORM.Core
                     rs.Add(IncludeObject(i, initialState));
 
                     // Extra work here to wire up relationship since we know it exists
-                    CurrentKeyService()?.LinkChildInParentContainer(CEF.CurrentServiceScope, rs.ParentTypeName, parentFieldName, parent, i);
+                    CurrentKeyService()?.LinkChildInParentContainer(CurrentServiceScope, rs.ParentTypeName, parentFieldName, parent, i);
                 }
             }
 
@@ -1000,11 +984,7 @@ namespace CodexMicroORM.Core
             foreach (var i in list)
             {
                 var iw = i.AsInfraWrapped();
-
-                if (iw != null)
-                {
-                    iw.SetRowState(initialState);
-                }
+                iw?.SetRowState(initialState);
             }
 
             return list;
@@ -1165,8 +1145,8 @@ namespace CodexMicroORM.Core
             list = (from a in t.GetProperties() where a.CanWrite && IsPersistable(a.PropertyType) select a.Name)
                 .Union(_globalPropToSave)
                 .Union(from cr in KeyService.ResolveKeyDefinitionForType(t) select cr)
-                .Union((from cr in CEF.CurrentKeyService().GetRelationsForChild(t) select cr.ChildResolvedKey).SelectMany((p) => p))
-                .Union(from cr in CEF.CurrentDBService().GetPropertyGroupFields(t) select cr)
+                .Union((from cr in CurrentKeyService().GetRelationsForChild(t) select cr.ChildResolvedKey).SelectMany((p) => p))
+                .Union(from cr in CurrentDBService().GetPropertyGroupFields(t) select cr)
                 .ToList();
 
             // For non-persisted, we can look 1 level deeper to identify nested props as well - we iterate properties that belong to the same assembly as the root object
@@ -1179,23 +1159,23 @@ namespace CodexMicroORM.Core
                                        select b.Name)).SelectMany((p) => p));
             }
 
-            var asvc = CEF.CurrentAuditService();
+            var asvc = CurrentAuditService();
 
             if (asvc != null)
             {
-                if (!string.IsNullOrEmpty(asvc.LastUpdatedByField) && !list.Contains(asvc.LastUpdatedByField))
+                if (!string.IsNullOrEmpty(asvc.LastUpdatedByField) && !list.Contains(asvc.LastUpdatedByField!))
                 {
-                    list.Add(asvc.LastUpdatedByField);
+                    list.Add(asvc.LastUpdatedByField!);
                 }
 
-                if (!string.IsNullOrEmpty(asvc.LastUpdatedDateField) && !list.Contains(asvc.LastUpdatedDateField))
+                if (!string.IsNullOrEmpty(asvc.LastUpdatedDateField) && !list.Contains(asvc.LastUpdatedDateField!))
                 {
-                    list.Add(asvc.LastUpdatedDateField);
+                    list.Add(asvc.LastUpdatedDateField!);
                 }
             }
 
             // Support idea of globally excluded properties (i.e. should never persist since might be things like EMailAddressPlain which is just a surrogate for encrypted EMailAddress)
-            var sl = (from a in list where !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a) select a).Distinct().OrderBy((p) => p).ToList();
+            var sl = (from a in list where !RegisteredPropertyNameTreatReadOnly.Contains(a) select a).Distinct().OrderBy((p) => p).ToList();
 
             if (persisted)
             {
@@ -1215,9 +1195,9 @@ namespace CodexMicroORM.Core
 
             foreach (var pn in GetToSaveProperties(t, persisted))
             {
-                if (props.ContainsKey(pn))
+                if (props.TryGetValue(pn, out var pv))
                 {
-                    ret[pn] = props[pn];
+                    ret[pn] = pv;
                 }
             }
 
@@ -1257,7 +1237,7 @@ namespace CodexMicroORM.Core
                 return svc;
             }
 
-            if (_allServiceScopes.Value.Count() > 0)
+            if (_allServiceScopes.Value?.Count() > 0)
             {
                 foreach (var ss in _allServiceScopes.Value.ToArray())
                 {
@@ -1290,13 +1270,13 @@ namespace CodexMicroORM.Core
 
         internal static void RegisterForType<T>(ICEFService service)
         {
-            _regServicesByType.TryGetValue(typeof(T), out IList<ICEFService> existing);
+            _regServicesByType.TryGetValue(typeof(T), out IList<ICEFService>? existing);
 
             bool doadd = false;
 
             if (existing == null)
             {
-                existing = new List<ICEFService>();
+                existing = [];
                 doadd = true;
             }
 
@@ -1313,7 +1293,7 @@ namespace CodexMicroORM.Core
 
         private static void ConnScopeInit(ConnectionScope newcs)
         {
-            var ss = CEF.CurrentServiceScope;
+            var ss = CurrentServiceScope;
 
             var useLocal = ss.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread);
 
@@ -1323,10 +1303,7 @@ namespace CodexMicroORM.Core
                 return;
             }
 
-            if (_allConnScopes.Value == null)
-            {
-                _allConnScopes.Value = ImmutableStack<ConnectionScope>.Empty;
-            }
+            _allConnScopes.Value ??= [];
 
             if (_currentConnScope.Value != null)
             {
@@ -1345,7 +1322,7 @@ namespace CodexMicroORM.Core
 
             newcs.Disposed = () =>
             {
-                if (_allConnScopes.Value.Count() > 0)
+                if (!_allConnScopes.Value.IsEmpty)
                 {
                     try
                     {
@@ -1365,10 +1342,7 @@ namespace CodexMicroORM.Core
 
         private static void ServiceScopeInit(ServiceScope newss, ICEFService[]? additionalServices)
         {
-            if (_allServiceScopes.Value == null)
-            {
-                _allServiceScopes.Value = ImmutableStack<ServiceScope>.Empty;
-            }
+            _allServiceScopes.Value ??= [];
 
             if (_currentServiceScope.Value != null)
             {
@@ -1398,7 +1372,7 @@ namespace CodexMicroORM.Core
                     }
                 }
 
-                if (_allServiceScopes.Value.Count() > 0)
+                if (!_allServiceScopes.Value.IsEmpty)
                 {
                     try
                     {
@@ -1422,12 +1396,13 @@ namespace CodexMicroORM.Core
 
             Exception? tex = null;
             var ss = CurrentServiceScope;
+            var rim = ss.ResolvedRetrievalIdentityMode(pop);
 
             void a(CancellationToken ct, DateTime? start)
             {
                 using var aesw = new AppEventSubscriberWrapper();
 
-                foreach (var row in CurrentDBService().RetrieveAll<T>())
+                foreach (var row in CurrentDBService().RetrieveAll<T>(rim))
                 {
                     if (Globals.GlobalQueryTimeout.HasValue)
                     {
@@ -1462,7 +1437,7 @@ namespace CodexMicroORM.Core
                 {
                     try
                     {
-                        using (CEF.UseServiceScope(ss))
+                        using (UseServiceScope(ss))
                         {
                             a(cts.Token, start);
                         }
@@ -1485,7 +1460,7 @@ namespace CodexMicroORM.Core
                         // We'll wait an additional second after a cancel request to see if thread stops naturally, otherwise we'll abort it
                         if (!th.Join(1000))
                         {
-                            th.Abort();
+                            //th.Abort(); <- not well supported in .NET Core
                             throw new CEFTimeoutException($"The query failed to complete in the allowed time ({((Globals.GlobalQueryTimeout.Value + 1000) / 1000)} sec).");
                         }
                     }
@@ -1523,13 +1498,14 @@ namespace CodexMicroORM.Core
                 pop.AddedIsNew = false;
 
                 Exception? tex = null;
-                var ss = CEF.CurrentServiceScope;
+                var ss = CurrentServiceScope;
+                var rim = ss.ResolvedRetrievalIdentityMode(pop);
 
                 void a(CancellationToken ct, DateTime? start)
                 {
                     using var aesw = new AppEventSubscriberWrapper();
 
-                    foreach (var row in CurrentDBService().RetrieveByKey<T>(key))
+                    foreach (var row in CurrentDBService().RetrieveByKey<T>(rim, key))
                     {
                         if (Globals.GlobalQueryTimeout.HasValue)
                         {
@@ -1567,10 +1543,11 @@ namespace CodexMicroORM.Core
                 pop.AddedIsNew = false;
 
                 Exception? tex = null;
-                var ss = CEF.CurrentServiceScope;
+                var ss = CurrentServiceScope;
+                var rim = ss.ResolvedRetrievalIdentityMode(pop);
 
-                HashSet<KeyServiceState.CompositeWrapper>? keys = new();
-                var keycols = KeyService.ResolveKeyDefinitionForType(typeof(T));
+                HashSet<KeyServiceState.CompositeWrapper>? keys = [];
+                var keycols = KeyService.ResolveKeyDefinitionForType(typeof(T), rim);
 
                 // Default is to check but can disable on case-by-case if needed
                 if (ss.RetrieveAppendChecksExisting)
@@ -1603,7 +1580,7 @@ namespace CodexMicroORM.Core
 
                     using var aesw = new AppEventSubscriberWrapper();
 
-                    foreach (var row in CurrentDBService().RetrieveByQuery<T>(cmdType, cmdText, cc, parms))
+                    foreach (var row in CurrentDBService().RetrieveByQuery<T>(rim, cmdType, cmdText, cc, parms))
                     {
                         if (Globals.GlobalQueryTimeout.HasValue)
                         {

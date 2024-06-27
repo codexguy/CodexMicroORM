@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -44,7 +44,7 @@ namespace CodexMicroORM.Core
         WrappingSupport IdentifyInfraNeeds(object o, object? replaced, ServiceScope ss, bool isNew);
 
         // Main purposes: all infra wrappers are now in place, can complete init
-        void FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate);
+        void FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate, RetrievalIdentityMode identityMode);
 
         void Disposing(ServiceScope ss);
     }
@@ -63,9 +63,9 @@ namespace CodexMicroORM.Core
         IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> InsertRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, bool isLeaf, DBSaveSettings settings);
         IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> UpdateRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, DBSaveSettings settings);
 
-        IEnumerable<T> RetrieveAll<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap) where T : class, new();
-        IEnumerable<T> RetrieveByKey<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, object[] key) where T : class, new();
-        IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, object?[] parms) where T : class, new();
+        IEnumerable<T> RetrieveAll<T>(RetrievalIdentityMode identityMode, ICEFDataHost db, ConnectionScope conn, bool doWrap) where T : class, new();
+        IEnumerable<T> RetrieveByKey<T>(RetrievalIdentityMode identityMode, ICEFDataHost db, ConnectionScope conn, bool doWrap, object[] key) where T : class, new();
+        IEnumerable<T> RetrieveByQuery<T>(RetrievalIdentityMode identityMode, ICEFDataHost db, ConnectionScope conn, bool doWrap, CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, object?[] parms) where T : class, new();
 
         void ExecuteRaw(ConnectionScope conn, string cmdText, bool doThrow = true, bool stopOnError = true);
         T ExecuteScalar<T>(ConnectionScope conn, string cmdText);
@@ -138,11 +138,11 @@ namespace CodexMicroORM.Core
 
         void ExecuteNoResultSet(CommandType cmdType, string cmdText, params object?[] args);
 
-        IEnumerable<T> RetrieveAll<T>() where T : class, new();
+        IEnumerable<T> RetrieveAll<T>(RetrievalIdentityMode identityMode) where T : class, new();
 
-        IEnumerable<T> RetrieveByKey<T>(params object[] key) where T : class, new();
+        IEnumerable<T> RetrieveByKey<T>(RetrievalIdentityMode identityMode, params object[] key) where T : class, new();
 
-        IEnumerable<T> RetrieveByQuery<T>(CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, params object?[] parms) where T : class, new();
+        IEnumerable<T> RetrieveByQuery<T>(RetrievalIdentityMode identityMode, CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, params object?[] parms) where T : class, new();
 
         string? GetSchemaNameByType(Type bt);
 
@@ -221,20 +221,20 @@ namespace CodexMicroORM.Core
 
         void ClearAll();
 
-        void UpdateKey(object oldval, object newval, object row);
+        void UpdateKey(object? oldval, object? newval, object row);
 
-        IEnumerable<object> GetEqualItems(object value);
+        IEnumerable<object> GetEqualItems(object? value);
     }
 
     public interface ICEFComparisonDataIndex
     {
-        IEnumerable<object> GetGreaterThanItems(object value);
+        IEnumerable<object> GetGreaterThanItems(object? value);
 
-        IEnumerable<object> GetLessThanItems(object value);
+        IEnumerable<object> GetLessThanItems(object? value);
 
-        IEnumerable<object> GetGreaterThanEqualItems(object value);
+        IEnumerable<object> GetGreaterThanEqualItems(object? value);
 
-        IEnumerable<object> GetLessThanEqualItems(object value);
+        IEnumerable<object> GetLessThanEqualItems(object? value);
     }
 
     public interface ICEFDataIndex<T>
@@ -376,5 +376,7 @@ namespace CodexMicroORM.Core
         void RemoveItem(object o);
 
         string GetSerializationText(SerializationMode? mode = null);
+
+        Type? GetItemType();
     }
 }

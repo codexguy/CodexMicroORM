@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -45,12 +45,12 @@ namespace CodexMicroORM.Core.Collections
     /// <typeparam name="TKey"></typeparam>
     /// <typeparam name="TValue"></typeparam>
     [Serializable]
-    public sealed class SlimConcurrentDictionary<TKey, TValue> : ICollection<KeyValuePair<TKey, TValue>>, IEnumerable<KeyValuePair<TKey, TValue>>, IEnumerable, IDictionary<TKey, TValue>, IReadOnlyCollection<KeyValuePair<TKey, TValue>>, IReadOnlyDictionary<TKey, TValue>, ICollection
+    public sealed class SlimConcurrentDictionary<TKey, TValue> : ICollection<KeyValuePair<TKey, TValue>>, IEnumerable<KeyValuePair<TKey, TValue>>, IEnumerable, IDictionary<TKey, TValue>, IReadOnlyCollection<KeyValuePair<TKey, TValue>>, IReadOnlyDictionary<TKey, TValue>, ICollection where TKey : notnull
     {
         [Serializable]
         private class BucketInfo
         {
-            public Dictionary<TKey, TValue> Map = new();
+            public Dictionary<TKey, TValue> Map = [];
             public RWLockInfo Lock = new() { AllowDirtyReads = false };
         }
 
@@ -61,7 +61,7 @@ namespace CodexMicroORM.Core.Collections
         private int _count = 0;
         private readonly int _initCapacity = Globals.DefaultDictionaryCapacity;
 
-        private readonly HashSet<TKey> _building = new();
+        private readonly HashSet<TKey> _building = [];
 
         public RWLockInfo? ExternalLock
         {
@@ -507,7 +507,7 @@ namespace CodexMicroORM.Core.Collections
 
         public object SyncRoot => _lock;
 
-        public T this[int index] { get => All().Skip(index).FirstOrDefault(); set => throw new NotSupportedException(); }
+        public T this[int index] { get => All().Skip(index).FirstOrDefault()!; set => throw new NotSupportedException(); }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event NotifyCollectionChangedEventHandler? CollectionChanged;
@@ -858,7 +858,7 @@ namespace CodexMicroORM.Core.Collections
     {
         private class Block
         {
-            public long[] Data = Array.Empty<long>();
+            public long[] Data = [];
             public Block? Next;
 
             public ref long GetItem(int idx)
@@ -1096,21 +1096,21 @@ namespace CodexMicroORM.Core.Collections
 
         private static readonly int _baseCapacity = Environment.ProcessorCount * 14;
         private static readonly object _asNull = new();
-        private static readonly T[] _empty = Array.Empty<T>();
+        private static readonly T[] _empty = [];
 
         private long _dataID = long.MinValue;
         private readonly RWLockInfo _lock = new();
         private int _initCapacity = _baseCapacity;
 
         // Config related
-        private readonly HashSet<string> _isUnique = new();
-        private readonly HashSet<string> _neverNull = new();
+        private readonly HashSet<string> _isUnique = [];
+        private readonly HashSet<string> _neverNull = [];
 
         // Instance state
         private SlimConcurrentDictionary<long, T> _data;
         private SlimConcurrentDictionary<T, long> _contains;
 
-        private readonly Dictionary<string, SlimConcurrentDictionary<object, LightweightLongList>> _masterIndex = new();
+        private readonly Dictionary<string, SlimConcurrentDictionary<object, LightweightLongList>> _masterIndex = [];
 
         #endregion
 

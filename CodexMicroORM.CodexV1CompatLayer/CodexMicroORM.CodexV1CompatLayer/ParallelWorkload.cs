@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,8 +35,8 @@ namespace CodeXFramework.BaseEntity
 #pragma warning restore IDE0060 // Remove unused parameter
         {
             int idx = 0;
-            List<Exception> errors = new();
-            List<object> data = new();
+            List<Exception> errors = [];
+            List<object> data = [];
 
             if (src.Count <= smalllist)
             {
@@ -45,7 +45,7 @@ namespace CodeXFramework.BaseEntity
                     try
                     {
                         var lidx = Interlocked.Add(ref idx, 1);
-                        var d = body.Invoke(a, lidx - 1, src.Count - lidx, Array.Empty<object>());
+                        var d = body.Invoke(a, lidx - 1, src.Count - lidx, []);
 
                         lock (data)
                         {
@@ -69,7 +69,7 @@ namespace CodeXFramework.BaseEntity
                           using (CEF.UseServiceScope(ss))
                           {
                               var lidx = Interlocked.Add(ref idx, 1);
-                              var d = body.Invoke(a, lidx - 1, src.Count - lidx, Array.Empty<object>());
+                              var d = body.Invoke(a, lidx - 1, src.Count - lidx, []);
 
                               lock (data)
                               {
@@ -135,7 +135,7 @@ namespace CodeXFramework.BaseEntity
         internal IterateResult(bool cancelled)
         {
             Cancelled = cancelled;
-            _errors = Array.Empty<Exception>();
+            _errors = [];
         }
 
         internal IterateResult(object[] data, Exception[] errors)
@@ -157,9 +157,9 @@ namespace CodeXFramework.BaseEntity
                 RethrowFirstException();
 
             if (_data == null)
-                return Array.Empty<T>();
+                return [];
             else
-                return Array.ConvertAll<object?, T>(_data, p => (T?)p!);
+                return Array.ConvertAll(_data, p => (T?)p!);
         }
 
         public IList<Exception> GetErrors()
@@ -169,12 +169,12 @@ namespace CodeXFramework.BaseEntity
 
         public bool HasErrors()
         {
-            return _errors.Count() > 0;
+            return _errors.Length > 0;
         }
 
         public void RethrowFirstException()
         {
-            if (_errors.Count() > 0)
+            if (_errors.Length > 0)
                 throw new AggregateException(_errors);
         }
     }

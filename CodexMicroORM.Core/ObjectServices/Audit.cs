@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ namespace CodexMicroORM.Core.Services
 {
     public class AuditService : ICEFAuditHost
     {
-        private readonly static HashSet<string> _canUseBagProp = new();
+        private readonly static HashSet<string> _canUseBagProp = [];
 
         public static void RegisterCanUseBagPropertyForAudit(Type t)
         {
@@ -116,7 +116,7 @@ namespace CodexMicroORM.Core.Services
             if (!IsLastUpdatedByDBAssigned && !string.IsNullOrEmpty(LastUpdatedByField))
             {
                 SetCanUseBag();
-                saving.SetValue(LastUpdatedByField!, settings?.LastUpdatedBy ?? (ss.Settings.GetLastUpdatedBy ?? GetLastUpdatedBy).Invoke(), canUseBag: canUseBag!.Value);
+                saving.SetValue(LastUpdatedByField!, settings?.LastUpdatedBy ?? (ss.Settings.GetLastUpdatedByChanged ? ss.Settings.GetLastUpdatedBy : GetLastUpdatedBy).Invoke(), canUseBag: canUseBag!.Value);
             }
 
             if (!IsLastUpdatedDateDBAssigned && !string.IsNullOrEmpty(LastUpdatedDateField))
@@ -159,7 +159,7 @@ namespace CodexMicroORM.Core.Services
             return WrappingSupport.None;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate, RetrievalIdentityMode identityMode)
         {
         }
 

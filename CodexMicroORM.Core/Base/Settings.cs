@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -67,6 +67,12 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
+        public bool DisableCaching
+        {
+            get;
+            set;
+        } = false;
+
         public int? GlobalCacheDuration
         {
             get;
@@ -85,11 +91,23 @@ namespace CodexMicroORM.Core
             set;
         } = Globals.DefaultMergeBehavior;
 
+        private Func<string> _getLastUpdatedBy = () => { return Globals.GetCurrentUser(); };
+        private bool _getLastUpdatedBySet = false;
+
+        public bool GetLastUpdatedByChanged => _getLastUpdatedBySet;
+
         public Func<string> GetLastUpdatedBy
         {
-            get;
-            set;
-        } = () => { return Globals.GetCurrentUser(); };
+            get
+            {
+                return _getLastUpdatedBy;
+            }
+            set
+            {
+                _getLastUpdatedBy = value;
+                _getLastUpdatedBySet = true;
+            }
+        }
 
         public int EstimatedScopeSize
         {
@@ -103,7 +121,7 @@ namespace CodexMicroORM.Core
             set;
         } = null;
 
-        [ThreadStatic]
+        //[ThreadStatic] <- doesn't make sense as static?
         public bool CanDispose = true;
     }
 
@@ -151,7 +169,7 @@ namespace CodexMicroORM.Core
             set;
         } = (tn) =>
         {
-            return Type.GetType($"System.{tn}");
+            return Type.GetType($"System.{tn}") ?? throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Failed to get type for System.{tn}."); ;
         };
     }
 
@@ -240,7 +258,7 @@ namespace CodexMicroORM.Core
         {
             get;
             set;
-        } = new();
+        } = [];
 
         public bool? UseAsyncSave
         {
@@ -308,7 +326,7 @@ namespace CodexMicroORM.Core
             set;
         } = Globals.DefaultBulkInsertRules;
 
-        private IList<Type> _bulkInsertTypes = new List<Type>();
+        private IList<Type> _bulkInsertTypes = [];
 
         public IList<Type> BulkInsertTypes
         {

@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -127,7 +127,7 @@ namespace CodeXFramework.StandardEntities
         }
 
 
-        public UserParameter First => this.FirstOrDefault();
+        public UserParameter First => this.FirstOrDefault()!;
         public void Save()
         {
             this.DBSave();
@@ -193,7 +193,7 @@ namespace CodeXFramework.StandardEntities
         }
 
 
-        public SystemParameter First => this.FirstOrDefault();
+        public SystemParameter First => this.FirstOrDefault()!;
         public void Save()
         {
             this.DBSave();
@@ -280,7 +280,7 @@ namespace CodeXFramework.StandardEntities
         }
 
 
-        public PrivilegeAssignment First => this.FirstOrDefault();
+        public PrivilegeAssignment First => this.FirstOrDefault()!;
         public void Save()
         {
             this.DBSave();
@@ -388,7 +388,7 @@ namespace CodeXFramework.StandardEntities
         }
 
 
-        public Privilege First => this.FirstOrDefault();
+        public Privilege First => this.FirstOrDefault()!;
         public void Save()
         {
             this.DBSave();
@@ -460,7 +460,7 @@ namespace CodeXFramework.StandardEntities
             return t;
         }
 
-        public ObjCacheBacking First => this.FirstOrDefault();
+        public ObjCacheBacking First => this.FirstOrDefault()!;
         public void Save()
         {
             this.DBSave();
@@ -570,7 +570,7 @@ namespace CodeXFramework.StandardEntities
         }
 
 
-        public MonitoredHistoryMetadata First => this.FirstOrDefault();
+        public MonitoredHistoryMetadata First => this.FirstOrDefault()!;
         public void Save()
         {
             this.DBSave();
@@ -650,7 +650,7 @@ namespace CodeXFramework.StandardEntities
         }
 
 
-        public MonitoredHistoryLog First => this.FirstOrDefault();
+        public MonitoredHistoryLog First => this.FirstOrDefault()!;
         public void Save()
         {
             this.DBSave();
@@ -723,7 +723,7 @@ namespace CodeXFramework.StandardEntities
         }
 
 
-        public MachineParameter First => this.FirstOrDefault();
+        public MachineParameter First => this.FirstOrDefault()!;
         public void Save()
         {
             this.DBSave();

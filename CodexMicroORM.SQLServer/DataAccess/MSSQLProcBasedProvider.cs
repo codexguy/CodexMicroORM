@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -256,7 +256,7 @@ namespace CodexMicroORM.Providers
 
             if (firstRow != null && firstRow.Count > 0)
             {
-                return (T)Convert.ChangeType(firstRow.First().Value.value, typeof(T));
+                return (T)Convert.ChangeType(firstRow.First().Value.value, typeof(T))!;
             }
 
             return default!;
@@ -471,10 +471,11 @@ namespace CodexMicroORM.Providers
             if (KeyService.DefaultPrimaryKeysCanBeDBAssigned)
             {
                 var rowType = rows.FirstOrDefault()?.GetBaseType();
+                var rim = CEF.CurrentServiceScope.ResolvedRetrievalIdentityMode(rows);
 
                 if (rowType != null)
                 {
-                    foreach (string pkf in KeyService.ResolveKeyDefinitionForType(rowType))
+                    foreach (string pkf in KeyService.ResolveKeyDefinitionForType(rowType, rim))
                     {
                         if (dt.Columns.Contains(pkf))
                         {
@@ -580,7 +581,7 @@ namespace CodexMicroORM.Providers
         /// <returns>A compatible number of "rows" as input with per row save status.</returns>
         private IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> SaveRows(ServiceScope ss, ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, CommandType cmdType, DBSaveSettings settings)
         {
-            ConcurrentBag<(ICEFInfraWrapper row, string? msg, int status)> rowsOut = new();
+            ConcurrentBag<(ICEFInfraWrapper row, string? msg, int status)> rowsOut = [];
             Exception? stopEx = null;
 
             // It's a problem to be doing retries in a transaction!
@@ -650,7 +651,7 @@ namespace CodexMicroORM.Providers
                             Interlocked.Add(ref _dbSaveTime, dbTime);
 
                             var doAccept = !settings.DeferAcceptChanges.GetValueOrDefault(false);
-                            List<(string name, object? value)> toRB = new();
+                            List<(string name, object? value)> toRB = [];
 
                             foreach (var (name, value) in outVals)
                             {
@@ -746,11 +747,8 @@ namespace CodexMicroORM.Providers
                 }
             });
 
-            if (GlobalSetActionPreview != null)
-            {
-                // Invoke to advise success or failure
-                GlobalSetActionPreview.Invoke(settings, from a in materialized select a.Row, stopEx == null);
-            }
+            // Invoke to advise success or failure
+            GlobalSetActionPreview?.Invoke(settings, from a in materialized select a.Row, stopEx == null);
 
             if (stopEx != null)
             {
@@ -762,7 +760,7 @@ namespace CodexMicroORM.Providers
 
         IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> IDBProvider.InsertRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, bool isLeaf, DBSaveSettings settings)
         {
-            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new();
+            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = [];
 
             if (settings.BulkInsertRules == BulkRules.Never)
             {
@@ -795,19 +793,19 @@ namespace CodexMicroORM.Providers
 
         IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> IDBProvider.UpdateRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, DBSaveSettings settings)
         {
-            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new();
+            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = [];
             retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rows, CommandType.Update, settings));
             return retVal;
         }
 
         IEnumerable<(ICEFInfraWrapper row, string? msg, int status)> IDBProvider.DeleteRows(ConnectionScope conn, IEnumerable<(string schema, string name, Type basetype, ICEFInfraWrapper row)> rows, DBSaveSettings settings)
         {
-            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = new();
+            List<(ICEFInfraWrapper row, string? msg, int status)> retVal = [];
             retVal.AddRange(SaveRows(CEF.CurrentServiceScope, conn, rows, CommandType.Delete, settings));
             return retVal;
         }
 
-        private IEnumerable<T> CommonRetrieveRows<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, string? cmdText, CommandType type, CEF.ColumnDefinitionCallback? cc, IList<object?>? parms) where T: class, new()
+        private IEnumerable<T> CommonRetrieveRows<T>(RetrievalIdentityMode identityMode, ICEFDataHost db, ConnectionScope conn, bool doWrap, string? cmdText, CommandType type, CEF.ColumnDefinitionCallback? cc, IList<object?>? parms) where T: class, new()
         {
             var ss = CEF.CurrentServiceScope;
 
@@ -861,6 +859,12 @@ namespace CodexMicroORM.Providers
                 bool fetchedOutput = false;
                 bool hasData = false;
                 HashSet<string>? dateFields = null;
+                HashSet<object>? inRetrieval = null;
+
+                if (identityMode != RetrievalIdentityMode.MaintainIdentityAndWarn || Globals.FrameworkWarningHandler != null)
+                {
+                    inRetrieval = [];
+                }
 
                 foreach (var row in sqlcmd.ExecuteReadRows())
                 {
@@ -922,7 +926,7 @@ namespace CodexMicroORM.Providers
                     if (doWrap)
                     {
                         // If "the same" object exists in current scope, this will "merge" it with new values, avoids duplicating it in scope
-                        no = CEF.CurrentServiceScope.IncludeObjectWithType(new T(), ObjectState.Unchanged, row);
+                        no = CEF.CurrentServiceScope.IncludeObjectWithType(new T(), ObjectState.Unchanged, row, identityMode, inRetrieval);
                     }
                     else
                     {
@@ -972,19 +976,19 @@ namespace CodexMicroORM.Providers
             }
         }
 
-        public IEnumerable<T> RetrieveAll<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap) where T : class, new()
+        public IEnumerable<T> RetrieveAll<T>(RetrievalIdentityMode identityMode, ICEFDataHost db, ConnectionScope conn, bool doWrap) where T : class, new()
         {
-            return CommonRetrieveRows<T>(db, conn, doWrap, null, CommandType.RetrieveAll, null, null);
+            return CommonRetrieveRows<T>(identityMode, db, conn, doWrap, null, CommandType.RetrieveAll, null, null);
         }
 
-        public IEnumerable<T> RetrieveByKey<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, object[] key) where T : class, new()
+        public IEnumerable<T> RetrieveByKey<T>(RetrievalIdentityMode identityMode, ICEFDataHost db, ConnectionScope conn, bool doWrap, object[] key) where T : class, new()
         {
-            return CommonRetrieveRows<T>(db, conn, doWrap, null, CommandType.RetrieveByKey, null, key);
+            return CommonRetrieveRows<T>(identityMode, db, conn, doWrap, null, CommandType.RetrieveByKey, null, key);
         }
 
-        public IEnumerable<T> RetrieveByQuery<T>(ICEFDataHost db, ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, object?[] parms) where T : class, new()
+        public IEnumerable<T> RetrieveByQuery<T>(RetrievalIdentityMode identityMode, ICEFDataHost db, ConnectionScope conn, bool doWrap, System.Data.CommandType cmdType, string cmdText, CEF.ColumnDefinitionCallback? cc, object?[] parms) where T : class, new()
         {
-            return CommonRetrieveRows<T>(db, conn, doWrap, cmdText, cmdType == System.Data.CommandType.StoredProcedure ? CommandType.RetrieveByProc : CommandType.RetrieveByText, cc, parms);
+            return CommonRetrieveRows<T>(identityMode, db, conn, doWrap, cmdText, cmdType == System.Data.CommandType.StoredProcedure ? CommandType.RetrieveByProc : CommandType.RetrieveByText, cc, parms);
         }
     }
 }

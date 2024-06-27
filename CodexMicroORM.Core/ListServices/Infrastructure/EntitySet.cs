@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -57,7 +57,7 @@ namespace CodexMicroORM.Core.Services
         private long _init = 1;
 
         [NonSerialized]
-        private readonly List<T> _toWire = new();
+        private readonly List<T> _toWire = [];
 
         #endregion
 
@@ -67,6 +67,16 @@ namespace CodexMicroORM.Core.Services
         {
             _contains = new(Globals.DefaultLargerDictionaryCapacity);
             BoundScope = CEF.CurrentServiceScope;
+            EndInit();
+        }
+
+        public EntitySet(object host, string fieldName) : base()
+        {
+            _contains = new(Globals.DefaultLargerDictionaryCapacity);
+            BoundScope = CEF.CurrentServiceScope;
+            ParentContainer = host;
+            ParentTypeName = host.GetBaseType().Name;
+            ParentFieldName = fieldName;
             EndInit();
         }
 
@@ -100,7 +110,7 @@ namespace CodexMicroORM.Core.Services
             if (!string.IsNullOrEmpty(json))
             {
                 // We do, however, need to deserialize content into our base collection
-                List<T> aslist = (List<T>)System.Text.Json.JsonSerializer.Deserialize(json, typeof(List<T>));
+                List<T> aslist = (List<T>)(System.Text.Json.JsonSerializer.Deserialize(json!, typeof(List<T>)) ?? throw new InvalidOperationException("Failed to deserialize JSON."));
 
                 foreach (var i in aslist)
                 {
@@ -112,6 +122,11 @@ namespace CodexMicroORM.Core.Services
         #endregion
 
         #region "Public methods"
+
+        public Type? GetItemType()
+        {
+            return typeof(T);
+        }
 
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
@@ -131,7 +146,7 @@ namespace CodexMicroORM.Core.Services
         public Dictionary<string, Type> ExternalSchema
         {
             get;
-        } = new();
+        } = [];
 
         public bool ContainsItemByKey(object o)
         {
@@ -201,10 +216,7 @@ namespace CodexMicroORM.Core.Services
 
         public void PopulateFromSerializationText(string json, JsonSerializationSettings? jss = null)
         {
-            if (jss == null)
-            {
-                jss = new();
-            }
+            jss ??= new();
 
             // Must be an array...
             if (jss.SerializationType == SerializationType.Array)
@@ -228,12 +240,12 @@ namespace CodexMicroORM.Core.Services
 
         public Dictionary<string, T> ToDictionary(IEnumerable<string> cols)
         {
-            if (cols == null || cols.Count() == 0)
+            if (cols == null || !cols.Any())
             {
                 throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(cols));
             }
 
-            Dictionary<string, T> ret = new();
+            Dictionary<string, T> ret = [];
 
             foreach (T i in this)
             {
@@ -260,7 +272,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns>A shallow copy of the set being acted upon, where deleted rows are *not* present. (They remain in the acted on set, to support "saving by set".)</returns>
         public EntitySet<T> ApplyChangesFromPortableText(string json)
         {
-            EntitySet<T> retVal = new();
+            EntitySet<T> retVal = [];
 
             if (string.IsNullOrWhiteSpace(json) || json.Length > 100000000)
             {
@@ -310,7 +322,7 @@ namespace CodexMicroORM.Core.Services
 
                 // An indexed view in this case can be a dictionary for fast lookup
                 var index = ToDictionary(kdef);
-                HashSet<T> sourceVisits = new();
+                HashSet<T> sourceVisits = [];
                 var rows = jq.Value<Newtonsoft.Json.Linq.JArray>("rows");
 
                 if (rows != null)
@@ -323,7 +335,7 @@ namespace CodexMicroORM.Core.Services
                         {
                             if (keyval.Length > 0)
                             {
-                                keyval.Append("~");
+                                keyval.Append('~');
                             }
 
                             var kloc = sourceCols.IndexOf(c);
@@ -332,7 +344,7 @@ namespace CodexMicroORM.Core.Services
 
                         bool isnew = false;
 
-                        if (!index.TryGetValue(keyval.ToString(), out T target))
+                        if (!index.TryGetValue(keyval.ToString(), out T? target))
                         {
                             target = new();
                             Add(target);
@@ -373,7 +385,7 @@ namespace CodexMicroORM.Core.Services
 
                                     if (string.Compare(oldval, v, false) != 0)
                                     {
-                                        if (prefTypes.TryGetValue(scn, out Type pt))
+                                        if (prefTypes.TryGetValue(scn, out Type? pt))
                                         {
                                             tiw.SetValue(scn, v.CoerceType(pt));
                                         }
@@ -412,10 +424,7 @@ namespace CodexMicroORM.Core.Services
         /// <returns></returns>
         public string GetPortableText(PortableSerializationOptions? options = null)
         {
-            if (options == null)
-            {
-                options = new PortableSerializationOptions();
-            }
+            options ??= new();
 
             StringBuilder sb = new(4096);
             var actmode = options.Mode.GetValueOrDefault(Globals.PortableJSONMode.GetValueOrDefault(CEF.CurrentServiceScope.Settings.SerializationMode));
@@ -496,18 +505,18 @@ namespace CodexMicroORM.Core.Services
                 // Get any available key for this type
                 var keydef = KeyService.ResolveKeyDefinitionForType(typeof(T));
 
-                List<string> finalName = new();
-                List<Type> finalType = new();
+                List<string> finalName = [];
+                List<Type> finalType = [];
 
                 // Actual schema write based on distinct list of columns and types
                 foreach (var prop in (from n in (from a in c select a.name).Distinct() select new { Name = n, Type = (from t in c where string.Compare(t.name, n, true) == 0 orderby (t.type == null ? 1 : 0) select t.type).First() }))
                 {
-                    var restype = prop.Type;
-                    var req = !(prop.Type.IsGenericType && prop.Type.GetGenericTypeDefinition() == typeof(Nullable<>));
+                    Type restype = prop.Type ?? throw new InvalidOperationException("Could not determine type.");
+                    var req = !(restype.IsGenericType && restype.GetGenericTypeDefinition() == typeof(Nullable<>));
 
                     if (!req)
                     {
-                        restype = Nullable.GetUnderlyingType(prop.Type);
+                        restype = Nullable.GetUnderlyingType(restype) ?? throw new InvalidOperationException("Could not determine underlying type.");
                     }
 
                     var rp = ValidationService.GetRequiredFor(typeof(T), prop.Name);
@@ -675,7 +684,7 @@ namespace CodexMicroORM.Core.Services
                 foreach (var (_, _, value) in kv)
                 {
                     sb.Append(value?.ToString());
-                    sb.Append("~");
+                    sb.Append('~');
                 }
 
                 return sb.ToString();
@@ -725,7 +734,7 @@ namespace CodexMicroORM.Core.Services
 
         private void StartToAddWorkers()
         {
-            if (Interlocked.Read(ref _toAddWorkers) == 0 && _toAdd.Count > 0)
+            if (Interlocked.Read(ref _toAddWorkers) == 0 && !_toAdd.IsEmpty)
             {
                 Interlocked.Increment(ref _toAddWorkers);
 
@@ -735,7 +744,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         using (new WriterLock(LockInfo))
                         {
-                            while (_toAdd.Count > 0)
+                            while (!_toAdd.IsEmpty)
                             {
                                 if (_toAdd.TryDequeue(out var t))
                                 {
@@ -754,7 +763,7 @@ namespace CodexMicroORM.Core.Services
 
         public void WaitForQueuedAdds()
         {
-            while (_toAdd.Count > 0)
+            while (!_toAdd.IsEmpty)
             {
                 StartToAddWorkers();
                 Thread.Sleep(0);
@@ -943,20 +952,32 @@ namespace CodexMicroORM.Core.Services
                 {
                     case NotifyCollectionChangedAction.Replace:
                         {
-                            ProcessRemove(e.OldItems);
-                            ProcessAdd(e.NewItems, e.NewStartingIndex);
+                            if (e.OldItems != null)
+                            {
+                                ProcessRemove(e.OldItems);
+                            }
+                            if (e.NewItems != null)
+                            {
+                                ProcessAdd(e.NewItems, e.NewStartingIndex);
+                            }
                             break;
                         }
 
                     case NotifyCollectionChangedAction.Remove:
                         {
-                            ProcessRemove(e.OldItems);
+                            if (e.OldItems != null)
+                            {
+                                ProcessRemove(e.OldItems);
+                            }
                             break;
                         }
 
                     case NotifyCollectionChangedAction.Add:
                         {
-                            ProcessAdd(e.NewItems, e.NewStartingIndex);
+                            if (e.NewItems != null)
+                            {
+                                ProcessAdd(e.NewItems, e.NewStartingIndex);
+                            }
                             break;
                         }
                 }
@@ -996,7 +1017,7 @@ namespace CodexMicroORM.Core.Services
                 {
                     if (oi != null && !string.IsNullOrEmpty(ParentTypeName) && !string.IsNullOrEmpty(ParentFieldName))
                     {
-                        // Attempt to establish a FK relationship, carry parent key down
+                        // Attempt to remove the relationship
                         CEF.CurrentKeyService()?.UnlinkChildFromParentContainer(BoundScope, ParentTypeName!, ParentFieldName!, ParentContainer, oi);
                     }
                 }
@@ -1007,7 +1028,7 @@ namespace CodexMicroORM.Core.Services
         {
             var niCopy = (from a in newItems.Cast<Object>() select a).ToList();
 
-            foreach (T ni in niCopy)
+            foreach (T ni in niCopy.Cast<T>())
             {
                 _contains[ni] = true;
             }
@@ -1027,7 +1048,7 @@ namespace CodexMicroORM.Core.Services
                     {
                         if (ni != null)
                         {
-                            if (BoundScope.InternalCreateAddBase(ni, AddedIsNew, null, null, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), true, false) is ICEFWrapper w)
+                            if (BoundScope.InternalCreateAddBase(ni, AddedIsNew, null, null, null, new Dictionary<object, object>(Globals.DefaultDictionaryCapacity), true, false, BoundScope.ResolvedRetrievalIdentityMode(ni)) is ICEFWrapper w)
                             {
                                 var cast = w as T;
 
@@ -1037,7 +1058,7 @@ namespace CodexMicroORM.Core.Services
                                     {
                                         try
                                         {
-                                            this.SuspendNotifications(true);
+                                            SuspendNotifications(true);
 
                                             using (new WriterLock(LockInfo))
                                             {
@@ -1049,11 +1070,16 @@ namespace CodexMicroORM.Core.Services
                                                 {
                                                     _contains.Remove(nit2);
                                                 }
+
+                                                if (BoundScope.Settings.InitializeNullCollections)
+                                                {
+                                                    WrappingHelper.CopyReadOnlyCollectionsBackFromWrapper(cast, ni);
+                                                }
                                             }
                                         }
                                         finally
                                         {
-                                            this.SuspendNotifications(false);
+                                            SuspendNotifications(false);
                                         }
                                     }
 

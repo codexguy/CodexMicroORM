@@ -1,14 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net461;net7</TargetFrameworks>
+    <TargetFrameworks>netstandard2.0;net462;net7;net80</TargetFrameworks>
 	<LangVersion>latest</LangVersion>
 	<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-	<Version>1.1.0</Version>
+	<Version>1.2.0</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Description>The database provider code to implement support for Microsoft SQL Server using the CodexMicroORM application framework.</Description>
-	<Copyright>Copyright (c) 2022, All Rights Reserved</Copyright>
+	<Copyright>Copyright (c) 2024, All Rights Reserved</Copyright>
 	<PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
 	<PackageIcon>xSkrapeIcon.jpg</PackageIcon>
 	<PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
@@ -17,7 +17,14 @@
 	<PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
   </PropertyGroup>
 
-  <ItemGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+		<NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001</NoWarn>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+		<NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
     <None Include="..\CodexMicroORM.Core\xSkrapeIcon.jpg">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
@@ -25,7 +32,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.0.1" />
+    <PackageReference Include="Azure.Identity" Version="1.12.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.1" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -58,32 +58,25 @@ namespace CodexMicroORM.Core.Services
             if ((mode & SerializationMode.OnlyChanged) != 0)
             {
                 // Point of this? if we have object graph a->b->c, if c is modified, both a and b need to be included even if unmodified to support proper hierarchy
-                include = RequiresPersistenceForChanges(o, mode, new ConcurrentDictionary<object, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity));
+                include = RequiresPersistenceForChanges(o, mode, new ConcurrentDictionary<object, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity), null);
             }
+
+            visits.Objects.Add(o);
 
             if (include)
             {
                 WriteSerializationText(tw, o, mode, visits);
             }
 
-            visits.Objects.Add(o);
-
             var wot = o.AsInfraWrapped()?.GetWrappedObject()?.GetType() ?? o.GetBaseType();
-
-            if (!visits.Types.Contains(wot))
-            {
-                visits.Types.Add(wot);
-            }
+            visits.Types.Add(wot);
 
             return include;
         }
 
         public IEnumerable<T> GetItemsFromSerializationText<T>(string json, JsonSerializationSettings settings) where T : class, new()
         {
-            if (settings == null)
-            {
-                settings = new JsonSerializationSettings();
-            }
+            settings ??= new JsonSerializationSettings();
 
             switch (settings.SerializationType)
             {
@@ -105,12 +98,12 @@ namespace CodexMicroORM.Core.Services
                 case SerializationType.ObjectWithSchemaType1AndRows:
                     {
                         // Read schema
-                        Dictionary<string, Type> schema = new();
+                        Dictionary<string, Type> schema = [];
 
                         var root = JObject.Parse(json);
 
                         // Read schema
-                        foreach (var propInfo in root.GetValue(settings.SchemaName).ToArray())
+                        foreach (var propInfo in root.GetValue(settings.SchemaName)?.ToArray() ?? [])
                         {
                             if (propInfo is JObject jo)
                             {
@@ -119,9 +112,9 @@ namespace CodexMicroORM.Core.Services
                                     throw new CEFInvalidStateException(InvalidStateType.Serialization, "Invalid JSON format.");
                                 }
 
-                                JProperty pn = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldNameName) select b).FirstOrDefault();
-                                JProperty pt = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldTypeName) select b).FirstOrDefault();
-                                JProperty pr = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldRequiredName) select b).FirstOrDefault();
+                                JProperty pn = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldNameName) select b).FirstOrDefault() ?? throw new CEFInvalidStateException(InvalidStateType.Serialization, "Invalid state.");
+                                JProperty pt = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldTypeName) select b).FirstOrDefault() ?? throw new CEFInvalidStateException(InvalidStateType.Serialization, "Invalid state.");
+                                JProperty pr = (from a in jo.Children() let b = a as JProperty where b != null && b.Name.Equals(settings.SchemaFieldRequiredName) select b).FirstOrDefault() ?? throw new CEFInvalidStateException(InvalidStateType.Serialization, "Invalid state.");
 
                                 if (pn == null || pt == null)
                                 {
@@ -149,7 +142,7 @@ namespace CodexMicroORM.Core.Services
                         }
 
                         // Read objects, using the schema as the "basis" where missing/omitted properties are still carried through
-                        foreach (var itemInfo in root.GetValue(settings.DataRootName).ToArray())
+                        foreach (var itemInfo in (root.GetValue(settings.DataRootName) ?? throw new InvalidOperationException("Failed to get data root.")).ToArray())
                         {
                             var obj = CEF.Deserialize<T>(itemInfo.ToString());
                             var iw = obj.AsInfraWrapped();
@@ -220,7 +213,7 @@ namespace CodexMicroORM.Core.Services
                                 var i = enumerator.Current;
 
                                 // We only need to do this for tracked objects, for now we only do for value types or non-system (TODO)
-                                if (i == null || i.GetType().IsValueType || i.GetType().FullName.StartsWith("System."))
+                                if (i == null || i.GetType().IsValueType || i.GetType().FullName!.StartsWith("System."))
                                 {
                                     tw.WriteValue(i);
                                 }
@@ -257,7 +250,7 @@ namespace CodexMicroORM.Core.Services
                             {
                                 var iw2 = kvp.Value.AsInfraWrapped();
 
-                                if (iw2 != null)
+                                if (iw2 != null && !visits.Objects.Contains(iw2))
                                 {
                                     tw.WritePropertyName(kvp.Key);
                                     SaveContents(tw, iw2, nextmode, visits);
@@ -369,12 +362,21 @@ namespace CodexMicroORM.Core.Services
         /// <param name="o"></param>
         /// <param name="visits"></param>
         /// <returns></returns>
-        private static bool RequiresPersistenceForChanges(object o, SerializationMode mode, IDictionary<object, bool> visits)
+        private static bool RequiresPersistenceForChanges(object o, SerializationMode mode, IDictionary<object, bool> visits, IDictionary<object, bool>? all)
         {
-            if (visits.ContainsKey(o))
+            if (visits.TryGetValue(o, out bool v))
             {
-                return visits[o];
+                return v;
             }
+
+            all ??= new ConcurrentDictionary<object, bool>(Globals.DefaultCollectionConcurrencyLevel, Globals.DefaultDictionaryCapacity);
+
+            if (all.TryGetValue(o, out bool v2))
+            {
+                return v2;
+            }
+
+            all[o] = false;
 
             var iw = o.AsInfraWrapped(false);
 
@@ -395,8 +397,8 @@ namespace CodexMicroORM.Core.Services
                 }
 
                 int requires = 0;
-                var av = (from a in iw.GetAllValues() where a.Value != null && !a.Value.GetType().IsValueType && !a.Value.GetType().FullName.StartsWith("System.") select a).ToList();
-                var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 2 && av.Count() > Environment.ProcessorCount >> 1 ? Environment.ProcessorCount >> 1 : 1;
+                var av = (from a in iw.GetAllValues() where a.Value != null && !a.Value.GetType().IsValueType && !a.Value.GetType().FullName!.StartsWith("System.") select a).ToList();
+                var maxdop = Globals.EnableParallelPropertyParsing && Environment.ProcessorCount > 2 && av.Count > Environment.ProcessorCount >> 1 ? Environment.ProcessorCount >> 1 : 1;
 
                 Parallel.ForEach(av, new ParallelOptions() { MaxDegreeOfParallelism = maxdop }, (kvp, pls) =>
                 {
@@ -410,9 +412,9 @@ namespace CodexMicroORM.Core.Services
                             // Only makes sense if enumerating something wrapped, otherwise assume does NOT require serialization (no changes)
                             var iw2 = CEF.CurrentServiceScope.GetOrCreateInfra(sValEnum.Current, false);
 
-                            if (iw2 != null)
+                            if (iw2 != null && !all.ContainsKey(iw2))
                             {
-                                if (RequiresPersistenceForChanges(iw2, mode, visits))
+                                if (RequiresPersistenceForChanges(iw2, mode, visits, all))
                                 {
                                     Interlocked.Increment(ref requires);
                                     pls.Break();
@@ -425,9 +427,9 @@ namespace CodexMicroORM.Core.Services
                         // If it's a tracked object, recurse
                         var iw2 = CEF.CurrentServiceScope.GetOrCreateInfra(kvp.Value, false);
 
-                        if (iw2 != null)
+                        if (iw2 != null && !all.ContainsKey(iw2))
                         {
-                            if (RequiresPersistenceForChanges(iw2, mode, visits))
+                            if (RequiresPersistenceForChanges(iw2, mode, visits, all))
                             {
                                 Interlocked.Increment(ref requires);
                                 pls.Break();
@@ -444,7 +446,7 @@ namespace CodexMicroORM.Core.Services
             return false;
         }
 
-        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate)
+        void ICEFService.FinishSetup(ServiceScope.TrackedObject to, ServiceScope ss, bool isNew, IDictionary<string, object?>? props, ICEFServiceObjState? state, bool initFromTemplate, RetrievalIdentityMode identityMode)
         {
         }
 

@@ -1,12 +1,9 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading;
-using CodexMicroORM.Core;
 using CodexMicroORM.Core.Collections;
 using CodexMicroORM.Core.Helper;
+#nullable enable
 
 namespace CodexMicroORM.Core.Services
 {
@@ -14,7 +11,7 @@ namespace CodexMicroORM.Core.Services
     {
         private readonly ICEFIndexed _source;
         private readonly string _propName;
-        private readonly TO[] _empty = Array.Empty<TO>();
+        private readonly TO[] _empty = [];
         private readonly SlimConcurrentDictionary<FieldWrapper<TP>, ICollection<TO>> _data = new();
 
         public EqualityHashIndex(ICEFIndexed source, string propName)
@@ -37,7 +34,7 @@ namespace CodexMicroORM.Core.Services
         {
             var (readable, value) = obj.FastPropertyReadableWithValue(_propName);
 
-            object v;
+            object? v;
 
             if (readable)
             {
@@ -50,21 +47,21 @@ namespace CodexMicroORM.Core.Services
 
             if (v != null && v.GetType().IsEnum)
             {
-                var tpbt = Nullable.GetUnderlyingType(typeof(TP));
+                var tpbt = Nullable.GetUnderlyingType(typeof(TP)) ?? throw new InvalidOperationException("Unable to get underlying type.");
                 v = Convert.ChangeType(v, tpbt);
             }
 
-            return new FieldWrapper<TP>((TP)(v));
+            return new FieldWrapper<TP>((TP?)(v));
         }
 
-        public void UpdateKey(object oldval, object newval, object row)
+        public void UpdateKey(object? oldval, object? newval, object row)
         {
             if (row is not TO)
             {
                 throw new ArgumentException("Row is not a valid type.");
             }
 
-            var oldvalw = new FieldWrapper<TP>((TP)oldval);
+            var oldvalw = new FieldWrapper<TP>((TP?)oldval);
 
             _data.TryGetValue(oldvalw, out var items);
 
@@ -81,7 +78,7 @@ namespace CodexMicroORM.Core.Services
                 }
             }
 
-            var newvalw = new FieldWrapper<TP>((TP)newval);
+            var newvalw = new FieldWrapper<TP>((TP?)newval);
 
             _data.TryGetValue(newvalw, out items);
 
@@ -151,7 +148,7 @@ namespace CodexMicroORM.Core.Services
             return list ?? _empty;
         }
 
-        public IEnumerable<object> GetEqualItems(object value)
+        public IEnumerable<object> GetEqualItems(object? value)
         {
             if (typeof(TP) == typeof(byte?) && value != null && value.GetType() == typeof(int))
             {
@@ -163,7 +160,7 @@ namespace CodexMicroORM.Core.Services
                 value = new OnlyDate((DateTime)value);
             }
 
-            var v = (TP)value;
+            var v = (TP?)value;
             _data.TryGetValue(new FieldWrapper<TP>(v), out var list);
             return list ?? _empty;
         }
@@ -178,7 +175,7 @@ namespace CodexMicroORM.Core.Services
     {
         private readonly ICEFIndexed _source;
         private readonly string _propName;
-        private readonly TO[] _empty = Array.Empty<TO>();
+        private readonly TO[] _empty = [];
         private readonly C5.TreeDictionary<FieldWrapper<TP>, ICollection<TO>> _data = new();
         private readonly RWLockInfo _lock = new();
 
@@ -198,14 +195,14 @@ namespace CodexMicroORM.Core.Services
             _data.Clear();
         }
 
-        public void UpdateKey(object oldval, object newval, object row)
+        public void UpdateKey(object? oldval, object? newval, object row)
         {
             if (row is not TO)
             {
                 throw new ArgumentException("Row is not a valid type.");
             }
 
-            var oldvalw = new FieldWrapper<TP>((TP)oldval);
+            var oldvalw = new FieldWrapper<TP>((TP?)oldval);
 
             using (new WriterLock(_lock))
             {
@@ -224,7 +221,7 @@ namespace CodexMicroORM.Core.Services
                     }
                 }
 
-                var newvalw = new FieldWrapper<TP>((TP)newval);
+                var newvalw = new FieldWrapper<TP>((TP?)newval);
 
                 if (_data.Contains(newvalw))
                 {
@@ -271,7 +268,7 @@ namespace CodexMicroORM.Core.Services
         {
             var (readable, value) = obj.FastPropertyReadableWithValue(_propName);
 
-            object v;
+            object? v;
 
             if (readable)
             {
@@ -287,7 +284,7 @@ namespace CodexMicroORM.Core.Services
                 v = Activator.CreateInstance(typeof(TP), v);
             }
 
-            return new FieldWrapper<TP>((TP)(v));
+            return new FieldWrapper<TP>((TP?)(v));
         }
 
         public void Add(TO obj)
@@ -314,9 +311,9 @@ namespace CodexMicroORM.Core.Services
             }
         }
 
-        public IEnumerable<TO> GetEqualItems(TP value)
+        public IEnumerable<TO> GetEqualItems(TP? value)
         {
-            var key = new FieldWrapper<TP>((TP)value.TypeFixup(typeof(TP)));
+            var key = new FieldWrapper<TP>((TP?)value.TypeFixup(typeof(TP)));
 
             using (new ReaderLock(_lock))
             {
@@ -329,9 +326,9 @@ namespace CodexMicroORM.Core.Services
             return _empty;
         }
 
-        public IEnumerable<object> GetEqualItems(object value)
+        public IEnumerable<object> GetEqualItems(object? value)
         {
-            var key = new FieldWrapper<TP>((TP)value.TypeFixup(typeof(TP)));
+            var key = new FieldWrapper<TP>((TP?)value.TypeFixup(typeof(TP)));
 
             using (new ReaderLock(_lock))
             {
@@ -344,35 +341,35 @@ namespace CodexMicroORM.Core.Services
             return _empty;
         }
 
-        public IEnumerable<object> GetGreaterThanItems(object value)
+        public IEnumerable<object> GetGreaterThanItems(object? value)
         {
             using (new ReaderLock(_lock))
             {
-                return _data.RangeFrom(new FieldWrapper<TP>((TP)value.TypeFixup(typeof(TP)))).SelectMany((p) => p.Value).Except(GetEqualItems(value));
+                return _data.RangeFrom(new FieldWrapper<TP>((TP?)value.TypeFixup(typeof(TP)))).SelectMany((p) => p.Value).Except(GetEqualItems(value));
             }
         }
 
-        public IEnumerable<object> GetLessThanItems(object value)
+        public IEnumerable<object> GetLessThanItems(object? value)
         {
             using (new ReaderLock(_lock))
             {
-                return _data.RangeTo(new FieldWrapper<TP>((TP)value.TypeFixup(typeof(TP)))).SelectMany((p) => p.Value);
+                return _data.RangeTo(new FieldWrapper<TP>((TP?)value.TypeFixup(typeof(TP)))).SelectMany((p) => p.Value);
             }
         }
 
-        public IEnumerable<object> GetGreaterThanEqualItems(object value)
+        public IEnumerable<object> GetGreaterThanEqualItems(object? value)
         {
             using (new ReaderLock(_lock))
             {
-                return _data.RangeFrom(new FieldWrapper<TP>((TP)value.TypeFixup(typeof(TP)))).SelectMany((p) => p.Value);
+                return _data.RangeFrom(new FieldWrapper<TP>((TP?)value.TypeFixup(typeof(TP)))).SelectMany((p) => p.Value);
             }
         }
 
-        public IEnumerable<object> GetLessThanEqualItems(object value)
+        public IEnumerable<object> GetLessThanEqualItems(object? value)
         {
             using (new ReaderLock(_lock))
             {
-                return _data.RangeTo(new FieldWrapper<TP>((TP)value.TypeFixup(typeof(TP)))).SelectMany((p) => p.Value).Union(GetEqualItems(value));
+                return _data.RangeTo(new FieldWrapper<TP>((TP?)value.TypeFixup(typeof(TP)))).SelectMany((p) => p.Value).Union(GetEqualItems(value));
             }
         }
 

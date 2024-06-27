@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,6 +30,8 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Collections.ObjectModel;
 using System.Threading;
+using System.Linq.Expressions;
+
 #if CGEH
 namespace CodexMicroORM.Core.CG
 #else
@@ -59,17 +61,17 @@ namespace CodexMicroORM.Core
         }
 #endif
 
-        public static TV AssignReturn<TK, TV>(this Dictionary<TK, TV> dic, TK key, TV val)
+        public static TV AssignReturn<TK, TV>(this Dictionary<TK, TV> dic, TK key, TV val) where TK : notnull
         {
             dic[key] = val;
             return val;
         }
 
-        public static TV TestAssignReturn<TK, TV>(this Dictionary<TK, TV> dic, TK key, Func<TV> getval)
+        public static TV TestAssignReturn<TK, TV>(this Dictionary<TK, TV> dic, TK key, Func<TV> getval) where TK : notnull
         {
-            if (dic.ContainsKey(key))
+            if (dic.TryGetValue(key, out var v))
             {
-                return dic[key];
+                return v;
             }
 
             var val = getval();
@@ -122,7 +124,7 @@ namespace CodexMicroORM.Core
 
         public static T[] Arrayize<T>(this T item)
         {
-            return new T[] { item };
+            return [ item ];
         }
 
         /// <summary>
@@ -179,7 +181,7 @@ namespace CodexMicroORM.Core
                 return;
             }
 
-            List<Exception> faults = new();
+            List<Exception> faults = [];
 
             foreach (var i in items)
             {
@@ -198,9 +200,9 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            if (faults.Any())
+            if (faults.Count > 0)
             {
-                throw new AggregateException(faults.ToArray());
+                throw new AggregateException(faults);
             }
         }
 
@@ -219,7 +221,7 @@ namespace CodexMicroORM.Core
                 return;
             }
 
-            List<Exception> faults = new();
+            List<Exception> faults = [];
 
             foreach (var i in items)
             {
@@ -241,9 +243,9 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            if (faults.Any())
+            if (faults.Count > 0)
             {
-                throw new AggregateException(faults.ToArray());
+                throw new AggregateException(faults);
             }
         }
 
@@ -262,7 +264,7 @@ namespace CodexMicroORM.Core
                 return;
             }
 
-            List<Exception> faults = new();
+            List<Exception> faults = [];
 
             // Why include Task.Run here? Without it, observe that work can end up carried out NOT in background where wish to use this to, for example, avoid work on UI thread, etc.
             await Task.Run<int>(async () =>
@@ -287,9 +289,9 @@ namespace CodexMicroORM.Core
                 return items.Count();
             });
 
-            if (faults.Any())
+            if (faults.Count > 0)
             {
-                throw new AggregateException(faults.ToArray());
+                throw new AggregateException(faults);
             }
         }
 
@@ -323,8 +325,8 @@ namespace CodexMicroORM.Core
                 dop = ParallelToRun();
             }
 
-            List<Exception> faults = new();
-            List<Task<Exception?>> worklist = new();
+            List<Exception> faults = [];
+            List<Task<Exception?>> worklist = [];
             var senum = source.GetEnumerator();
             var morework = true;
 
@@ -388,9 +390,9 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            if (faults.Any())
+            if (faults.Count > 0)
             {
-                throw new AggregateException(faults.ToArray());
+                throw new AggregateException(faults);
             }
         }
 
@@ -415,8 +417,8 @@ namespace CodexMicroORM.Core
                 dop = ParallelToRun();
             }
 
-            List<Exception> faults = new();
-            List<Task<Exception?>> worklist = new();
+            List<Exception> faults = [];
+            List<Task<Exception?>> worklist = [];
             var senum = source.GetEnumerator();
             var morework = true;
 
@@ -480,9 +482,9 @@ namespace CodexMicroORM.Core
                 }
             }
 
-            if (faults.Any())
+            if (faults.Count > 0)
             {
-                throw new AggregateException(faults.ToArray());
+                throw new AggregateException(faults);
             }
         }
 
@@ -758,7 +760,7 @@ namespace CodexMicroORM.Core
         {
             if (source == null)
             {
-                return Activator.CreateInstance(nullType);
+                return Activator.CreateInstance(nullType) ?? throw new InvalidOperationException($"Failed to instantiate {nullType.Name}.");
             }
 
             if (source.GetType().Equals(nullType))
@@ -766,7 +768,7 @@ namespace CodexMicroORM.Core
                 return source;
             }
 
-            return Activator.CreateInstance(nullType, source);
+            return Activator.CreateInstance(nullType, source) ?? throw new InvalidOperationException($"Failed to instantiate {nullType.Name}.");
         }
 
         /// <summary>
@@ -863,7 +865,7 @@ namespace CodexMicroORM.Core
 
                 if (string.Compare(value?.ToString(), ov?.ToString(), true) != 0)
                 {
-                    if (ov?.ToString().Length == 0 && value?.ToString().Length > 0)
+                    if (ov?.ToString()?.Length == 0 && value?.ToString()?.Length > 0)
                     {
                         iw?.SetValue(field, value);
                     }
@@ -886,7 +888,7 @@ namespace CodexMicroORM.Core
 
                         if (string.Compare(value?.ToString(), ov?.ToString(), true) != 0)
                         {
-                            if (ov?.ToString().Length != 0 || value?.ToString().Length == 0)
+                            if (ov?.ToString()?.Length != 0 || value?.ToString()?.Length == 0)
                             {
                                 throw new CEFInvalidStateException(InvalidStateType.LowLevelState);
                             }
@@ -929,12 +931,13 @@ namespace CodexMicroORM.Core
         public static ICEFInfraWrapper? AsInfraWrapped(this object o, bool canCreate = true, ServiceScope? ss = null)
         {
             ss ??= CEF.CurrentServiceScope;
+            var rim = ss.ResolvedRetrievalIdentityMode(o);
 
             ICEFInfraWrapper? w = ss.GetOrCreateInfra(o, canCreate);
 
             if (w == null && canCreate)
             {
-                var t = ss.IncludeObjectNonGeneric(o, null);
+                var t = ss.IncludeObjectNonGeneric(o, null, rim);
                 
                 if (t != null)
                 {
@@ -1086,7 +1089,7 @@ namespace CodexMicroORM.Core
                 {
                     if (typeof(T) == typeof(string))
                     {
-                        return (T)(object)v.ToString();
+                        return (v.ToString() as object) as T ?? throw new CEFInvalidStateException(InvalidStateType.DataTypeIssue, $"Invalid cast of type {typeof(T).Name}."); ;
                     }
 
                     if (v is T t)
@@ -1114,7 +1117,7 @@ namespace CodexMicroORM.Core
 
                 if (typeof(T) == typeof(string))
                 {
-                    return (T)(object)v.ToString();
+                    return (v.ToString() as object) as T;
                 }
 
                 if (v is T t)
@@ -1260,9 +1263,9 @@ namespace CodexMicroORM.Core
 
             var wt = wrapped.GetType();
 
-            if (_typeMap.ContainsKey(wt))
+            if (_typeMap.TryGetValue(wt, out var rt2))
             {
-                return _typeMap[wt];
+                return rt2;
             }
 
             var uw = CEF.CurrentServiceScope.GetWrapperOrTarget(wrapped);
@@ -1288,6 +1291,19 @@ namespace CodexMicroORM.Core
 
             _typeMap[wt] = uw.GetType();
             return uw.GetType();
+        }
+
+        /// <summary>
+        /// A short-hand way to apply the RetrievalIdentityMode.AllowMultipleWithShadowProp setting for a specific set in the current service scope.
+        /// This has the effect of ignoring any pre-existing entity key (use surrogate shadow key _ID instead), so duplicates are allowed when retrieving.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="es"></param>
+        /// <returns></returns>
+        public static EntitySet<T> AllowRetrievalDups<T>(this EntitySet<T> es) where T : class, new()
+        {
+            CEF.CurrentServiceScope.SetRetrievalIdentityForObject(es, RetrievalIdentityMode.AllowMultipleWithShadowProp);
+            return es;
         }
 
         /// <summary>
@@ -1447,7 +1463,7 @@ namespace CodexMicroORM.Core
             {
                 if (sb.Length > 0)
                 {
-                    sb.Append("~");
+                    sb.Append('~');
                 }
 
                 sb.Append(iw.GetValue(c));
@@ -1485,7 +1501,7 @@ namespace CodexMicroORM.Core
 
                 // Build a dictionary for faster lookup of target, and keep track of what was insert/update
                 var setData = target.ToDictionary(key);
-                HashSet<T> matched = new();
+                HashSet<T> matched = [];
 
                 // First pass for inserts, updates
                 foreach (var s in source)
@@ -1509,7 +1525,7 @@ namespace CodexMicroORM.Core
                         target.Add(CEF.NewObject(entRow));
                     }
 
-                    matched.Add(entRow.AsUnwrapped() as T);
+                    matched.Add(entRow.AsUnwrapped() as T ?? throw new InvalidOperationException("Failed to use AsUnwrapped."));
                     var iw = entRow.AsInfraWrapped();
 
                     if (iw != null)
@@ -1525,7 +1541,7 @@ namespace CodexMicroORM.Core
                 // Second pass for deletes - anything unvisited from above
                 foreach (var r in target.ToList())
                 {
-                    if (!matched.Contains(r.AsUnwrapped() as T))
+                    if (r.AsUnwrapped() is T t && !matched.Contains(t))
                     {
                         CEF.DeleteObject(r);
                         target.Remove(r);
@@ -1560,13 +1576,13 @@ namespace CodexMicroORM.Core
                     throw new CEFInvalidStateException(InvalidStateType.BadParameterValue, $"Type {typeof(T).Name} does not have a key defined.");
                 }
 
-                var allCol = source.Table.Columns.Cast<DataColumn>();
+                var allCol = (source.Table ?? throw new InvalidOperationException("Missing Table reference in DataView.")).Columns.Cast<DataColumn>();
                 var nonKeyCol = (from a in allCol where !(from b in key where b == a.ColumnName select b).Any() select a);
                 var ss = CEF.CurrentServiceScope;
 
                 // Build a dictionary for faster lookup
                 var setData = target.ToDictionary(key);
-                HashSet<T> matched = new();
+                HashSet<T> matched = [];
                 var targProps = typeof(T).FastGetAllPropertiesAsDictionary();
 
                 // First pass for inserts, updates
@@ -1578,14 +1594,14 @@ namespace CodexMicroORM.Core
                     {
                         if (sb.Length > 0)
                         {
-                            sb.Append("~");
+                            sb.Append('~');
                         }
                         sb.Append(drv[k]);
                     }
 
                     if (!setData.TryGetValue(sb.ToString(), out T? entRow))
                     {
-                        entRow = new T();
+                        entRow = CEF.NewObject(new T());
 
                         foreach (DataColumn dc in allCol)
                         {
@@ -1611,13 +1627,13 @@ namespace CodexMicroORM.Core
                         }
                     }
 
-                    matched.Add(entRow.AsUnwrapped() as T);
+                    matched.Add(entRow.AsUnwrapped() as T ?? throw new InvalidOperationException("Failed to use AsUnwrapped."));
                 }
 
                 // Second pass for deletes - anything unvisited from above
                 foreach (var r in target.ToList())
                 {
-                    if (!matched.Contains(r.AsUnwrapped() as T))
+                    if (!matched.Contains((r.AsUnwrapped() as T)!))
                     {
                         CEF.DeleteObject(r);
                         target.Remove(r);
@@ -1671,6 +1687,56 @@ namespace CodexMicroORM.Core
             foreach (var i in src)
             {
                 yield return DeepCopyObject(i, tracked);
+            }
+        }
+
+        /// <summary>
+        /// This overload for CopySharedTo allows you to inspect additional possible property matches (even if types do not match) and let you decide how to handle in the delegate. If the delegate returns true, you are indicating that you handled the property in the delegate; if false is returned, default behavior will be used (value is copied if the types match).
+        /// </summary>
+        /// <param name="src"></param>
+        /// <param name="dest"></param>
+        /// <param name="previewHandler"></param>
+        /// <exception cref="CEFInvalidStateException"></exception>
+        public static void CopySharedTo(this object src, object dest, Func<string, object?, object?, bool, bool> previewHandler)
+        {
+            if (src == null)
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(src));
+
+            if (dest == null)
+                throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(dest));
+
+            // We can copy from non-nullable to nullable (always)
+            foreach (var prop in (from a in src.FastGetAllProperties(true, true)
+                                  join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                  where !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
+                                  let tm = (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type)
+                                  select new { a.name, typematch = tm }))
+            {
+                var sv = src.FastGetValue(prop.name);
+                var dv = dest.FastGetValue(prop.name);
+
+                if (!previewHandler(prop.name, sv, dv, prop.typematch) && prop.typematch)
+                {
+                    dest.FastSetValue(prop.name, sv);
+                }
+            }
+
+            // We can additionally copy from nullable to non-nullable, but only if the nullable actually holds a non-null value
+            foreach (var fi in (from a in src.FastGetAllProperties(true, true)
+                                join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
+                                where !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
+                                let tm = a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type
+                                let v = src.FastGetValue(a.name)
+                                where v != null
+                                select new { a.name, value = v, typematch = tm }))
+            {
+                var sv = fi.value;
+                var dv = dest.FastGetValue(fi.name);
+
+                if (!previewHandler(fi.name, sv, dv, fi.typematch) && fi.typematch)
+                {
+                    dest.FastSetValue(fi.name, sv);
+                }
             }
         }
 
@@ -1776,7 +1842,7 @@ namespace CodexMicroORM.Core
 
             foreach (var name in (from a in src.FastGetAllProperties(true, true) join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                   where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type) &&
-                                    (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                    (fields?.Length == 0 || (isExclude && !fields!.Contains(a.name)) || (!isExclude && fields!.Contains(a.name)))
                                     && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                   select a.name))
             {
@@ -1786,7 +1852,7 @@ namespace CodexMicroORM.Core
             foreach (var fi in (from a in src.FastGetAllProperties(true, true)
                                 join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                 where (a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type) &&
-                                    (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                    (fields?.Length == 0 || (isExclude && !fields!.Contains(a.name)) || (!isExclude && fields!.Contains(a.name)))
                                     && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                 let v = src.FastGetValue(a.name)
                                 where v != null
@@ -1814,7 +1880,7 @@ namespace CodexMicroORM.Core
             foreach (var info in (from a in src.FastGetAllProperties(true, true)
                                   join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                   where (a.type == b.type || Nullable.GetUnderlyingType(b.type) == a.type) &&
-                                    (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                    (fields?.Length == 0 || (isExclude && !fields!.Contains(a.name)) || (!isExclude && fields!.Contains(a.name)))
                                     && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                   select new { a.name, a.type }))
             {
@@ -1838,7 +1904,7 @@ namespace CodexMicroORM.Core
             foreach (var fi in (from a in src.FastGetAllProperties(true, true)
                                 join b in dest.FastGetAllProperties(true, true) on a.name equals b.name
                                 where (a.type != b.type && Nullable.GetUnderlyingType(a.type) == b.type) &&
-                                    (fields?.Length == 0 || (isExclude && !fields.Contains(a.name)) || (!isExclude && fields.Contains(a.name)))
+                                    (fields?.Length == 0 || (isExclude && !fields!.Contains(a.name)) || (!isExclude && fields!.Contains(a.name)))
                                     && !CEF.RegisteredPropertyNameTreatReadOnly.Contains(a.name)
                                 let v = src.FastGetValue(a.name)
                                 where v != null
@@ -1963,7 +2029,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static DataTable DeepCopyDataTable<T>(this EntitySet<T> source) where T : class, new()
         {
-            List<(string name, Type type, bool nullable)> columns = new();
+            List<(string name, Type type, bool nullable)> columns = [];
 
             if (source.Any())
             {
@@ -1989,7 +2055,7 @@ namespace CodexMicroORM.Core
             {
                 if (nullable)
                 {
-                    dt.Columns.Add(name, Nullable.GetUnderlyingType(type));
+                    dt.Columns.Add(name, Nullable.GetUnderlyingType(type) ?? throw new InvalidOperationException("Failed to get underlying type."));
                 }
                 else
                 {
@@ -2155,7 +2221,7 @@ namespace CodexMicroORM.Core
         {
             return await InternalExecuteWithMaxWaitAsync((ct) =>
             {
-                return Task.Run(() => work.Invoke(ct));
+                return Task.Run(() => work.Invoke(ct), CancellationToken.None);
             }, maxWaitMs, continueSilent, checkCancel, retries, retryHandler, pollMs, retryBackoffMs);
         }
 
@@ -2168,6 +2234,8 @@ namespace CodexMicroORM.Core
         {
             if (o == null)
                 return;
+
+            var ss = CEF.CurrentServiceScope;
 
             foreach (var (name, type, _, _) in o.FastGetAllProperties(true, null))
             {
@@ -2186,13 +2254,17 @@ namespace CodexMicroORM.Core
                             {
                                 if (val != null)
                                 {
+
                                     // Based on the above type checks, we know this thing supports IEnumerable
                                     var sValEnum = ((System.Collections.IEnumerable)val).GetEnumerator();
 
                                     while (sValEnum.MoveNext())
                                     {
+                                        var cur = sValEnum.Current;
+                                        var rim = ss.ResolvedRetrievalIdentityMode(cur);
+
                                         // Need to use non-generic method for this!
-                                        var wi = CEF.CurrentServiceScope.InternalCreateAddBase(sValEnum.Current, isNew, null, null, null, null, true, false);
+                                        var wi = ss.InternalCreateAddBase(cur, isNew, null, null, null, null, true, false, rim);
 
                                         if (wi != null)
                                         {
@@ -2211,4 +2283,105 @@ namespace CodexMicroORM.Core
 #endif
 
     }
+
+    /// <summary>
+    /// Enables efficient Linq to Objects queries on indexed sets.
+    /// </summary>
+    public static class IndexedSetExtensions
+    {
+        public static IndexedSnapshot<T> AsIndexSnapshot<T>(this IEnumerable<T> source) where T : class, new()
+        {
+            return new IndexedSnapshot<T>(source, null);
+        }
+
+        public static IEnumerable<TSource> Where<TSource>(this IndexedSet<TSource> source, Expression<Func<TSource, bool>> predicate) where TSource : class, new()
+        {
+            if (source == null)
+            {
+#if DEBUG
+                if (System.Diagnostics.Debugger.IsAttached)
+                {
+                    System.Diagnostics.Debugger.Break();
+                }
+#else
+                throw new ArgumentNullException(nameof(source));
+#endif
+            }
+
+            if (source != null && source.IsLiveTracked)
+            {
+                using (new ReaderLock(source.LockInfo))
+                {
+                    var sv = source.View;
+
+                    if (sv != null && (sv.AutoInferIndexes).GetValueOrDefault(Globals.AutoInferIndexes) || sv!.IndexCount > 0)
+                    {
+                        return sv.InternalWhere(predicate);
+                    }
+                }
+            }
+
+            return Enumerable.Where(source ?? [], predicate.Compile());
+        }
+
+        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IndexedSet<TOuter> outer, IndexedSet<TInner> inner, Expression<Func<TOuter, TKey>> outerKeySelector, Expression<Func<TInner, TKey>> innerKeySelector, Expression<Func<TOuter, TInner, TResult>> resultSelector) where TOuter : class, new() where TInner : class, new()
+        {
+            if (outer != null && inner != null && outer.IsLiveTracked && inner.IsLiveTracked)
+            {
+                if (outer.SupportsJoinRules.GetValueOrDefault(Globals.IndexedSetsSupportJoins) && inner.SupportsJoinRules.GetValueOrDefault(Globals.IndexedSetsSupportJoins))
+                {
+                    using (new ReaderLock(inner.LockInfo))
+                    {
+                        using (new ReaderLock(outer.LockInfo))
+                        {
+                            var osv = outer.View;
+                            var isv = inner.View;
+
+                            if (osv != null && isv != null)
+                            {
+                                if (((osv.AutoInferIndexes).GetValueOrDefault(Globals.AutoInferIndexes) || osv.IndexCount > 0) && ((isv.AutoInferIndexes).GetValueOrDefault(Globals.AutoInferIndexes) || isv.IndexCount > 0))
+                                {
+                                    // Future: address possible deadlocks here... currently should timeout but would not get further detail
+                                    return osv.InternalJoin(isv, outerKeySelector, innerKeySelector, resultSelector);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return Enumerable.Join(outer ?? [], inner ?? [], outerKeySelector.Compile(), innerKeySelector.Compile(), resultSelector.Compile());
+        }
+
+        /// <summary>
+        /// Replaces LINQ Where for indexed sets.
+        /// </summary>
+        /// <typeparam name="TSource"></typeparam>
+        /// <param name="source"></param>
+        /// <param name="predicate"></param>
+        /// <returns></returns>
+        public static IEnumerable<TSource> Where<TSource>(this IndexedSnapshot<TSource> source, Expression<Func<TSource, bool>> predicate) where TSource : class, new()
+        {
+            return source.InternalWhere(predicate);
+        }
+
+        /// <summary>
+        /// Replaces LINQ Join for indexed sets.
+        /// </summary>
+        /// <typeparam name="TOuter"></typeparam>
+        /// <typeparam name="TInner"></typeparam>
+        /// <typeparam name="TKey"></typeparam>
+        /// <typeparam name="TResult"></typeparam>
+        /// <param name="outer"></param>
+        /// <param name="inner"></param>
+        /// <param name="outerKeySelector"></param>
+        /// <param name="innerKeySelector"></param>
+        /// <param name="resultSelector"></param>
+        /// <returns></returns>
+        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IndexedSnapshot<TOuter> outer, IndexedSnapshot<TInner> inner, Expression<Func<TOuter, TKey>> outerKeySelector, Expression<Func<TInner, TKey>> innerKeySelector, Expression<Func<TOuter, TInner, TResult>> resultSelector) where TOuter : class, new() where TInner : class, new()
+        {
+            return outer.InternalJoin(inner, outerKeySelector, innerKeySelector, resultSelector);
+        }
+    }
+
 }

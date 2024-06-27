@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,14 +38,27 @@ namespace CodexMicroORM.Core
         private static Type _defaultValidationServiceType = typeof(ValidationService);
         private static Type _entitySetType = typeof(EntitySet<>);
         private static bool _useGlobalServiceScope = false;
-        private static readonly HashSet<string> _globalPropExclDirtyCheck = new();
+        private static readonly HashSet<string> _globalPropExclDirtyCheck = [];
 
         [ThreadStatic]
-        private static string? _currentThreadUser = null;
+        private static string? _currentThreadUser;
 
         #endregion
 
         public delegate void GlobalPropertyChangeCallback(object source, string propName, object? oldval, object? newval);
+        public delegate void FrameworkWarningCallback(FrameworkWarningType warnType, string message);
+
+        public static FrameworkWarningCallback? FrameworkWarningHandler
+        {
+            get;
+            set;
+        } = null;
+
+        public static RetrievalIdentityMode DefaultRetrievalIdentityMode
+        {
+            get;
+            set;
+        } = RetrievalIdentityMode.MaintainIdentityAndWarn;
 
         public static bool IndexedSetCaseInsensitiveStringCompares
         {
@@ -80,7 +93,7 @@ namespace CodexMicroORM.Core
         public static List<(string fieldname, bool nonnull)> DebugStopWhenSerialize
         {
             get;
-        } = new();
+        } = [];
 
         public static bool LiveIndexesForIndexedSets
         {
@@ -265,7 +278,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static EntitySet<T> NewEntitySet<T>() where T : class, new()
         {
-            return (EntitySet<T>) Activator.CreateInstance(_entitySetType.MakeGenericType(typeof(T)));
+            return (EntitySet<T>) Activator.CreateInstance(_entitySetType.MakeGenericType(typeof(T)))!;
         }
 
         /// <summary>
@@ -276,7 +289,7 @@ namespace CodexMicroORM.Core
         /// <returns></returns>
         public static EntitySet<T> NewEntitySet<T>(IEnumerable<T> source) where T : class, new()
         {
-            return (EntitySet<T>)Activator.CreateInstance(_entitySetType.MakeGenericType(typeof(T)), source);
+            return (EntitySet<T>)Activator.CreateInstance(_entitySetType.MakeGenericType(typeof(T)), source)!;
         }
 
         public static ServiceScopeSettings? GlobalServiceScopeSettings

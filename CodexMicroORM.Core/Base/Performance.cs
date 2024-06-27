@@ -1,5 +1,5 @@
 ﻿/***********************************************************************
-Copyright 2022 CodeX Enterprises LLC
+Copyright 2024 CodeX Enterprises LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,12 +25,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Text;
 using System.Linq;
 
 namespace CodexMicroORM.Core.Helper
 {
-    internal struct DelegateCacheKey
+    internal readonly struct DelegateCacheKey
     {
         private readonly Type _type;
         private readonly string _prop;
@@ -51,8 +50,13 @@ namespace CodexMicroORM.Core.Helper
             }
         }
 
-        public override bool Equals(object obj)
+        public override bool Equals(object? obj)
         {
+            if (obj == null)
+            {
+                return false;
+            }
+
             var other = (DelegateCacheKey)obj;
 
             if (Globals.CaseSensitiveDictionaries)
@@ -181,10 +185,10 @@ namespace CodexMicroORM.Core.Helper
                     && (!canRead.HasValue || canRead.Value == info.readable)
                     && (!canWrite.HasValue || canWrite.Value == info.writeable))
                 {
-                    return new(string name, Type type, bool readable, bool writeable)[] { (name!, info.type, info.readable, info.writeable) };
+                    return [ (name!, info.type, info.readable, info.writeable) ];
                 }
 
-                return Array.Empty<(string name, Type type, bool readable, bool writeable)>();
+                return [];
             }
             else
             {
@@ -223,12 +227,12 @@ namespace CodexMicroORM.Core.Helper
                     return (false, null);
                 }
 
-                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic)!;
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
                 try
                 {
-                    var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+                    var asCast = (Func<object, object?>)constructedHelper.Invoke(null, [ pi.GetGetMethod() ])!;
 
                     using (new WriterLock(_lock))
                     {
@@ -239,7 +243,7 @@ namespace CodexMicroORM.Core.Helper
                 }
                 catch (TargetInvocationException)
                 {
-                    return (true, o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, Array.Empty<object>()));
+                    return (true, o.GetType().GetProperty(propName)!.GetGetMethod()!.Invoke(o, []));
                 }
             }
             catch (Exception)
@@ -272,19 +276,19 @@ namespace CodexMicroORM.Core.Helper
                     return (false, null);
                 }
 
-                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic)!;
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
                 try
                 {
-                    var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+                    var asCast = (Func<object, object?>)constructedHelper.Invoke(null, [ pi.GetGetMethod() ])!;
 
                     _getterCache[key] = asCast;
                     return (true, asCast(o));
                 }
                 catch (TargetInvocationException)
                 {
-                    return (true, o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, Array.Empty<object>()));
+                    return (true, o.GetType().GetProperty(propName)!.GetGetMethod()!.Invoke(o, []));
                 }
             }
             catch (Exception)
@@ -322,12 +326,12 @@ namespace CodexMicroORM.Core.Helper
                     return false;
                 }
 
-                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic)!;
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
                 try
                 {
-                    var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+                    var asCast = (Func<object, object?>)constructedHelper.Invoke(null, [ pi.GetGetMethod() ])!;
 
                     using (new WriterLock(_lock))
                     {
@@ -370,12 +374,12 @@ namespace CodexMicroORM.Core.Helper
                     return false;
                 }
 
-                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic)!;
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
                 try
                 {
-                    var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+                    var asCast = (Func<object, object?>)constructedHelper.Invoke(null, [ pi.GetGetMethod() ])!;
 
                     _getterCache[key] = asCast;
                 }
@@ -401,13 +405,13 @@ namespace CodexMicroORM.Core.Helper
                 return call != null ? call(o) : null;
             }
 
-            var pi = o.GetType().GetProperty(propName);
-            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+            var pi = o.GetType().GetProperty(propName) ?? throw new InvalidOperationException($"Could not find property {propName}");
+            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic)!;
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
             try
             {
-                var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+                var asCast = (Func<object, object?>)constructedHelper.Invoke(null, [ pi.GetGetMethod() ])!;
 
                 using (new WriterLock(_lock))
                 {
@@ -418,7 +422,7 @@ namespace CodexMicroORM.Core.Helper
             }
             catch (TargetInvocationException)
             {
-                return o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, Array.Empty<object>());
+                return o.GetType().GetProperty(propName)!.GetGetMethod()!.Invoke(o, []);
             }
         }
 
@@ -431,20 +435,20 @@ namespace CodexMicroORM.Core.Helper
                 return call != null ? call(o) : null;
             }
 
-            var pi = o.GetType().GetProperty(propName);
-            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic);
+            var pi = o.GetType().GetProperty(propName) ?? throw new InvalidOperationException($"Could not find property {propName}");
+            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalGet", BindingFlags.Static | BindingFlags.NonPublic)!;
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
             try
             {
-                var asCast = (Func<object, object>)constructedHelper.Invoke(null, new object[] { pi.GetGetMethod() });
+                var asCast = (Func<object, object?>)constructedHelper.Invoke(null, [ pi.GetGetMethod() ])!;
                 _getterCache[key] = asCast;
                 return asCast(o);
             }
             catch (TargetInvocationException)
             {
                 // Fallback - to investigate some cases where the above can fail (todo)
-                return o.GetType().GetProperty(propName).GetGetMethod().Invoke(o, Array.Empty<object>());
+                return o.GetType().GetProperty(propName)!.GetGetMethod()!.Invoke(o, []);
             }
         }
 
@@ -479,12 +483,12 @@ namespace CodexMicroORM.Core.Helper
                     return false;
                 }
 
-                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic)!;
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
                 try
                 {
-                    var asCast = (Action<object, object?>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+                    var asCast = (Action<object, object?>)constructedHelper.Invoke(null, [ pi.GetSetMethod() ])!;
 
                     using (new WriterLock(_lock))
                     {
@@ -527,12 +531,12 @@ namespace CodexMicroORM.Core.Helper
                     return false;
                 }
 
-                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic)!;
                 MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
                 try
                 {
-                    var asCast = (Action<object, object?>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+                    var asCast = (Action<object, object?>)constructedHelper.Invoke(null, [ pi.GetSetMethod() ])!;
 
                     _setterCache[key] = asCast;
                 }
@@ -571,12 +575,12 @@ namespace CodexMicroORM.Core.Helper
                 throw new InvalidOperationException($"Tried to set unknown property '{propName}' on '{o.GetType().Name}'.");
             }
 
-            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic)!;
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
             try
             {
-                var asCast = (Action<object, object?>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+                var asCast = (Action<object, object?>)constructedHelper.Invoke(null, [ pi.GetSetMethod() ])!;
 
                 using (new WriterLock(_lock))
                 {
@@ -587,7 +591,7 @@ namespace CodexMicroORM.Core.Helper
             }
             catch (TargetInvocationException)
             {
-                o.GetType().GetProperty(propName).GetSetMethod().Invoke(o, new object?[] { value });
+                o.GetType().GetProperty(propName)!.GetSetMethod()!.Invoke(o, [ value ]);
             }
             catch (NullReferenceException nrex)
             {
@@ -606,12 +610,23 @@ namespace CodexMicroORM.Core.Helper
             }
 
             var pi = o.GetType().GetProperty(propName);
-            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic);
+
+            if (pi == null)
+            {
+                if (IgnoreInvalidSets)
+                {
+                    return;
+                }
+
+                throw new InvalidOperationException($"Tried to set unknown property '{propName}' on '{o.GetType().Name}'.");
+            }
+
+            MethodInfo internalHelper = typeof(CEFHelper).GetMethod("InternalSet", BindingFlags.Static | BindingFlags.NonPublic)!;
             MethodInfo constructedHelper = internalHelper.MakeGenericMethod(o.GetType(), pi.PropertyType);
 
             try
             {
-                var asCast = (Action<object, object?>)constructedHelper.Invoke(null, new object[] { pi.GetSetMethod() });
+                var asCast = (Action<object, object?>)constructedHelper.Invoke(null, [ pi.GetSetMethod() ])!;
 
                 _setterCache[key] = asCast;
 
@@ -619,7 +634,7 @@ namespace CodexMicroORM.Core.Helper
             }
             catch (TargetInvocationException)
             {
-                o.GetType().GetProperty(propName).GetSetMethod().Invoke(o, new object?[] { value });
+                o.GetType().GetProperty(propName)!.GetSetMethod()!.Invoke(o, [ value ]);
             }
         }
 
