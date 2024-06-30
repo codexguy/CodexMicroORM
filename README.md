@@ -493,3 +493,5 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Add: New unit tests related to IndexedSet, retrieve identity, etc.
 	* Change: net80 targeting, cleanup related to .NET Core, various updates to dependencies (latest)
 	* Change: Various syntax updates to support latest C# features, unit tests cleanup (some deprecated for now, see notes in DBOps.cs, 100% pass rate)
+* 1.3.0 - June 2024
+	* Add: PoolableItemWrapper to Core - supports any object that can be pooled (useful for scenarios where you want to avoid object creation overhead)

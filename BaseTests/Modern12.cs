@@ -4,7 +4,9 @@ using CodexMicroORM.DemoObjects2;
 using CodexMicroORM.Providers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace CodexMicroORM.BaseTests
 {
@@ -142,6 +144,34 @@ namespace CodexMicroORM.BaseTests
             Assert.AreEqual(57499985, icnt);
             Assert.IsTrue(idur < edur * 0.1);       // indexed set should be >= 10x faster
         }
+
+        public class PoolTestItem
+        {
+            public Guid Guid { get; set; } = Guid.NewGuid();
+        }
+
+        [TestMethod]
+        public void PoolableItemTest1()
+        {
+            var items = new HashSet<Guid>();
+
+            Task.WaitAll(Enumerable.Range(1, 3).Select(async a =>
+            {
+                using var pi = new PoolableItemWrapper<PoolTestItem>(() => new PoolTestItem());
+                items.Add(pi.Item.Guid);
+                await Task.Delay(100);
+            }).ToArray());
+
+            {
+                var pi = new PoolableItemWrapper<PoolTestItem>(() => new PoolTestItem());
+                items.Add(pi.Item.Guid);
+                pi.Dispose();
+            }
+
+            Assert.IsTrue(PoolableItemWrapper<PoolTestItem>.CurrentPoolCount <= 3);
+            Assert.IsTrue(items.Count <= 3);
+        }
+
 
         [TestMethod]
         public void IndexedSetEqualsAndRangeAndLinq()
