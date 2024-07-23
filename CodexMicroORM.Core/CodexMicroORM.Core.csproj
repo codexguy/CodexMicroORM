@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net462;net7;net80</TargetFrameworks>
+    <TargetFrameworks>netstandard2.0;net462;net7.0;net8.0</TargetFrameworks>
 	<PackageId>CodexMicroORM.Core</PackageId>
 	<Version>1.3.0</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
