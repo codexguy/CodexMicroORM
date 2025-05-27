@@ -2287,101 +2287,101 @@ namespace CodexMicroORM.Core
     /// <summary>
     /// Enables efficient Linq to Objects queries on indexed sets.
     /// </summary>
-    public static class IndexedSetExtensions
-    {
-        public static IndexedSnapshot<T> AsIndexSnapshot<T>(this IEnumerable<T> source) where T : class, new()
-        {
-            return new IndexedSnapshot<T>(source, null);
-        }
+//    public static class IndexedSetExtensions
+//    {
+//        public static IndexedSnapshot<T> AsIndexSnapshot<T>(this IEnumerable<T> source) where T : class, new()
+//        {
+//            return new IndexedSnapshot<T>(source, null);
+//        }
 
-        public static IEnumerable<TSource> Where<TSource>(this IndexedSet<TSource> source, Expression<Func<TSource, bool>> predicate) where TSource : class, new()
-        {
-            if (source == null)
-            {
-#if DEBUG
-                if (System.Diagnostics.Debugger.IsAttached)
-                {
-                    System.Diagnostics.Debugger.Break();
-                }
-#else
-                throw new ArgumentNullException(nameof(source));
-#endif
-            }
+//        public static IEnumerable<TSource> Where<TSource>(this IndexedSet<TSource> source, Expression<Func<TSource, bool>> predicate) where TSource : class, new()
+//        {
+//            if (source == null)
+//            {
+//#if DEBUG
+//                if (System.Diagnostics.Debugger.IsAttached)
+//                {
+//                    System.Diagnostics.Debugger.Break();
+//                }
+//#else
+//                throw new ArgumentNullException(nameof(source));
+//#endif
+//            }
 
-            if (source != null && source.IsLiveTracked)
-            {
-                using (new ReaderLock(source.LockInfo))
-                {
-                    var sv = source.View;
+//            if (source != null && source.IsLiveTracked)
+//            {
+//                using (new ReaderLock(source.LockInfo))
+//                {
+//                    var sv = source.View;
 
-                    if (sv != null && (sv.AutoInferIndexes).GetValueOrDefault(Globals.AutoInferIndexes) || sv!.IndexCount > 0)
-                    {
-                        return sv.InternalWhere(predicate);
-                    }
-                }
-            }
+//                    if (sv != null && (sv.AutoInferIndexes).GetValueOrDefault(Globals.AutoInferIndexes) || sv!.IndexCount > 0)
+//                    {
+//                        return sv.InternalWhere(predicate);
+//                    }
+//                }
+//            }
 
-            return Enumerable.Where(source ?? [], predicate.Compile());
-        }
+//            return Enumerable.Where(source ?? [], predicate.Compile());
+//        }
 
-        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IndexedSet<TOuter> outer, IndexedSet<TInner> inner, Expression<Func<TOuter, TKey>> outerKeySelector, Expression<Func<TInner, TKey>> innerKeySelector, Expression<Func<TOuter, TInner, TResult>> resultSelector) where TOuter : class, new() where TInner : class, new()
-        {
-            if (outer != null && inner != null && outer.IsLiveTracked && inner.IsLiveTracked)
-            {
-                if (outer.SupportsJoinRules.GetValueOrDefault(Globals.IndexedSetsSupportJoins) && inner.SupportsJoinRules.GetValueOrDefault(Globals.IndexedSetsSupportJoins))
-                {
-                    using (new ReaderLock(inner.LockInfo))
-                    {
-                        using (new ReaderLock(outer.LockInfo))
-                        {
-                            var osv = outer.View;
-                            var isv = inner.View;
+//        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IndexedSet<TOuter> outer, IndexedSet<TInner> inner, Expression<Func<TOuter, TKey>> outerKeySelector, Expression<Func<TInner, TKey>> innerKeySelector, Expression<Func<TOuter, TInner, TResult>> resultSelector) where TOuter : class, new() where TInner : class, new()
+//        {
+//            if (outer != null && inner != null && outer.IsLiveTracked && inner.IsLiveTracked)
+//            {
+//                if (outer.SupportsJoinRules.GetValueOrDefault(Globals.IndexedSetsSupportJoins) && inner.SupportsJoinRules.GetValueOrDefault(Globals.IndexedSetsSupportJoins))
+//                {
+//                    using (new ReaderLock(inner.LockInfo))
+//                    {
+//                        using (new ReaderLock(outer.LockInfo))
+//                        {
+//                            var osv = outer.View;
+//                            var isv = inner.View;
 
-                            if (osv != null && isv != null)
-                            {
-                                if (((osv.AutoInferIndexes).GetValueOrDefault(Globals.AutoInferIndexes) || osv.IndexCount > 0) && ((isv.AutoInferIndexes).GetValueOrDefault(Globals.AutoInferIndexes) || isv.IndexCount > 0))
-                                {
-                                    // Future: address possible deadlocks here... currently should timeout but would not get further detail
-                                    return osv.InternalJoin(isv, outerKeySelector, innerKeySelector, resultSelector);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+//                            if (osv != null && isv != null)
+//                            {
+//                                if (((osv.AutoInferIndexes).GetValueOrDefault(Globals.AutoInferIndexes) || osv.IndexCount > 0) && ((isv.AutoInferIndexes).GetValueOrDefault(Globals.AutoInferIndexes) || isv.IndexCount > 0))
+//                                {
+//                                    // Future: address possible deadlocks here... currently should timeout but would not get further detail
+//                                    return osv.InternalJoin(isv, outerKeySelector, innerKeySelector, resultSelector);
+//                                }
+//                            }
+//                        }
+//                    }
+//                }
+//            }
 
-            return Enumerable.Join(outer ?? [], inner ?? [], outerKeySelector.Compile(), innerKeySelector.Compile(), resultSelector.Compile());
-        }
+//            return Enumerable.Join(outer ?? [], inner ?? [], outerKeySelector.Compile(), innerKeySelector.Compile(), resultSelector.Compile());
+//        }
 
-        /// <summary>
-        /// Replaces LINQ Where for indexed sets.
-        /// </summary>
-        /// <typeparam name="TSource"></typeparam>
-        /// <param name="source"></param>
-        /// <param name="predicate"></param>
-        /// <returns></returns>
-        public static IEnumerable<TSource> Where<TSource>(this IndexedSnapshot<TSource> source, Expression<Func<TSource, bool>> predicate) where TSource : class, new()
-        {
-            return source.InternalWhere(predicate);
-        }
+//        /// <summary>
+//        /// Replaces LINQ Where for indexed sets.
+//        /// </summary>
+//        /// <typeparam name="TSource"></typeparam>
+//        /// <param name="source"></param>
+//        /// <param name="predicate"></param>
+//        /// <returns></returns>
+//        public static IEnumerable<TSource> Where<TSource>(this IndexedSnapshot<TSource> source, Expression<Func<TSource, bool>> predicate) where TSource : class, new()
+//        {
+//            return source.InternalWhere(predicate);
+//        }
 
-        /// <summary>
-        /// Replaces LINQ Join for indexed sets.
-        /// </summary>
-        /// <typeparam name="TOuter"></typeparam>
-        /// <typeparam name="TInner"></typeparam>
-        /// <typeparam name="TKey"></typeparam>
-        /// <typeparam name="TResult"></typeparam>
-        /// <param name="outer"></param>
-        /// <param name="inner"></param>
-        /// <param name="outerKeySelector"></param>
-        /// <param name="innerKeySelector"></param>
-        /// <param name="resultSelector"></param>
-        /// <returns></returns>
-        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IndexedSnapshot<TOuter> outer, IndexedSnapshot<TInner> inner, Expression<Func<TOuter, TKey>> outerKeySelector, Expression<Func<TInner, TKey>> innerKeySelector, Expression<Func<TOuter, TInner, TResult>> resultSelector) where TOuter : class, new() where TInner : class, new()
-        {
-            return outer.InternalJoin(inner, outerKeySelector, innerKeySelector, resultSelector);
-        }
-    }
+//        /// <summary>
+//        /// Replaces LINQ Join for indexed sets.
+//        /// </summary>
+//        /// <typeparam name="TOuter"></typeparam>
+//        /// <typeparam name="TInner"></typeparam>
+//        /// <typeparam name="TKey"></typeparam>
+//        /// <typeparam name="TResult"></typeparam>
+//        /// <param name="outer"></param>
+//        /// <param name="inner"></param>
+//        /// <param name="outerKeySelector"></param>
+//        /// <param name="innerKeySelector"></param>
+//        /// <param name="resultSelector"></param>
+//        /// <returns></returns>
+//        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IndexedSnapshot<TOuter> outer, IndexedSnapshot<TInner> inner, Expression<Func<TOuter, TKey>> outerKeySelector, Expression<Func<TInner, TKey>> innerKeySelector, Expression<Func<TOuter, TInner, TResult>> resultSelector) where TOuter : class, new() where TInner : class, new()
+//        {
+//            return outer.InternalJoin(inner, outerKeySelector, innerKeySelector, resultSelector);
+//        }
+//    }
 
 }

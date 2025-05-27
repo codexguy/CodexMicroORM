@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
@@ -50,13 +48,20 @@ namespace CodexMicroORM.Core
                 {
                     _evictor = new Timer((o) =>
                     {
-                        var now = DateTime.Now;
-                        foreach (var item in _items)
+                        try
                         {
-                            if ((now - item.Value).TotalMinutes > MaxLifeMinutes.Value)
+                            var now = DateTime.Now;
+                            foreach (var item in _items)
                             {
-                                _items.TryRemove(item.Key, out _);
+                                if ((now - item.Value).TotalMinutes > MaxLifeMinutes.Value)
+                                {
+                                    _items.TryRemove(item.Key, out _);
+                                }
                             }
+                        }
+                        catch
+                        {
+                            // failure could bring down app
                         }
                     }, null, 0, 60000);
                 }
