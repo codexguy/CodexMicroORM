@@ -495,3 +495,6 @@ Want to see even more? Share, watch, clone, blog, post links to this project - a
 	* Change: Various syntax updates to support latest C# features, unit tests cleanup (some deprecated for now, see notes in DBOps.cs, 100% pass rate)
 * 1.3.0 - June 2024
 	* Add: PoolableItemWrapper to Core - supports any object that can be pooled (useful for scenarios where you want to avoid object creation overhead)
+* 1.3.2 - May 2025
+	* Change: FastGetProperties ignore indexed properties
+	* Change: Package updates, net9.0 targeting

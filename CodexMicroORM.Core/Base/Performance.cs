@@ -154,7 +154,7 @@ namespace CodexMicroORM.Core.Helper
             {
                 pnmap = new ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>(
                     from a in t.GetProperties()
-                    where a.GetIndexParameters().Length == 0    // 1.3.2
+                    where a.GetIndexParameters().Length == 0        // 1.3.2
                     select new KeyValuePair<string, (Type type, bool readable, bool writeable)>(a.Name, (a.PropertyType, a.CanRead, a.CanWrite)));
 
                 _allProps[t] = pnmap;
@@ -174,7 +174,7 @@ namespace CodexMicroORM.Core.Helper
             {
                 pnmap = new ConcurrentDictionary<string, (Type type, bool readable, bool writeable)>(
                     from a in t.GetProperties()
-                    where a.GetIndexParameters().Length == 0        // 1.3.2
+                    where a.GetIndexParameters().Length == 0            // 1.3.2
                     select new KeyValuePair<string, (Type type, bool readable, bool writeable)>(a.Name, (a.PropertyType, a.CanRead, a.CanWrite)));
 
                 _allProps[t] = pnmap;
