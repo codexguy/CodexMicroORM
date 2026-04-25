@@ -45,8 +45,8 @@
     <PackageReference Include="C5" Version="3.0.0" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="System.Collections.Immutable" Version="10.0.5" />
-    <PackageReference Include="System.Text.Json" Version="10.0.5" />
+    <PackageReference Include="System.Collections.Immutable" Version="10.0.6" />
+    <PackageReference Include="System.Text.Json" Version="10.0.6" />
   </ItemGroup>
 
   <ItemGroup>
@@ -56,7 +56,7 @@
     </None>
   </ItemGroup>
 
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="$([MSBuild]::IsOSPlatform('Windows')) and Exists('C:\\Source\\WizerFood\\WizerFoodWeb\\SharedBin\\')">
     <Exec Command="xcopy $(TargetDir)*.* C:\Source\WizerFood\WizerFoodWeb\SharedBin\ /y /c" />
   </Target>
 

@@ -102,7 +102,7 @@ namespace CodexMicroORM.Core
             };
             Objects.AddNeverTrackNull(nameof(TrackedObject.Wrapper)).AddUniqueConstraint(nameof(TrackedObject.Target));
 
-            if (settings != null &&  Objects.InitialCapacity != settings.EstimatedScopeSize)
+            if (settings != null && Objects.InitialCapacity != settings.EstimatedScopeSize)
             {
                 Objects.InitialCapacity = settings.EstimatedScopeSize;
             }
@@ -2153,21 +2153,32 @@ namespace CodexMicroORM.Core
 
             IsDisposed = true;
 
-            // Advertise disposal
-            Disposed?.Invoke();
-
             // If dealing with a case where conn scopes are bound to service scopes, ensure current is closed if actually disposing service scope
             if (Settings.CanDispose)
             {
-                if (!this.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread))
+                //if (!this.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread))
+                //{
+                var cs = _currentConnScope.Value;
+                if (cs != null)
                 {
-                    if (_currentConnScope.Value != null)
+                    if (!cs.CurrentConnection.IsWorking())
                     {
-                        _currentConnScope.Value.Dispose();
+                        var stack = new Exception().StackTrace;
+                        Console.WriteLine($"CEF Debug: connection being disposed at {stack}");
+                        cs.Dispose();
                         _currentConnScope.Value = null!;
                     }
+                    else
+                    {
+                        var stack = new Exception().StackTrace;
+                        Console.WriteLine($"CEF Debug: connection NOT being disposed at {stack}");
+                    }
                 }
+                //}
             }
+
+            // Advertise disposal
+            Disposed?.Invoke();
         }
 
         public void Dispose()

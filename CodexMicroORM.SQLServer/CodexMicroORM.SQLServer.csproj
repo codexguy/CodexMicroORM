@@ -32,7 +32,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.Identity" Version="1.20.0" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.0" />
   </ItemGroup>
 
@@ -40,7 +40,7 @@
     <ProjectReference Include="..\CodexMicroORM.Core\CodexMicroORM.Core.csproj" />
   </ItemGroup>
 
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="$([MSBuild]::IsOSPlatform('Windows')) and Exists('C:\\Source\\WizerFood\\WizerFoodWeb\\SharedBin\\')">
     <Exec Command="xcopy $(TargetDir)*.* C:\Source\WizerFood\WizerFoodWeb\SharedBin\ /y /c" />
   </Target>
 
