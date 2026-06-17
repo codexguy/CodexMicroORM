@@ -2158,20 +2158,18 @@ namespace CodexMicroORM.Core
             {
                 //if (!this.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread))
                 //{
-                var cs = _currentConnScope.Value;
+                var local = Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread);
+                var cs = local ? CEF.CurrentConnectionScope : _currentConnScope.Value;
                 if (cs != null)
                 {
                     if (!cs.CurrentConnection.IsWorking())
                     {
-                        var stack = new Exception().StackTrace;
-                        Console.WriteLine($"CEF Debug: connection being disposed at {stack}");
                         cs.Dispose();
-                        _currentConnScope.Value = null!;
-                    }
-                    else
-                    {
-                        var stack = new Exception().StackTrace;
-                        Console.WriteLine($"CEF Debug: connection NOT being disposed at {stack}");
+
+                        if (!local)
+                        {
+                            _currentConnScope.Value = null!;
+                        }
                     }
                 }
                 //}
