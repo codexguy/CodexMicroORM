@@ -1,34 +1,78 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net462;net8.0;net10.0</TargetFrameworks>
 	<PackageId>CodexMicroORM.Core</PackageId>
-	<Version>1.5.0</Version>
+	<Version>1.4.1</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Product>CodexMicroORM.Core</Product>
-	<Copyright>Copyright (c) 2024, All Rights Reserved</Copyright>
+	<Copyright>Copyright (c) 2026, All Rights Reserved</Copyright>
 	<PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
 	<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-	<PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
-	<PackageLicenseUrl></PackageLicenseUrl>
+	<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
 	<PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
 	<Description>A high performance, low code alternative to ORM's such as Entity Framework, offers intelligent database mapping to your existing CLR objects with minimal effort. Visit "Design Goals" on GitHub to see more rationale and guidance.</Description>
-	<PackageIconUrl></PackageIconUrl>
-	<ApplicationIcon>xSkrape.ico</ApplicationIcon>
-	<PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
-	<AssemblyVersion>1.5.0.0</AssemblyVersion>
-	<FileVersion>1.5.0.0</FileVersion>
+	<PackageReleaseNotes>
+1.4.1 - Fixes a permanent ServiceScope leak.
+
+ServiceScope.Dispose advertised disposal as its LAST statement, but that callback is
+what pops the scope off the ambient stack and restores the previous current scope. Any
+throw before it skipped the pop, so the scope stayed rooted for the life of the async
+flow and the current-scope pointer was left referencing a disposed scope. The unwind now
+runs in a finally.
+
+The throw that exposed it: disposal asked "is there a connection scope to close?" through
+the create-on-read CEF.CurrentConnectionScope, so a scope that never opened a connection
+would manufacture one during its own disposal - and that constructor throws when no data
+provider is configured. Disposal now peeks instead of creating, matching what the other
+branch already did.
+
+Measured on an affected workload: ambient scope depth went from +22.00 per call (dead
+linear) to 0.00, managed memory from 350-&gt;645MB and climbing to flat, and calls ran about
+20% faster with the spurious connection scopes gone.
+
+No public API change; AssemblyVersion intentionally stays 1.4.0.0 so existing binding is
+unaffected. System.Text.Json and System.Collections.Immutable are no longer forced on
+net8.0 consumers - they are now referenced only for netstandard2.0 and net462, which is
+where they are actually needed.
+	</PackageReleaseNotes>
+	<!-- Patch release: AssemblyVersion deliberately NOT bumped. Moving it would break
+	     assembly binding for anything compiled against 1.4.0.0 (this package still ships a
+	     net462 target, where that means a binding redirect). Version/FileVersion carry the
+	     release identity; AssemblyVersion follows major only. -->
+	<AssemblyVersion>1.4.0.0</AssemblyVersion>
+	<FileVersion>1.4.1.0</FileVersion>
 	<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
 	<PackageIcon>xSkrapeIcon.jpg</PackageIcon>
+	<PackageReadmeFile>README.md</PackageReadmeFile>
     <LangVersion>latest</LangVersion>
+
+	<!-- Source/symbol publishing. SourceLink is in the SDK from .NET 8, so this needs no
+	     package reference. Debugging INTO this library from a consuming app is how its last
+	     bug was found; a snupkg and a repo URL make that a step instead of an afternoon. -->
+	<RepositoryUrl>https://github.com/codexguy/CodexMicroORM.git</RepositoryUrl>
+	<RepositoryType>git</RepositoryType>
+	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+	<EmbedUntrackedSources>true</EmbedUntrackedSources>
+	<IncludeSymbols>true</IncludeSymbols>
+	<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <!-- Deterministic paths only on a build server. Setting this locally rewrites source paths
+       in the PDB and makes stepping into a locally-built copy harder, which is the opposite
+       of what the symbol settings above are for. -->
+  <PropertyGroup Condition="'$(CI)' != '' or '$(TF_BUILD)' != '' or '$(GITHUB_ACTIONS)' != ''">
+	<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001</NoWarn>
   </PropertyGroup>
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-		<NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001;CS0162</NoWarn>
+		<!-- CS0162 (unreachable code) deliberately NOT suppressed: Release is the configuration
+		     that ships, so it is the last place to be hiding it. -->
+		<NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001</NoWarn>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -43,14 +87,26 @@
 
   <ItemGroup>
     <PackageReference Include="C5" Version="3.0.0" />
-    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+  </ItemGroup>
+
+  <!-- Only the frameworks that do NOT ship these in-box. Referencing them unconditionally put
+       System.Text.Json 10.x and System.Collections.Immutable 10.x in the net8.0 dependency
+       group, i.e. version-10 packages forced onto a version-8 runtime, which is a version
+       conflict waiting to happen for any consumer pinning the 8.x line. The net10.0 group
+       already resolved to neither, which is what made the asymmetry visible. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0' or '$(TargetFramework)' == 'net462'">
+    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="System.Collections.Immutable" Version="10.0.9" />
     <PackageReference Include="System.Text.Json" Version="10.0.9" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="xSkrapeIcon.jpg">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+    </None>
+    <None Include="..\README.md">
       <Pack>True</Pack>
       <PackagePath></PackagePath>
     </None>
