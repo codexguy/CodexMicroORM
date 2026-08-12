@@ -3,18 +3,38 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net462;net8.0;net10.0</TargetFrameworks>
 	<LangVersion>latest</LangVersion>
+	<PackageReadmeFile>README.md</PackageReadmeFile>
+	<RepositoryUrl>https://github.com/codexguy/CodexMicroORM.git</RepositoryUrl>
+	<RepositoryType>git</RepositoryType>
+	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+	<EmbedUntrackedSources>true</EmbedUntrackedSources>
+	<IncludeSymbols>true</IncludeSymbols>
+	<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
 	<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-	<Version>1.2.0</Version>
+	<Version>1.3.0</Version>
+	<!-- Pinned at the PUBLISHED 1.2.0.0: adding a target framework is not
+	     an API change, and moving AssemblyVersion would force a binding
+	     redirect on the net462 consumers this package still ships for. -->
+	<AssemblyVersion>1.2.0.0</AssemblyVersion>
+	<FileVersion>1.3.0.0</FileVersion>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Description>The database provider code to implement support for Microsoft SQL Server using the CodexMicroORM application framework.</Description>
-	<Copyright>Copyright (c) 2024, All Rights Reserved</Copyright>
+	<Copyright>Copyright (c) 2026, All Rights Reserved</Copyright>
 	<PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
 	<PackageIcon>xSkrapeIcon.jpg</PackageIcon>
 	<PackageTags>ORM microORM entity-framework database object-mapping micro-ORM entity data-access dataset linq-to-sql</PackageTags>
-	<PackageReleaseNotes>See: https://github.com/codexguy/CodexMicroORM</PackageReleaseNotes>
+	<PackageReleaseNotes>
+1.3.0 - Adds a net10.0 target and drops net9.0 (end of support; a net9 consumer
+resolves the net8.0 assets). Requires CodexMicroORM.Core 1.4.1, which fixes a
+permanent ServiceScope leak - see that package's notes.
+
+No API change. AssemblyVersion deliberately stays 1.2.0.0 so existing binding is
+unaffected on the net462 target.
+	</PackageReleaseNotes>
 	<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-	<PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+	<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
   </PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -44,4 +64,11 @@
     <Exec Command="xcopy $(TargetDir)*.* C:\Source\WizerFood\WizerFoodWeb\SharedBin\ /y /c" />
   </Target>
 
+  <ItemGroup>
+    <None Include="..\README.md">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+    </None>
+  </ItemGroup>
+
 </Project>
