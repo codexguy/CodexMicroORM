@@ -2212,8 +2212,9 @@ namespace CodexMicroORM.Core
                 //}
             }
 
-            // Advertise disposal
-            Disposed?.Invoke();
+            // NOTE: disposal is advertised by Dispose(bool)'s finally, NOT here. Invoking it in
+            // both places pops the scope stack twice per dispose, which unwinds past the caller's
+            // own scope - the pop is a mutation, not an idempotent notification.
         }
 
         public void Dispose()
