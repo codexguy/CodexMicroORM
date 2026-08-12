@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net462;net8.0;net10.0</TargetFrameworks>
@@ -70,9 +70,13 @@ where they are actually needed.
     <NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001</NoWarn>
   </PropertyGroup>
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-		<!-- CS0162 (unreachable code) deliberately NOT suppressed: Release is the configuration
-		     that ships, so it is the last place to be hiding it. -->
-		<NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001</NoWarn>
+		<!-- CS0162 (unreachable code) is suppressed for Release ON PURPOSE, and this is the
+		     reason so nobody removes it again: Base/Debug.cs holds four debug-only helpers
+		     (ReturnIWTextFromList, ReturnServiceScopeLite, and both ReturnServiceScope
+		     overloads) that open with `#if !DEBUG throw/return`. In Release the rest of each
+		     body is unreachable BY DESIGN, which is 32 warnings across the four target
+		     frameworks - all of them noise. Removing this only buries real warnings in them. -->
+		<NoWarn>1701;1702;IDE0008;IDE0058;IDE0047;IDE0060;VSSpell001;CS0162</NoWarn>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -97,8 +101,8 @@ where they are actually needed.
        already resolved to neither, which is what made the asymmetry visible. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0' or '$(TargetFramework)' == 'net462'">
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
-    <PackageReference Include="System.Collections.Immutable" Version="10.0.9" />
-    <PackageReference Include="System.Text.Json" Version="10.0.9" />
+    <PackageReference Include="System.Collections.Immutable" Version="10.0.11" />
+    <PackageReference Include="System.Text.Json" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup>
