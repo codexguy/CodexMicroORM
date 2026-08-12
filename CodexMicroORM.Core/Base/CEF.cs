@@ -218,7 +218,21 @@ namespace CodexMicroORM.Core
         }
 
         /// <summary>
-        /// Gets the ambient connection scope.
+        /// Returns the ambient connection scope IF one already exists, else null - and never
+        /// creates one.
+        ///
+        /// CurrentConnectionScope below is create-on-read, which is right for "give me a
+        /// connection to work with" and wrong for "is there a connection to clean up". The
+        /// latter is what ServiceScope.Dispose asks, and asking it through the create-on-read
+        /// property meant a scope that never opened a connection would MANUFACTURE one purely to
+        /// discover it had nothing to close. With no data provider configured that construction
+        /// throws, which took the whole Dispose down with it.
+        /// </summary>
+        internal static ConnectionScope? PeekCurrentConnectionScope => _currentConnScope?.Value;
+
+        /// <summary>
+        /// Gets the ambient connection scope. NOTE: create-on-read - if none exists this makes
+        /// one. Use <see cref="PeekCurrentConnectionScope"/> to interrogate without creating.
         /// </summary>
         public static ConnectionScope CurrentConnectionScope
         {

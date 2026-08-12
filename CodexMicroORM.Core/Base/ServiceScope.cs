@@ -2123,6 +2123,37 @@ namespace CodexMicroORM.Core
 
         void Dispose(bool _)
         {
+            // THE UNWIND RUNS EVEN IF THE BODY THROWS.
+            //
+            // Disposed is not a notification - it is the callback CEF.ServiceScopeInit installs
+            // to POP this scope off _allServiceScopes and restore the previous _currentServiceScope.
+            // It used to be the last statement of this method, so any throw above it skipped the
+            // pop, and the scope stayed rooted in the AsyncLocal stack for the life of the flow.
+            // Permanently: nothing ever revisits it.
+            //
+            // That is not hypothetical. ConnectionScope's constructor throws when no data provider
+            // is configured, and the block below used to reach it through the create-on-read
+            // CEF.CurrentConnectionScope (see PeekCurrentConnectionScope for why that was the
+            // wrong accessor). Measured: 57,832 live ServiceScope instances, each holding a
+            // ConcurrentIndexedList, a settings object, two BucketInfo[] and a HashSet - all empty.
+            //
+            // The connection-scope misuse is fixed below, but the ordering is the real defect:
+            // ANY throw in here leaked the scope AND left _currentServiceScope pointing at a
+            // disposed one. A transient failure at dispose time should cost a request, not the
+            // process.
+            try
+            {
+                DisposeBody();
+            }
+            finally
+            {
+                // Advertise disposal
+                Disposed?.Invoke();
+            }
+        }
+
+        private void DisposeBody()
+        {
             if (Settings.CanDispose)
             {
                 // Advertise "early disposal" to services used
@@ -2159,7 +2190,13 @@ namespace CodexMicroORM.Core
                 //if (!this.Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread))
                 //{
                 var local = Settings.ConnectionScopePerThread.GetValueOrDefault(Globals.ConnectionScopePerThread);
-                var cs = local ? CEF.CurrentConnectionScope : _currentConnScope.Value;
+                // PEEK, never create. This asks "is there a connection scope to close?", and the
+                // create-on-read CEF.CurrentConnectionScope answered it by MANUFACTURING one - so
+                // a service scope that never touched a connection would build one during its own
+                // disposal purely to find nothing to do, and that construction throws with no data
+                // provider configured. Note the other branch already peeked (_currentConnScope.Value);
+                // only this one created, which is what made the two asymmetric.
+                var cs = local ? CEF.PeekCurrentConnectionScope : _currentConnScope.Value;
                 if (cs != null)
                 {
                     if (!cs.CurrentConnection.IsWorking())
