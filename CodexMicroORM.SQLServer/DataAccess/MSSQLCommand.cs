@@ -289,7 +289,9 @@ namespace CodexMicroORM.Providers
                 if (!_paramCache.TryGetValue(_cmd.CommandText, out var cached))
                 {
                     DiscoverParameters();
-                    _paramCache[_cmd.CommandText] = _cmd.Parameters.Cast<SqlParameter>();
+                    // Detached copies: a lazy view of this command's live collection kept the first command (and its connection
+                    // object) reachable for the life of the process, one per procedure.
+                    _paramCache[_cmd.CommandText] = _cmd.Parameters.Cast<SqlParameter>().Select(CloneParameterNoValue).ToArray();
                 }
                 else
                 {
@@ -368,10 +370,23 @@ namespace CodexMicroORM.Providers
             return this;
         }
 
+        // The shape of the result set this command has already read, taken from its reader. A reader that returns no rows still
+        // carries its columns, so GetResultSetShape answers from here instead of executing the command a second time - which, for
+        // a procedure that writes, repeated the write and threw away whatever the repeat returned.
+        private Dictionary<string, Type>? _readShape;
+
         public IEnumerable<Dictionary<string, (object? value, Type type)>> ExecuteReadRows()
         {
-            using var da = new SqlDataAdapter(_cmd);
             using var r = _cmd.ExecuteReader();
+
+            var shape = new Dictionary<string, Type>(r.FieldCount);
+
+            for (int i = 0; i < r.FieldCount; ++i)
+            {
+                shape[r.GetName(i)] = r.GetFieldType(i);
+            }
+
+            _readShape = shape;
 
             while (r.Read())
             {
@@ -428,6 +443,11 @@ namespace CodexMicroORM.Providers
 
         public IDictionary<string, Type> GetResultSetShape()
         {
+            if (_readShape != null)
+            {
+                return _readShape;
+            }
+
             using var da = new SqlDataAdapter(_cmd);
             DataTable dt = new();
             da.Fill(dt);
