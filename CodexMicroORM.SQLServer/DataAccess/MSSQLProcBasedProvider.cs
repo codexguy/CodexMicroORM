@@ -293,7 +293,10 @@ namespace CodexMicroORM.Providers
         public IDBProviderConnection CreateOpenConnection(string config = "default", bool transactional = true, string? connStringOverride = null, int? timeoutOverride = null)
         {
             string? cs = null;
-            CommandTimeout = timeoutOverride;
+
+            // timeoutOverride belongs to the connection scope that asked for it, and every command carries its scope's override
+            // already. It is NOT written to CommandTimeout: the provider is shared, so one scope's override became every other
+            // command's default until the next connection opened.
 
             if (connStringOverride == null && !_csMap.TryGetValue(config, out cs))
             {
