@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net462;net8.0;net10.0</TargetFrameworks>
 	<PackageId>CodexMicroORM.Core</PackageId>
-	<Version>1.4.1</Version>
+	<Version>1.4.2</Version>
 	<Authors>CodeX Enterprises LLC</Authors>
 	<Company>CodeX Enterprises LLC</Company>
 	<Product>CodexMicroORM.Core</Product>
@@ -14,6 +14,18 @@
 	<PackageProjectUrl>https://github.com/codexguy/CodexMicroORM</PackageProjectUrl>
 	<Description>A high performance, low code alternative to ORM's such as Entity Framework, offers intelligent database mapping to your existing CLR objects with minimal effort. Visit "Design Goals" on GitHub to see more rationale and guidance.</Description>
 	<PackageReleaseNotes>
+1.4.2 - A nested service scope no longer closes its caller's connection scope.
+
+With per-thread connection scopes (Globals.ConnectionScopePerThread = true), a service scope
+opened and disposed inside a connection scope it did not open - for example
+using (CEF.NewConnectionScope(new ConnectionScopeSettings { CommandTimeoutOverride = 600 }))
+around code that opens its own using (CEF.NewServiceScope()) - closed that connection scope on
+disposal and popped it. Every later command in the caller ran on a new standalone scope, so the
+caller's CommandTimeoutOverride silently stopped applying (the command timeout fell back to
+Globals.CommandTimeoutSeconds or the connect timeout). A service scope now closes only a
+connection scope it did not inherit. A connection scope opened inside the service scope and left
+open is still closed with it. No public API change; AssemblyVersion stays 1.4.0.0.
+
 1.4.1 - Fixes a permanent ServiceScope leak.
 
 ServiceScope.Dispose advertised disposal as its LAST statement, but that callback is
@@ -42,7 +54,7 @@ where they are actually needed.
 	     net462 target, where that means a binding redirect). Version/FileVersion carry the
 	     release identity; AssemblyVersion follows major only. -->
 	<AssemblyVersion>1.4.0.0</AssemblyVersion>
-	<FileVersion>1.4.1.0</FileVersion>
+	<FileVersion>1.4.2.0</FileVersion>
 	<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
 	<PackageIcon>xSkrapeIcon.jpg</PackageIcon>
 	<PackageReadmeFile>README.md</PackageReadmeFile>

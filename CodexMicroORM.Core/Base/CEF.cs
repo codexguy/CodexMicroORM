@@ -1373,6 +1373,9 @@ namespace CodexMicroORM.Core
 
             _currentServiceScope.Value = newss ?? throw new CEFInvalidStateException(InvalidStateType.ArgumentNull, nameof(newss));
 
+            // The per-thread connection scope this service scope starts inside is not its own to close (see ServiceScope).
+            newss._inheritedConnScope = _currentConnScope.Value;
+
             newss.Disposed = () =>
             {
                 if (additionalServices != null)

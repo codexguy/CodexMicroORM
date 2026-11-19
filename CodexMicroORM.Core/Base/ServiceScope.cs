@@ -79,6 +79,13 @@ namespace CodexMicroORM.Core
         [NonSerialized]
         internal AsyncLocal<ConnectionScope> _currentConnScope = new();
 
+        // With per-thread connection scopes: the connection scope that was current when this service scope became current.
+        // It belongs to whoever opened it (typically a using block around this scope), so this scope's disposal must not
+        // close it. Closing it popped it, and every later command of the opener ran on a fresh standalone scope without
+        // the opener's settings (its CommandTimeoutOverride, its transaction).
+        [NonSerialized]
+        internal ConnectionScope? _inheritedConnScope;
+
         internal ConcurrentIndexedList<TrackedObject> Objects { get; }
 
         [NonSerialized]
@@ -2197,7 +2204,9 @@ namespace CodexMicroORM.Core
                 // provider configured. Note the other branch already peeked (_currentConnScope.Value);
                 // only this one created, which is what made the two asymmetric.
                 var cs = local ? CEF.PeekCurrentConnectionScope : _currentConnScope.Value;
-                if (cs != null)
+                // A per-thread connection scope that was already current when this service scope began is the opener's,
+                // not ours: leave it open and current (see _inheritedConnScope).
+                if (cs != null && !(local && ReferenceEquals(cs, _inheritedConnScope)))
                 {
                     if (!cs.CurrentConnection.IsWorking())
                     {
